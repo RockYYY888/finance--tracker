@@ -1,255 +1,144 @@
 import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import {
-	CartesianGrid,
-	Cell,
-	Line,
-	LineChart,
-	Pie,
-	PieChart,
-	ResponsiveContainer,
-	Tooltip,
-	XAxis,
-	YAxis,
-} from "recharts";
+import { AssetManager } from "./components/assets";
+import { PortfolioAnalytics } from "./components/analytics";
+import { defaultAssetApiClient } from "./lib/assetApi";
+import { getDashboard } from "./lib/dashboardApi";
+import type { AssetManagerController } from "./types/assets";
+import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
+import { formatCny } from "./utils/portfolioAnalytics";
 
-type ValuedCashAccount = {
-	id: number;
-	name: string;
-	platform: string;
-	balance: number;
-	currency: string;
-	fx_to_cny: number;
-	value_cny: number;
-};
-
-type ValuedHolding = {
-	id: number;
-	symbol: string;
-	name: string;
-	quantity: number;
-	price: number;
-	price_currency: string;
-	fx_to_cny: number;
-	value_cny: number;
-	last_updated: string | null;
-};
-
-type TimelinePoint = {
-	label: string;
-	value: number;
-};
-
-type AllocationSlice = {
-	label: string;
-	value: number;
-};
-
-type DashboardResponse = {
-	total_value_cny: number;
-	cash_value_cny: number;
-	holdings_value_cny: number;
-	cash_accounts: ValuedCashAccount[];
-	holdings: ValuedHolding[];
-	allocation: AllocationSlice[];
-	day_series: TimelinePoint[];
-	month_series: TimelinePoint[];
-	year_series: TimelinePoint[];
-	warnings: string[];
-};
-
-type CashAccountForm = {
-	name: string;
-	platform: string;
-	currency: string;
-	balance: string;
-};
-
-type HoldingForm = {
-	symbol: string;
-	name: string;
-	quantity: string;
-	fallback_currency: string;
-};
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
-const CHART_COLORS = ["#ef476f", "#118ab2", "#ffd166", "#06d6a0"];
-
-const emptyDashboard: DashboardResponse = {
-	total_value_cny: 0,
-	cash_value_cny: 0,
-	holdings_value_cny: 0,
-	cash_accounts: [],
-	holdings: [],
-	allocation: [],
-	day_series: [],
-	month_series: [],
-	year_series: [],
-	warnings: [],
-};
-
-function formatCny(value: number): string {
-	return new Intl.NumberFormat("zh-CN", {
-		style: "currency",
-		currency: "CNY",
-		maximumFractionDigits: 2,
-	}).format(value);
-}
-
-function formatTooltipValue(value: number | string | undefined): string {
-	const numericValue = typeof value === "number" ? value : Number(value ?? 0);
-	return formatCny(Number.isFinite(numericValue) ? numericValue : 0);
-}
-
-/**
- * A small shared fetch wrapper that preserves backend error messages.
- */
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-	const requestHeaders = new Headers(init?.headers ?? undefined);
-	if (!requestHeaders.has("Content-Type") && init?.body) {
-		requestHeaders.set("Content-Type", "application/json");
-	}
-	if (API_TOKEN) {
-		requestHeaders.set("X-API-Key", API_TOKEN);
+function formatLastSynced(timestamp: string | null): string {
+	if (!timestamp) {
+		return "等待首次同步";
 	}
 
-	const response = await fetch(`${API_BASE_URL}${path}`, {
-		...init,
-		headers: requestHeaders,
-	});
-
-	if (!response.ok) {
-		const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
-		throw new Error(payload?.detail ?? `Request failed with status ${response.status}`);
+	const parsedTimestamp = new Date(timestamp);
+	if (Number.isNaN(parsedTimestamp.getTime())) {
+		return "等待首次同步";
 	}
 
-	return (await response.json()) as T;
+	return new Intl.DateTimeFormat("zh-CN", {
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	}).format(parsedTimestamp);
 }
 
 function App() {
-	const [dashboard, setDashboard] = useState<DashboardResponse>(emptyDashboard);
-	const [loading, setLoading] = useState(true);
-	const [saving, setSaving] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [timeline, setTimeline] = useState<"day" | "month" | "year">("day");
-	const [cashForm, setCashForm] = useState<CashAccountForm>({
-		name: "",
-		platform: "支付宝",
-		currency: "CNY",
-		balance: "",
-	});
-	const [holdingForm, setHoldingForm] = useState<HoldingForm>({
-		symbol: "",
-		name: "",
-		quantity: "",
-		fallback_currency: "HKD",
-	});
-
-	const lineData = (() => {
-		if (timeline === "day") {
-			return dashboard.day_series;
-		}
-		if (timeline === "month") {
-			return dashboard.month_series;
-		}
-		return dashboard.year_series;
-	})();
+	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
+	const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
+	const [isRefreshingOverview, setIsRefreshingOverview] = useState(false);
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
 	useEffect(() => {
-		void loadDashboard();
+		void loadDashboard("initial");
 	}, []);
 
-	async function loadDashboard(): Promise<void> {
-		setLoading(true);
-		setError(null);
+	async function loadDashboard(mode: "initial" | "background" = "background"): Promise<void> {
+		if (mode === "initial") {
+			setIsLoadingDashboard(true);
+		} else {
+			setIsRefreshingOverview(true);
+		}
+
+		setErrorMessage(null);
+
 		try {
-			const nextDashboard = await request<DashboardResponse>("/api/dashboard");
+			const nextDashboard = await getDashboard();
 			setDashboard(nextDashboard);
-		} catch (requestError) {
-			setError(
-				requestError instanceof Error
-					? requestError.message
-					: "无法加载资产数据，请确认后端服务是否启动。",
+			setLastSyncedAt(new Date().toISOString());
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error
+					? error.message
+					: "无法加载资产总览，请确认后端服务是否启动。",
 			);
 		} finally {
-			setLoading(false);
+			if (mode === "initial") {
+				setIsLoadingDashboard(false);
+			} else {
+				setIsRefreshingOverview(false);
+			}
 		}
 	}
 
-	async function handleCreateCashAccount(event: FormEvent<HTMLFormElement>): Promise<void> {
-		event.preventDefault();
-		setSaving(true);
-		setError(null);
-		try {
-			await request("/api/accounts", {
-				method: "POST",
-				body: JSON.stringify({
-					...cashForm,
-					balance: Number(cashForm.balance),
-				}),
-			});
-			setCashForm({
-				name: "",
-				platform: "支付宝",
-				currency: "CNY",
-				balance: "",
-			});
-			await loadDashboard();
-		} catch (requestError) {
-			setError(
-				requestError instanceof Error
-					? requestError.message
-					: "新增现金账户失败，请检查输入。",
-			);
-		} finally {
-			setSaving(false);
-		}
-	}
+	const hasAnyAsset =
+		dashboard.cash_accounts.length > 0 || dashboard.holdings.length > 0;
 
-	async function handleCreateHolding(event: FormEvent<HTMLFormElement>): Promise<void> {
-		event.preventDefault();
-		setSaving(true);
-		setError(null);
-		try {
-			await request("/api/holdings", {
-				method: "POST",
-				body: JSON.stringify({
-					...holdingForm,
-					quantity: Number(holdingForm.quantity),
-				}),
-			});
-			setHoldingForm({
-				symbol: "",
-				name: "",
-				quantity: "",
-				fallback_currency: "HKD",
-			});
-			await loadDashboard();
-		} catch (requestError) {
-			setError(
-				requestError instanceof Error
-					? requestError.message
-					: "新增持仓失败，请检查输入。",
-			);
-		} finally {
-			setSaving(false);
-		}
-	}
+	const assetManagerController: AssetManagerController = {
+		cashAccounts: {
+			onCreate: async (payload) => {
+				const createdRecord = await defaultAssetApiClient.createCashAccount(payload);
+				await loadDashboard();
+				return createdRecord;
+			},
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateCashAccount(recordId, payload);
+				await loadDashboard();
+				return updatedRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteCashAccount(recordId);
+				await loadDashboard();
+			},
+			onRefresh: () => defaultAssetApiClient.listCashAccounts(),
+		},
+		holdings: {
+			onCreate: async (payload) => {
+				const createdRecord = await defaultAssetApiClient.createHolding(payload);
+				await loadDashboard();
+				return createdRecord;
+			},
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateHolding(recordId, payload);
+				await loadDashboard();
+				return updatedRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteHolding(recordId);
+				await loadDashboard();
+			},
+			onRefresh: () => defaultAssetApiClient.listHoldings(),
+		},
+	};
 
 	return (
 		<div className="app-shell">
 			<div className="ambient ambient-left" />
 			<div className="ambient ambient-right" />
+
 			<header className="hero-panel">
-				<div>
+				<div className="hero-copy-block">
 					<p className="eyebrow">PERSONAL ASSET TRACKER</p>
 					<h1>个人资产总览</h1>
 					<p className="hero-copy">
-						统一以人民币展示现金、港股、美股等资产价值。默认使用免费的行情与汇率源，
-						适合个人账本级的准实时跟踪，也支持手机浏览器安装为桌面应用。
+						现金账户、港股、美股、基金和多币种资产统一按人民币展示。
+						录入、编辑、删除和趋势分析都已经接通，手机端也能顺手使用。
 					</p>
+
+					<div className="hero-actions">
+						<button
+							type="button"
+							className="ghost-button"
+							onClick={() => void loadDashboard()}
+							disabled={isRefreshingOverview}
+						>
+							{isRefreshingOverview ? "刷新中..." : "刷新总览"}
+						</button>
+						<div className="hero-sync-chip">最近同步：{formatLastSynced(lastSyncedAt)}</div>
+					</div>
+
+					<div className="hero-tag-row">
+						<span className="hero-tag">PWA 可安装</span>
+						<span className="hero-tag">统一 CNY 估值</span>
+						<span className="hero-tag">默认免费行情源</span>
+						<span className="hero-tag">API Token / HTTPS 预留</span>
+					</div>
 				</div>
+
 				<div className="summary-grid">
 					<div className="stat-card coral">
 						<span>总资产</span>
@@ -266,7 +155,26 @@ function App() {
 				</div>
 			</header>
 
-			{error ? <div className="banner error">{error}</div> : null}
+			<section className="signal-grid">
+				<div className="signal-card">
+					<p className="eyebrow">MOBILE</p>
+					<h2>手机上直接用</h2>
+					<p>页面已支持窄屏，PWA 可添加到主屏幕，适合日常快速记账与查看。</p>
+				</div>
+				<div className="signal-card">
+					<p className="eyebrow">SECURITY</p>
+					<h2>默认偏保守</h2>
+					<p>本地开发可直连，生产可接 HTTPS 反向代理，并支持 API Token 校验。</p>
+				</div>
+				<div className="signal-card">
+					<p className="eyebrow">MARKET DATA</p>
+					<h2>免费接口 + 回退</h2>
+					<p>行情与汇率默认使用免费源，并带缓存与失败 warning，避免总览直接报错。</p>
+				</div>
+			</section>
+
+			{errorMessage ? <div className="banner error">{errorMessage}</div> : null}
+
 			{dashboard.warnings.length > 0 ? (
 				<div className="banner warning">
 					{dashboard.warnings.map((warning) => (
@@ -275,324 +183,45 @@ function App() {
 				</div>
 			) : null}
 
-			<section className="panel form-panel">
-				<div className="form-block">
-					<h2>新增现金账户</h2>
-					<form onSubmit={(event) => void handleCreateCashAccount(event)}>
-						<label>
-							账户名称
-							<input
-								required
-								value={cashForm.name}
-								onChange={(event) =>
-									setCashForm((current) => ({ ...current, name: event.target.value }))
-								}
-								placeholder="例如：日常备用金"
-							/>
-						</label>
-						<label>
-							平台
-							<input
-								required
-								value={cashForm.platform}
-								onChange={(event) =>
-									setCashForm((current) => ({ ...current, platform: event.target.value }))
-								}
-								placeholder="支付宝 / 微信 / 银行卡"
-							/>
-						</label>
-						<div className="split-fields">
-							<label>
-								币种
-								<input
-									required
-									value={cashForm.currency}
-									onChange={(event) =>
-										setCashForm((current) => ({ ...current, currency: event.target.value }))
-									}
-									placeholder="CNY"
-								/>
-							</label>
-							<label>
-								余额
-								<input
-									required
-									type="number"
-									min="0"
-									step="0.01"
-									value={cashForm.balance}
-									onChange={(event) =>
-										setCashForm((current) => ({ ...current, balance: event.target.value }))
-									}
-									placeholder="10000"
-								/>
-							</label>
-						</div>
-						<button type="submit" disabled={saving}>
-							保存现金账户
-						</button>
-					</form>
+			{!hasAnyAsset ? (
+				<div className="banner info">
+					先录入至少一笔现金账户或证券持仓。录入完成后，总览、趋势图和分布图会自动形成。
 				</div>
+			) : null}
 
-				<div className="form-block">
-					<h2>新增证券持仓</h2>
-					<form onSubmit={(event) => void handleCreateHolding(event)}>
-						<label>
-							证券代码
-							<input
-								required
-								value={holdingForm.symbol}
-								onChange={(event) =>
-									setHoldingForm((current) => ({ ...current, symbol: event.target.value }))
-								}
-								placeholder="0700.HK / AAPL / 600519.SS"
-							/>
-						</label>
-						<label>
-							名称
-							<input
-								required
-								value={holdingForm.name}
-								onChange={(event) =>
-									setHoldingForm((current) => ({ ...current, name: event.target.value }))
-								}
-								placeholder="腾讯控股"
-							/>
-						</label>
-						<div className="split-fields">
-							<label>
-								数量
-								<input
-									required
-									type="number"
-									min="0.0001"
-									step="0.0001"
-									value={holdingForm.quantity}
-									onChange={(event) =>
-										setHoldingForm((current) => ({ ...current, quantity: event.target.value }))
-									}
-									placeholder="100"
-								/>
-							</label>
-							<label>
-								备用币种
-								<input
-									required
-									value={holdingForm.fallback_currency}
-									onChange={(event) =>
-										setHoldingForm((current) => ({
-											...current,
-											fallback_currency: event.target.value,
-										}))
-									}
-									placeholder="HKD"
-								/>
-							</label>
-						</div>
-						<button type="submit" disabled={saving}>
-							保存持仓
-						</button>
-					</form>
-				</div>
-			</section>
-
-			<section className="panel chart-panel">
-				<div className="panel-header">
+			<section className="panel section-shell">
+				<div className="section-head">
 					<div>
-						<p className="eyebrow">TREND</p>
-						<h2>资产变化趋势</h2>
-					</div>
-					<div className="segmented-control">
-						{(["day", "month", "year"] as const).map((item) => (
-							<button
-								key={item}
-								type="button"
-								className={timeline === item ? "active" : ""}
-								onClick={() => setTimeline(item)}
-							>
-								{item === "day" ? "天" : item === "month" ? "月" : "年"}
-							</button>
-						))}
-					</div>
-				</div>
-				<div className="chart-layout">
-					<div className="chart-card large">
-						{loading ? (
-							<div className="empty-state">正在加载资产趋势...</div>
-						) : lineData.length === 0 ? (
-							<div className="empty-state">
-								还没有足够的快照数据。新增或刷新资产后，这里会逐步形成天/月/年曲线。
-							</div>
-						) : (
-							<ResponsiveContainer width="100%" height={320}>
-								<LineChart data={lineData}>
-									<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-									<XAxis dataKey="label" stroke="#d6d4cb" tickLine={false} />
-									<YAxis
-										stroke="#d6d4cb"
-										tickLine={false}
-										tickFormatter={(value) => `${Math.round(value / 1000)}k`}
-									/>
-									<Tooltip
-										formatter={formatTooltipValue}
-										contentStyle={{
-											backgroundColor: "#161615",
-											border: "1px solid rgba(255,255,255,0.08)",
-											borderRadius: 16,
-										}}
-									/>
-									<Line
-										type="monotone"
-										dataKey="value"
-										stroke="#ef476f"
-										strokeWidth={3}
-										dot={{ r: 4, strokeWidth: 0, fill: "#ffd166" }}
-										activeDot={{ r: 6 }}
-									/>
-								</LineChart>
-							</ResponsiveContainer>
-						)}
-					</div>
-					<div className="chart-card compact">
-						<h3>资产分布</h3>
-						{dashboard.allocation.every((item) => item.value === 0) ? (
-							<div className="empty-state">录入资产后，这里会显示现金与证券占比。</div>
-						) : (
-							<ResponsiveContainer width="100%" height={280}>
-								<PieChart>
-									<Pie
-										data={dashboard.allocation}
-										dataKey="value"
-										nameKey="label"
-										innerRadius={60}
-										outerRadius={92}
-										paddingAngle={4}
-									>
-										{dashboard.allocation.map((entry, index) => (
-											<Cell
-												key={`${entry.label}-${entry.value}`}
-												fill={CHART_COLORS[index % CHART_COLORS.length]}
-											/>
-										))}
-									</Pie>
-									<Tooltip
-										formatter={formatTooltipValue}
-										contentStyle={{
-											backgroundColor: "#161615",
-											border: "1px solid rgba(255,255,255,0.08)",
-											borderRadius: 16,
-										}}
-									/>
-								</PieChart>
-							</ResponsiveContainer>
-						)}
-						<div className="legend-list">
-							{dashboard.allocation.map((item, index) => (
-								<div className="legend-item" key={item.label}>
-									<span
-										className="legend-swatch"
-										style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-									/>
-									<span>{item.label}</span>
-									<strong>{formatCny(item.value)}</strong>
-								</div>
-							))}
-						</div>
-					</div>
-				</div>
-			</section>
-
-			<section className="asset-grid">
-				<div className="panel list-panel">
-					<div className="panel-header">
-						<div>
-							<p className="eyebrow">CASH</p>
-							<h2>现金账户</h2>
-						</div>
-						<button type="button" className="ghost-button" onClick={() => void loadDashboard()}>
-							刷新
-						</button>
-					</div>
-					<div className="table-scroll">
-						<table>
-							<thead>
-								<tr>
-									<th>平台</th>
-									<th>账户</th>
-									<th>余额</th>
-									<th>折算人民币</th>
-								</tr>
-							</thead>
-							<tbody>
-								{dashboard.cash_accounts.length === 0 ? (
-									<tr>
-										<td colSpan={4} className="empty-cell">
-											暂无现金账户
-										</td>
-									</tr>
-								) : (
-									dashboard.cash_accounts.map((account) => (
-										<tr key={account.id}>
-											<td>{account.platform}</td>
-											<td>{account.name}</td>
-											<td>
-												{account.balance.toLocaleString("zh-CN")} {account.currency}
-											</td>
-											<td>{formatCny(account.value_cny)}</td>
-										</tr>
-									))
-								)}
-							</tbody>
-						</table>
+						<p className="eyebrow">ANALYTICS</p>
+						<h2>趋势与结构分析</h2>
+						<p className="section-copy">
+							按天、月、年查看资产变化，同时观察现金占比、平台分布和持仓集中度。
+						</p>
 					</div>
 				</div>
 
-				<div className="panel list-panel">
-					<div className="panel-header">
-						<div>
-							<p className="eyebrow">HOLDINGS</p>
-							<h2>证券持仓</h2>
-						</div>
-						<button type="button" className="ghost-button" onClick={() => void loadDashboard()}>
-							刷新
-						</button>
-					</div>
-					<div className="table-scroll">
-						<table>
-							<thead>
-								<tr>
-									<th>代码</th>
-									<th>名称</th>
-									<th>数量</th>
-									<th>现价</th>
-									<th>折算人民币</th>
-								</tr>
-							</thead>
-							<tbody>
-								{dashboard.holdings.length === 0 ? (
-									<tr>
-										<td colSpan={5} className="empty-cell">
-											暂无证券持仓
-										</td>
-									</tr>
-								) : (
-									dashboard.holdings.map((holding) => (
-										<tr key={holding.id}>
-											<td>{holding.symbol}</td>
-											<td>{holding.name}</td>
-											<td>{holding.quantity.toLocaleString("zh-CN")}</td>
-											<td>
-												{holding.price.toLocaleString("zh-CN")} {holding.price_currency}
-											</td>
-											<td>{formatCny(holding.value_cny)}</td>
-										</tr>
-									))
-								)}
-							</tbody>
-						</table>
-					</div>
-				</div>
+				<PortfolioAnalytics
+					total_value_cny={dashboard.total_value_cny}
+					cash_accounts={dashboard.cash_accounts}
+					holdings={dashboard.holdings}
+					allocation={dashboard.allocation}
+					day_series={dashboard.day_series}
+					month_series={dashboard.month_series}
+					year_series={dashboard.year_series}
+					loading={isLoadingDashboard}
+				/>
 			</section>
+
+			<div className="integrated-stack">
+				<AssetManager
+					cashActions={assetManagerController.cashAccounts}
+					holdingActions={assetManagerController.holdings}
+					title="录入、编辑与维护资产"
+					description="现金账户与证券持仓已经接入完整 CRUD。录入后会自动回刷上方总览与分析区。"
+					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
+					autoRefreshOnMount
+				/>
+			</div>
 		</div>
 	);
 }

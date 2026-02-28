@@ -3,7 +3,32 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.models import CASH_ACCOUNT_TYPES, SECURITY_MARKETS
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+	if value is None:
+		return None
+
+	stripped = value.strip()
+	return stripped or None
+
+
+def _normalize_choice(
+	value: str | None,
+	allowed_values: tuple[str, ...],
+	field_name: str,
+) -> str | None:
+	if value is None:
+		return None
+
+	normalized = value.strip().upper()
+	if normalized not in allowed_values:
+		raise ValueError(f"{field_name} must be one of: {', '.join(allowed_values)}.")
+
+	return normalized
 
 
 class CashAccountCreate(BaseModel):
@@ -11,6 +36,18 @@ class CashAccountCreate(BaseModel):
 	platform: str = Field(min_length=1, max_length=80)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
 	balance: float = Field(ge=0)
+	account_type: str = Field(default="OTHER", min_length=4, max_length=20)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("account_type", mode="before")
+	@classmethod
+	def validate_account_type(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, CASH_ACCOUNT_TYPES, "account_type")
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
 
 
 class CashAccountUpdate(BaseModel):
@@ -18,6 +55,18 @@ class CashAccountUpdate(BaseModel):
 	platform: str = Field(min_length=1, max_length=80)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
 	balance: float = Field(ge=0)
+	account_type: Optional[str] = Field(default=None, min_length=4, max_length=20)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("account_type", mode="before")
+	@classmethod
+	def validate_account_type(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, CASH_ACCOUNT_TYPES, "account_type")
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
 
 
 class CashAccountRead(BaseModel):
@@ -26,6 +75,8 @@ class CashAccountRead(BaseModel):
 	platform: str
 	currency: str
 	balance: float
+	account_type: str
+	note: Optional[str] = None
 
 
 class SecurityHoldingCreate(BaseModel):
@@ -33,6 +84,19 @@ class SecurityHoldingCreate(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	quantity: float = Field(gt=0)
 	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
+	market: str = Field(default="OTHER", min_length=2, max_length=16)
+	broker: Optional[str] = Field(default=None, max_length=120)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("market", mode="before")
+	@classmethod
+	def validate_market(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SECURITY_MARKETS, "market")
+
+	@field_validator("broker", "note", mode="before")
+	@classmethod
+	def normalize_optional_fields(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
 
 
 class SecurityHoldingUpdate(BaseModel):
@@ -40,6 +104,19 @@ class SecurityHoldingUpdate(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	quantity: float = Field(gt=0)
 	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
+	market: Optional[str] = Field(default=None, min_length=2, max_length=16)
+	broker: Optional[str] = Field(default=None, max_length=120)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("market", mode="before")
+	@classmethod
+	def validate_market(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SECURITY_MARKETS, "market")
+
+	@field_validator("broker", "note", mode="before")
+	@classmethod
+	def normalize_optional_fields(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
 
 
 class SecurityHoldingRead(BaseModel):
@@ -48,6 +125,9 @@ class SecurityHoldingRead(BaseModel):
 	name: str
 	quantity: float
 	fallback_currency: str
+	market: str
+	broker: Optional[str] = None
+	note: Optional[str] = None
 
 
 class ValuedCashAccount(BaseModel):

@@ -5,6 +5,9 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
+CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
+SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "OTHER")
+
 
 def utc_now() -> datetime:
 	"""Return the current UTC timestamp."""
@@ -17,6 +20,8 @@ class CashAccount(SQLModel, table=True):
 	platform: str
 	currency: str = Field(default="CNY", max_length=8)
 	balance: float = Field(default=0)
+	account_type: str = Field(default="OTHER", max_length=20)
+	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
@@ -27,6 +32,9 @@ class SecurityHolding(SQLModel, table=True):
 	name: str
 	quantity: float = Field(default=0)
 	fallback_currency: str = Field(default="CNY", max_length=8)
+	market: str = Field(default="OTHER", max_length=16)
+	broker: Optional[str] = Field(default=None, max_length=120)
+	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
