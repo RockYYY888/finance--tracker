@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import "./asset-components.css";
+import { formatSecurityMarket } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	AssetEditorMode,
 	HoldingFormDraft,
 	HoldingInput,
 	MaybePromise,
+	SecuritySearchResult,
 } from "../../types/assets";
 import {
 	DEFAULT_HOLDING_FORM_DRAFT,
@@ -21,12 +23,11 @@ export interface HoldingFormProps {
 	subtitle?: string;
 	submitLabel?: string;
 	busy?: boolean;
-	refreshing?: boolean;
 	errorMessage?: string | null;
 	onCreate?: (payload: HoldingInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: HoldingInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
-	onRefresh?: () => MaybePromise<unknown>;
+	onSearch?: (query: string) => MaybePromise<SecuritySearchResult[]>;
 	onCancel?: () => void;
 }
 
@@ -52,6 +53,14 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 	};
 }
 
+function normalizeSearchToken(value: string): string {
+	return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function getSearchLabel(selection: { name: string; symbol: string }): string {
+	return `${selection.name} (${selection.symbol})`;
+}
+
 export function HoldingForm({
 	mode = "create",
 	value,
@@ -60,30 +69,99 @@ export function HoldingForm({
 	subtitle,
 	submitLabel,
 	busy = false,
-	refreshing = false,
 	errorMessage = null,
 	onCreate,
 	onEdit,
 	onDelete,
-	onRefresh,
+	onSearch,
 	onCancel,
 }: HoldingFormProps) {
 	const [draft, setDraft] = useState<HoldingFormDraft>(() => toHoldingDraft(value));
 	const [localError, setLocalError] = useState<string | null>(null);
+	const [searchError, setSearchError] = useState<string | null>(null);
 	const [isWorking, setIsWorking] = useState(false);
-	const [isRefreshingLocal, setIsRefreshingLocal] = useState(false);
+	const [searchQuery, setSearchQuery] = useState("");
+	const [searchResults, setSearchResults] = useState<SecuritySearchResult[]>([]);
+	const [isSearching, setIsSearching] = useState(false);
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const searchRequestIdRef = useRef(0);
+	const searchEnabled = Boolean(onSearch);
 
 	useEffect(() => {
-		setDraft(toHoldingDraft(value));
+		const nextDraft = toHoldingDraft(value);
+		setDraft(nextDraft);
+		setSearchQuery(nextDraft.name || nextDraft.symbol);
+		setSearchResults([]);
+		setIsSearchOpen(false);
+		setSearchError(null);
 		setLocalError(null);
 	}, [mode, value]);
 
+	useEffect(() => {
+		if (!onSearch) {
+			return;
+		}
+
+		const normalizedQuery = normalizeSearchToken(searchQuery);
+		const selectionTokens = [
+			normalizeSearchToken(draft.name),
+			normalizeSearchToken(draft.symbol),
+			normalizeSearchToken(`${draft.name} ${draft.symbol}`),
+		].filter(Boolean);
+
+		if (!normalizedQuery) {
+			setSearchResults([]);
+			setIsSearchOpen(false);
+			setSearchError(null);
+			setIsSearching(false);
+			return;
+		}
+
+		if (selectionTokens.includes(normalizedQuery)) {
+			setSearchResults([]);
+			setIsSearchOpen(false);
+			setSearchError(null);
+			setIsSearching(false);
+			return;
+		}
+
+		const requestId = ++searchRequestIdRef.current;
+		setIsSearching(true);
+
+		const timer = window.setTimeout(() => {
+			void (async () => {
+				try {
+					const results = await onSearch(searchQuery.trim());
+					if (requestId !== searchRequestIdRef.current) {
+						return;
+					}
+
+					setSearchResults(results);
+					setIsSearchOpen(results.length > 0);
+					setSearchError(null);
+				} catch (error) {
+					if (requestId !== searchRequestIdRef.current) {
+						return;
+					}
+
+					setSearchResults([]);
+					setIsSearchOpen(false);
+					setSearchError(toErrorMessage(error, "证券搜索失败，请稍后重试。"));
+				} finally {
+					if (requestId === searchRequestIdRef.current) {
+						setIsSearching(false);
+					}
+				}
+			})();
+		}, 240);
+
+		return () => window.clearTimeout(timer);
+	}, [draft.name, draft.symbol, onSearch, searchQuery]);
+
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
-	const isRefreshingActive = refreshing || isRefreshingLocal;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑证券持仓" : "新增证券持仓");
-	const resolvedSubmitLabel =
-		submitLabel ?? (mode === "edit" ? "保存修改" : "保存持仓");
+	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
 
 	function updateDraft<K extends keyof HoldingFormDraft>(
 		field: K,
@@ -96,6 +174,36 @@ export function HoldingForm({
 		}));
 	}
 
+	function handleSearchInput(nextValue: string): void {
+		setLocalError(null);
+		setSearchError(null);
+		setSearchQuery(nextValue);
+		if (!searchEnabled) {
+			return;
+		}
+
+		setDraft((currentDraft) => ({
+			...currentDraft,
+			symbol: "",
+			name: "",
+		}));
+	}
+
+	function applySearchResult(result: SecuritySearchResult): void {
+		setLocalError(null);
+		setSearchError(null);
+		setSearchQuery(result.name);
+		setSearchResults([]);
+		setIsSearchOpen(false);
+		setDraft((currentDraft) => ({
+			...currentDraft,
+			symbol: result.symbol,
+			name: result.name,
+			market: result.market,
+			fallback_currency: result.currency || currentDraft.fallback_currency,
+		}));
+	}
+
 	async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
 		event.preventDefault();
 		setLocalError(null);
@@ -104,7 +212,7 @@ export function HoldingForm({
 		try {
 			const payload = toHoldingInput(draft);
 			if (!payload.symbol || !payload.name || !payload.fallback_currency) {
-				throw new Error("请完整填写代码、名称和备用币种。");
+				throw new Error("请先选择证券，再填写数量。");
 			}
 			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
 				throw new Error("请输入有效的持仓数量。");
@@ -115,28 +223,14 @@ export function HoldingForm({
 			} else {
 				await onCreate?.(payload);
 				setDraft(DEFAULT_HOLDING_FORM_DRAFT);
+				setSearchQuery("");
+				setSearchResults([]);
+				setIsSearchOpen(false);
 			}
 		} catch (error) {
 			setLocalError(toErrorMessage(error, "保存持仓失败，请稍后重试。"));
 		} finally {
 			setIsWorking(false);
-		}
-	}
-
-	async function handleRefresh(): Promise<void> {
-		if (!onRefresh) {
-			return;
-		}
-
-		setLocalError(null);
-		setIsRefreshingLocal(true);
-
-		try {
-			await onRefresh();
-		} catch (error) {
-			setLocalError(toErrorMessage(error, "刷新持仓失败，请稍后重试。"));
-		} finally {
-			setIsRefreshingLocal(false);
 		}
 	}
 
@@ -165,18 +259,6 @@ export function HoldingForm({
 					<h3>{resolvedTitle}</h3>
 					{subtitle ? <p>{subtitle}</p> : null}
 				</div>
-				<div className="asset-manager__mini-actions">
-					{onRefresh ? (
-						<button
-							type="button"
-							className="asset-manager__button asset-manager__button--secondary"
-							onClick={() => void handleRefresh()}
-							disabled={isSubmitting || isRefreshingActive}
-						>
-							{isRefreshingActive ? "同步中..." : "同步"}
-						</button>
-					) : null}
-				</div>
 			</div>
 
 			{effectiveError ? (
@@ -186,27 +268,89 @@ export function HoldingForm({
 			) : null}
 
 			<form className="asset-manager__form" onSubmit={(event) => void handleSubmit(event)}>
-				<label className="asset-manager__field">
-					<span>证券代码</span>
-					<input
-						required
-						value={draft.symbol}
-						onChange={(event) => updateDraft("symbol", event.target.value)}
-						placeholder="0700.HK / AAPL / 600519.SS"
-					/>
+				<label className="asset-manager__field asset-manager__search-field">
+					<span>搜索证券</span>
+					<div className="asset-manager__search-shell">
+						<input
+							value={searchQuery}
+							onChange={(event) => handleSearchInput(event.target.value)}
+							onFocus={() => setIsSearchOpen(searchResults.length > 0)}
+							onBlur={() => window.setTimeout(() => setIsSearchOpen(false), 120)}
+							placeholder="输入名称或代码，例如：腾讯 / AAPL"
+							autoComplete="off"
+						/>
+
+						{isSearching ? (
+							<p className="asset-manager__helper-text">正在搜索…</p>
+						) : searchEnabled &&
+							searchQuery.trim() &&
+							!draft.symbol &&
+							searchResults.length === 0 &&
+							!searchError ? (
+							<p className="asset-manager__helper-text">没有可选结果，请换一个名称或代码。</p>
+						) : null}
+
+						{isSearchOpen && searchResults.length > 0 ? (
+							<div className="asset-manager__search-list" role="listbox">
+								{searchResults.map((result) => (
+									<button
+										key={`${result.symbol}-${result.exchange ?? "unknown"}`}
+										type="button"
+										className="asset-manager__search-item"
+										onMouseDown={(event) => {
+											event.preventDefault();
+											applySearchResult(result);
+										}}
+									>
+										<strong>{result.name}</strong>
+										<span>{result.symbol}</span>
+										<small>
+											{formatSecurityMarket(result.market)}
+											{result.exchange ? ` · ${result.exchange}` : ""}
+											{result.currency ? ` · ${result.currency}` : ""}
+										</small>
+									</button>
+								))}
+							</div>
+						) : null}
+					</div>
 				</label>
 
-				<label className="asset-manager__field">
-					<span>名称</span>
-					<input
-						required
-						value={draft.name}
-						onChange={(event) => updateDraft("name", event.target.value)}
-						placeholder="腾讯控股"
-					/>
-				</label>
+				{searchError ? (
+					<div className="asset-manager__message asset-manager__message--error">
+						{searchError}
+					</div>
+				) : null}
+
+				{searchEnabled && draft.symbol ? (
+					<div className="asset-manager__selection-pill">{getSearchLabel(draft)}</div>
+				) : null}
 
 				<div className="asset-manager__field-grid">
+					<label className="asset-manager__field">
+						<span>代码</span>
+						<input
+							required
+							value={draft.symbol}
+							onChange={(event) => updateDraft("symbol", event.target.value)}
+							placeholder="选择后自动填入"
+							readOnly={searchEnabled}
+						/>
+					</label>
+
+					<label className="asset-manager__field">
+						<span>名称</span>
+						<input
+							required
+							value={draft.name}
+							onChange={(event) => updateDraft("name", event.target.value)}
+							placeholder="选择后自动填入"
+							readOnly={searchEnabled}
+						/>
+					</label>
+				</div>
+
+				<div className="asset-manager__field-grid asset-manager__field-grid--triple">
 					<label className="asset-manager__field">
 						<span>市场</span>
 						<select
@@ -237,7 +381,7 @@ export function HoldingForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>备用币种</span>
+						<span>币种</span>
 						<input
 							required
 							value={draft.fallback_currency}
@@ -254,7 +398,7 @@ export function HoldingForm({
 					<input
 						value={draft.broker}
 						onChange={(event) => updateDraft("broker", event.target.value)}
-						placeholder="可选，例如：港股通 / 富途 / IBKR"
+						placeholder="可选"
 					/>
 				</label>
 
@@ -263,7 +407,7 @@ export function HoldingForm({
 					<textarea
 						value={draft.note}
 						onChange={(event) => updateDraft("note", event.target.value)}
-						placeholder="可选，例如：长期持有 / 对冲仓位"
+						placeholder="可选"
 					/>
 				</label>
 
@@ -271,7 +415,7 @@ export function HoldingForm({
 					<button
 						type="submit"
 						className="asset-manager__button"
-						disabled={isSubmitting || isRefreshingActive}
+						disabled={isSubmitting}
 					>
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
@@ -281,7 +425,7 @@ export function HoldingForm({
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
-							disabled={isSubmitting || isRefreshingActive}
+							disabled={isSubmitting}
 						>
 							取消编辑
 						</button>
@@ -292,7 +436,7 @@ export function HoldingForm({
 							type="button"
 							className="asset-manager__button asset-manager__button--danger"
 							onClick={() => void handleDelete()}
-							disabled={isSubmitting || isRefreshingActive}
+							disabled={isSubmitting}
 						>
 							删除持仓
 						</button>

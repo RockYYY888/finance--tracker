@@ -20,11 +20,12 @@ export function PortfolioAnalytics({
 	cash_accounts,
 	holdings,
 	allocation,
+	hour_series,
 	day_series,
 	month_series,
 	year_series,
 	loading = false,
-	defaultRange = "day",
+	defaultRange = "hour",
 	className,
 }: PortfolioAnalyticsProps) {
 	const wrapperClassName = className
@@ -41,6 +42,7 @@ export function PortfolioAnalytics({
 
 			<div className="portfolio-analytics__main">
 				<PortfolioTrendChart
+					hour_series={hour_series}
 					day_series={day_series}
 					month_series={month_series}
 					year_series={year_series}

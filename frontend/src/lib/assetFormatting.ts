@@ -40,12 +40,12 @@ export function formatQuantity(value: number): string {
 
 export function formatTimestamp(value?: string | null): string {
 	if (!value) {
-		return "待同步";
+		return "待更新";
 	}
 
 	const parsedValue = new Date(value);
 	if (Number.isNaN(parsedValue.getTime())) {
-		return "待同步";
+		return "待更新";
 	}
 
 	return new Intl.DateTimeFormat("zh-CN", {

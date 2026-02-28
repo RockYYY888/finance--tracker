@@ -19,13 +19,12 @@ export interface CashAccountListProps {
 	onCreate?: () => void;
 	onEdit?: (account: CashAccountRecord) => void;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
-	onRefresh?: () => MaybePromise<unknown>;
 }
 
 export function CashAccountList({
 	accounts,
 	title = "现金账户",
-	subtitle = "卡片式布局更适合手机查看与单手操作。",
+	subtitle,
 	loading = false,
 	busy = false,
 	errorMessage = null,
@@ -33,31 +32,12 @@ export function CashAccountList({
 	onCreate,
 	onEdit,
 	onDelete,
-	onRefresh,
 }: CashAccountListProps) {
 	const [localError, setLocalError] = useState<string | null>(null);
-	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [deletingId, setDeletingId] = useState<number | null>(null);
 
 	const effectiveError = localError ?? errorMessage;
-	const isActionLocked = busy || isRefreshing;
-
-	async function handleRefresh(): Promise<void> {
-		if (!onRefresh) {
-			return;
-		}
-
-		setLocalError(null);
-		setIsRefreshing(true);
-
-		try {
-			await onRefresh();
-		} catch (error) {
-			setLocalError(toErrorMessage(error, "刷新现金账户失败，请稍后重试。"));
-		} finally {
-			setIsRefreshing(false);
-		}
-	}
+	const isActionLocked = busy;
 
 	async function handleDelete(recordId: number): Promise<void> {
 		if (!onDelete) {
@@ -82,19 +62,9 @@ export function CashAccountList({
 				<div>
 					<p className="asset-manager__eyebrow">CASH LIST</p>
 					<h3>{title}</h3>
-					<p>{subtitle}</p>
+					{subtitle ? <p>{subtitle}</p> : null}
 				</div>
 				<div className="asset-manager__mini-actions">
-					{onRefresh ? (
-						<button
-							type="button"
-							className="asset-manager__button asset-manager__button--secondary"
-							onClick={() => void handleRefresh()}
-							disabled={isActionLocked}
-						>
-							{isRefreshing ? "刷新中..." : "刷新"}
-						</button>
-					) : null}
 					{onCreate ? (
 						<button
 							type="button"
@@ -115,7 +85,7 @@ export function CashAccountList({
 			) : null}
 
 			{loading ? (
-				<div className="asset-manager__empty-state">正在同步现金账户...</div>
+				<div className="asset-manager__empty-state">正在加载现金账户...</div>
 			) : accounts.length === 0 ? (
 				<div className="asset-manager__empty-state">{emptyMessage}</div>
 			) : (

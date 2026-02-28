@@ -22,23 +22,23 @@ export function PortfolioInsights({
 	cash_accounts,
 	holdings,
 	title = "关键洞察",
-	description = "把集中度、流动性和账户覆盖压缩成几个可快速决策的信号。",
+	description = "集中度与现金占比",
 }: PortfolioInsightsProps) {
 	const summary = summarizePortfolioInsights(total_value_cny, cash_accounts, holdings);
 	const topHoldingName = summary.topHolding
 		? summary.topHolding.name || summary.topHolding.symbol
 		: "暂无持仓";
 	const cashMessage = summary.cashRatio < 0.1
-		? "现金缓冲偏薄，回撤时补仓弹性有限。"
+		? "现金偏低"
 		: summary.cashRatio > 0.45
-			? "现金比重偏高，收益弹性可能被压低。"
-			: "现金与风险资产比例较均衡。";
+			? "现金偏高"
+			: "现金适中";
 	const concentrationMessage = summary.topThreeRatio >= 0.6
-		? "前三持仓占比较高，波动会更集中地传导到总资产。"
-		: "前三持仓占比适中，分散度尚可。";
+		? "集中度偏高"
+		: "集中度适中";
 	const recommendations = holdings.length === 0
-		? ["暂无证券持仓，可先录入核心仓位后再判断集中度。", cashMessage]
-		: [concentrationMessage, cashMessage, "持续补齐历史快照，趋势判断会更稳定。"];
+		? ["先录入持仓", cashMessage]
+		: [concentrationMessage, cashMessage, "快照越多，趋势越稳定"];
 
 	return (
 		<section className="analytics-card">

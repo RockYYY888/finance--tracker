@@ -30,7 +30,7 @@ type HoldingsBreakdownChartProps = {
 export function HoldingsBreakdownChart({
 	holdings,
 	title = "持仓拆解",
-	description = "按市值展示前五大持仓，快速识别头寸集中在哪里。",
+	description = "按持仓市值排序",
 }: HoldingsBreakdownChartProps) {
 	const breakdown = buildHoldingsBreakdown(holdings);
 	const chartHeight = getBarChartHeight(breakdown.length);

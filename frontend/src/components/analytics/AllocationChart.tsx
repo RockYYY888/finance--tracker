@@ -26,7 +26,7 @@ export function AllocationChart({
 	total_value_cny,
 	allocation,
 	title = "资产分布",
-	description = "聚合现金与证券的占比，快速判断进攻性与流动性平衡。",
+	description = "现金与证券占比",
 }: AllocationChartProps) {
 	const legendItems = buildAllocationLegend(allocation, total_value_cny);
 

@@ -7,14 +7,14 @@ import type { AssetManagerController } from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import { formatCny } from "./utils/portfolioAnalytics";
 
-function formatLastSynced(timestamp: string | null): string {
+function formatLastUpdated(timestamp: string | null): string {
 	if (!timestamp) {
-		return "等待首次同步";
+		return "等待首次载入";
 	}
 
 	const parsedTimestamp = new Date(timestamp);
 	if (Number.isNaN(parsedTimestamp.getTime())) {
-		return "等待首次同步";
+		return "等待首次载入";
 	}
 
 	return new Intl.DateTimeFormat("zh-CN", {
@@ -29,27 +29,20 @@ function formatLastSynced(timestamp: string | null): string {
 function App() {
 	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
-	const [isRefreshingOverview, setIsRefreshingOverview] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
-	const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
 	useEffect(() => {
-		void loadDashboard("initial");
+		void loadDashboard();
 	}, []);
 
-	async function loadDashboard(mode: "initial" | "background" = "background"): Promise<void> {
-		if (mode === "initial") {
-			setIsLoadingDashboard(true);
-		} else {
-			setIsRefreshingOverview(true);
-		}
-
+	async function loadDashboard(): Promise<void> {
 		setErrorMessage(null);
 
 		try {
 			const nextDashboard = await getDashboard();
 			setDashboard(nextDashboard);
-			setLastSyncedAt(new Date().toISOString());
+			setLastUpdatedAt(new Date().toISOString());
 		} catch (error) {
 			setErrorMessage(
 				error instanceof Error
@@ -57,11 +50,7 @@ function App() {
 					: "无法加载资产总览，请确认后端服务是否启动。",
 			);
 		} finally {
-			if (mode === "initial") {
-				setIsLoadingDashboard(false);
-			} else {
-				setIsRefreshingOverview(false);
-			}
+			setIsLoadingDashboard(false);
 		}
 	}
 
@@ -102,6 +91,7 @@ function App() {
 				await loadDashboard();
 			},
 			onRefresh: () => defaultAssetApiClient.listHoldings(),
+			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
 		},
 	};
 
@@ -113,37 +103,9 @@ function App() {
 			<header className="hero-panel">
 				<div className="hero-copy-block">
 					<p className="eyebrow">ASSET DASHBOARD</p>
-					<h1>个人资产总览</h1>
-					<p className="hero-copy">
-						录入现金账户与证券持仓后，系统会统一按人民币估值，并在下方同步更新趋势与结构图。
-					</p>
-
-					<div className="hero-actions">
-						<button
-							type="button"
-							className="ghost-button"
-							onClick={() => void loadDashboard()}
-							disabled={isRefreshingOverview}
-						>
-							{isRefreshingOverview ? "刷新中..." : "刷新总览"}
-						</button>
-						<div className="hero-sync-chip">最近同步：{formatLastSynced(lastSyncedAt)}</div>
-					</div>
-
-					<div className="quick-guide">
-						<div className="quick-guide__item">
-							<span>1</span>
-							<p>先新增现金账户或持仓</p>
-						</div>
-						<div className="quick-guide__item">
-							<span>2</span>
-							<p>在下方直接编辑、删除或刷新</p>
-						</div>
-						<div className="quick-guide__item">
-							<span>3</span>
-							<p>查看总资产、分布和时间趋势</p>
-						</div>
-					</div>
+					<h1>个人资产</h1>
+					<p className="hero-copy">统一查看现金与证券，所有估值按人民币汇总。</p>
+					<p className="hero-note">最近更新：{formatLastUpdated(lastUpdatedAt)}</p>
 				</div>
 
 				<div className="summary-grid">
@@ -173,19 +135,15 @@ function App() {
 			) : null}
 
 			{!hasAnyAsset ? (
-				<div className="banner info">
-					先录入至少一笔现金账户或证券持仓。录入完成后，总览、趋势图和分布图会自动形成。
-				</div>
+				<div className="banner info">先新增一笔资产，图表会自动形成。</div>
 			) : null}
 
 			<section className="panel section-shell">
 				<div className="section-head">
 					<div>
 						<p className="eyebrow">ANALYTICS</p>
-						<h2>趋势与结构分析</h2>
-						<p className="section-copy">
-							按天、月、年查看资产变化，并快速判断现金占比、平台分布和持仓集中度。
-						</p>
+						<h2>变化与分布</h2>
+						<p className="section-copy">查看走势、占比和集中度。</p>
 					</div>
 				</div>
 
@@ -194,6 +152,7 @@ function App() {
 					cash_accounts={dashboard.cash_accounts}
 					holdings={dashboard.holdings}
 					allocation={dashboard.allocation}
+					hour_series={dashboard.hour_series}
 					day_series={dashboard.day_series}
 					month_series={dashboard.month_series}
 					year_series={dashboard.year_series}
@@ -205,8 +164,8 @@ function App() {
 				<AssetManager
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
-					title="资产录入与维护"
-					description="在这里新增、编辑、删除现金账户和证券持仓。保存后总览会自动刷新。"
+					title="资产录入"
+					description="操作后自动更新。"
 					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
 					autoRefreshOnMount
 				/>

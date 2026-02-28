@@ -104,7 +104,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 				getNextLocalId(nextItems),
 			);
 		} catch (error) {
-			setErrorMessage(toErrorMessage(error, "刷新资产失败，请稍后重试。"));
+			setErrorMessage(toErrorMessage(error, "加载资产失败，请稍后重试。"));
 		} finally {
 			setIsRefreshing(false);
 		}
@@ -117,7 +117,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 		try {
 			if (editingRecordId !== null) {
 				if (editingRecord === null) {
-					throw new Error("当前记录已失效，请刷新后重试。");
+					throw new Error("当前记录已失效，请重新进入后重试。");
 				}
 
 				const nextRecord = options.actions?.onEdit

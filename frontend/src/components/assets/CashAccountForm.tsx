@@ -21,12 +21,10 @@ export interface CashAccountFormProps {
 	subtitle?: string;
 	submitLabel?: string;
 	busy?: boolean;
-	refreshing?: boolean;
 	errorMessage?: string | null;
 	onCreate?: (payload: CashAccountInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: CashAccountInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
-	onRefresh?: () => MaybePromise<unknown>;
 	onCancel?: () => void;
 }
 
@@ -60,12 +58,10 @@ export function CashAccountForm({
 	subtitle,
 	submitLabel,
 	busy = false,
-	refreshing = false,
 	errorMessage = null,
 	onCreate,
 	onEdit,
 	onDelete,
-	onRefresh,
 	onCancel,
 }: CashAccountFormProps) {
 	const [draft, setDraft] = useState<CashAccountFormDraft>(() =>
@@ -73,7 +69,6 @@ export function CashAccountForm({
 	);
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [isWorking, setIsWorking] = useState(false);
-	const [isRefreshingLocal, setIsRefreshingLocal] = useState(false);
 
 	useEffect(() => {
 		setDraft(toCashAccountDraft(value));
@@ -82,10 +77,8 @@ export function CashAccountForm({
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
-	const isRefreshingActive = refreshing || isRefreshingLocal;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑现金账户" : "新增现金账户");
-	const resolvedSubmitLabel =
-		submitLabel ?? (mode === "edit" ? "保存修改" : "保存现金账户");
+	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
 
 	function updateDraft<K extends keyof CashAccountFormDraft>(
 		field: K,
@@ -125,23 +118,6 @@ export function CashAccountForm({
 		}
 	}
 
-	async function handleRefresh(): Promise<void> {
-		if (!onRefresh) {
-			return;
-		}
-
-		setLocalError(null);
-		setIsRefreshingLocal(true);
-
-		try {
-			await onRefresh();
-		} catch (error) {
-			setLocalError(toErrorMessage(error, "刷新现金账户失败，请稍后重试。"));
-		} finally {
-			setIsRefreshingLocal(false);
-		}
-	}
-
 	async function handleDelete(): Promise<void> {
 		if (!onDelete || recordId === null) {
 			return;
@@ -166,18 +142,6 @@ export function CashAccountForm({
 					<p className="asset-manager__eyebrow">CASH FORM</p>
 					<h3>{resolvedTitle}</h3>
 					{subtitle ? <p>{subtitle}</p> : null}
-				</div>
-				<div className="asset-manager__mini-actions">
-					{onRefresh ? (
-						<button
-							type="button"
-							className="asset-manager__button asset-manager__button--secondary"
-							onClick={() => void handleRefresh()}
-							disabled={isSubmitting || isRefreshingActive}
-						>
-							{isRefreshingActive ? "同步中..." : "同步"}
-						</button>
-					) : null}
 				</div>
 			</div>
 
@@ -265,7 +229,7 @@ export function CashAccountForm({
 					<button
 						type="submit"
 						className="asset-manager__button"
-						disabled={isSubmitting || isRefreshingActive}
+						disabled={isSubmitting}
 					>
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
@@ -275,7 +239,7 @@ export function CashAccountForm({
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
-							disabled={isSubmitting || isRefreshingActive}
+							disabled={isSubmitting}
 						>
 							取消编辑
 						</button>
@@ -286,7 +250,7 @@ export function CashAccountForm({
 							type="button"
 							className="asset-manager__button asset-manager__button--danger"
 							onClick={() => void handleDelete()}
-							disabled={isSubmitting || isRefreshingActive}
+							disabled={isSubmitting}
 						>
 							删除账户
 						</button>

@@ -20,6 +20,7 @@ from app.schemas import (
 	CashAccountRead,
 	CashAccountUpdate,
 	DashboardResponse,
+	SecuritySearchRead,
 	SecurityHoldingCreate,
 	SecurityHoldingRead,
 	SecurityHoldingUpdate,
@@ -277,9 +278,10 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	_persist_snapshot(session, total_value_cny)
 
 	now = datetime.now(timezone.utc)
-	day_series = build_timeline(_load_series(session, now - timedelta(days=1)), "day")
-	month_series = build_timeline(_load_series(session, now - timedelta(days=31)), "month")
-	year_series = build_timeline(_load_series(session, now - timedelta(days=366)), "year")
+	hour_series = build_timeline(_load_series(session, now - timedelta(hours=24)), "hour")
+	day_series = build_timeline(_load_series(session, now - timedelta(days=30)), "day")
+	month_series = build_timeline(_load_series(session, now - timedelta(days=366)), "month")
+	year_series = build_timeline(_load_series(session, now - timedelta(days=366 * 5)), "year")
 
 	return DashboardResponse(
 		total_value_cny=total_value_cny,
@@ -291,6 +293,7 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 			AllocationSlice(label="现金", value=cash_value_cny),
 			AllocationSlice(label="证券", value=holdings_value_cny),
 		],
+		hour_series=hour_series,
 		day_series=day_series,
 		month_series=month_series,
 		year_series=year_series,
@@ -304,8 +307,29 @@ def healthcheck() -> dict[str, str]:
 
 
 @app.get("/api/accounts", response_model=list[CashAccountRead])
-def list_accounts(_: TokenDependency, session: SessionDependency) -> list[CashAccount]:
-	return list(session.exec(select(CashAccount).order_by(CashAccount.platform, CashAccount.name)))
+async def list_accounts(_: TokenDependency, session: SessionDependency) -> list[CashAccountRead]:
+	accounts = list(session.exec(select(CashAccount).order_by(CashAccount.platform, CashAccount.name)))
+	valued_accounts, _, _ = await _value_cash_accounts(accounts)
+	valued_account_map = {account.id: account for account in valued_accounts}
+	items: list[CashAccountRead] = []
+
+	for account in accounts:
+		valued_account = valued_account_map.get(account.id or 0)
+		items.append(
+			CashAccountRead(
+				id=account.id or 0,
+				name=account.name,
+				platform=account.platform,
+				currency=account.currency,
+				balance=account.balance,
+				account_type=account.account_type,
+				note=account.note,
+				fx_to_cny=valued_account.fx_to_cny if valued_account else None,
+				value_cny=valued_account.value_cny if valued_account else None,
+			),
+		)
+
+	return items
 
 
 @app.post("/api/accounts", response_model=CashAccountRead, status_code=201)
@@ -370,8 +394,37 @@ def delete_account(
 
 
 @app.get("/api/holdings", response_model=list[SecurityHoldingRead])
-def list_holdings(_: TokenDependency, session: SessionDependency) -> list[SecurityHolding]:
-	return list(session.exec(select(SecurityHolding).order_by(SecurityHolding.symbol, SecurityHolding.name)))
+async def list_holdings(
+	_: TokenDependency,
+	session: SessionDependency,
+) -> list[SecurityHoldingRead]:
+	holdings = list(
+		session.exec(select(SecurityHolding).order_by(SecurityHolding.symbol, SecurityHolding.name)),
+	)
+	valued_holdings, _, _ = await _value_holdings(holdings)
+	valued_holding_map = {holding.id: holding for holding in valued_holdings}
+	items: list[SecurityHoldingRead] = []
+
+	for holding in holdings:
+		valued_holding = valued_holding_map.get(holding.id or 0)
+		items.append(
+			SecurityHoldingRead(
+				id=holding.id or 0,
+				symbol=holding.symbol,
+				name=holding.name,
+				quantity=holding.quantity,
+				fallback_currency=holding.fallback_currency,
+				market=holding.market,
+				broker=holding.broker,
+				note=holding.note,
+				price=valued_holding.price if valued_holding else None,
+				price_currency=valued_holding.price_currency if valued_holding else None,
+				value_cny=valued_holding.value_cny if valued_holding else None,
+				last_updated=valued_holding.last_updated if valued_holding else None,
+			),
+		)
+
+	return items
 
 
 @app.post("/api/holdings", response_model=SecurityHoldingRead, status_code=201)
@@ -436,6 +489,24 @@ def delete_holding(
 	session.delete(holding)
 	session.commit()
 	return Response(status_code=204)
+
+
+@app.get("/api/securities/search", response_model=list[SecuritySearchRead])
+async def search_securities(
+	q: str,
+	_: TokenDependency,
+) -> list[SecuritySearchRead]:
+	query = q.strip()
+	if not query:
+		return []
+
+	try:
+		return await market_data_client.search_securities(query)
+	except QuoteLookupError as exc:
+		raise HTTPException(
+			status_code=502,
+			detail=f"证券搜索暂时不可用，请稍后再试。{exc}",
+		) from exc
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)

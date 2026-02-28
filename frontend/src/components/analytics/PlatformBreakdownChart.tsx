@@ -35,7 +35,7 @@ export function PlatformBreakdownChart({
 	cash_accounts,
 	holdings,
 	title = "平台分布",
-	description = "按现金平台汇总，并将证券头寸统一视作证券持仓入口。",
+	description = "按平台汇总市值",
 }: PlatformBreakdownChartProps) {
 	const platformBreakdown = buildPlatformBreakdown(cash_accounts, holdings);
 	const chartHeight = getBarChartHeight(platformBreakdown.length);

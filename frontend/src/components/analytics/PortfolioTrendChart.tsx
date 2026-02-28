@@ -21,6 +21,7 @@ import {
 import "./analytics.css";
 
 type PortfolioTrendChartProps = {
+	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
 	year_series: TimelinePoint[];
@@ -31,22 +32,24 @@ type PortfolioTrendChartProps = {
 };
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
-	day: "天",
-	month: "月",
+	hour: "24H",
+	day: "30天",
+	month: "12月",
 	year: "年",
 };
 
 export function PortfolioTrendChart({
+	hour_series,
 	day_series,
 	month_series,
 	year_series,
-	defaultRange = "day",
+	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
-	description = "查看近天、近月、近年的组合曲线，识别回撤与增长节奏。",
+	description = "查看 24 小时、30 天、12 个月和年度变化。",
 }: PortfolioTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
-	const series = getTimelineSeries(range, day_series, month_series, year_series);
+	const series = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
 	const summary = summarizeTimeline(series);
 	const hasData = series.some((point) => point.value > 0);
 	const changeDirection = summary.changeValue >= 0 ? "增加" : "减少";
@@ -95,7 +98,7 @@ export function PortfolioTrendChart({
 				<div className="analytics-empty-state">正在加载趋势数据...</div>
 			) : !hasData ? (
 				<div className="analytics-empty-state">
-					还没有足够的资产快照。随着资产录入和刷新，这里会逐步形成可读趋势。
+					还没有足够的资产快照。随着资产变动，这里会逐步形成趋势。
 				</div>
 			) : (
 				<div className="analytics-chart">

@@ -77,6 +77,8 @@ class CashAccountRead(BaseModel):
 	balance: float
 	account_type: str
 	note: Optional[str] = None
+	fx_to_cny: Optional[float] = None
+	value_cny: Optional[float] = None
 
 
 class SecurityHoldingCreate(BaseModel):
@@ -128,6 +130,18 @@ class SecurityHoldingRead(BaseModel):
 	market: str
 	broker: Optional[str] = None
 	note: Optional[str] = None
+	price: Optional[float] = None
+	price_currency: Optional[str] = None
+	value_cny: Optional[float] = None
+	last_updated: Optional[datetime] = None
+
+
+class SecuritySearchRead(BaseModel):
+	symbol: str
+	name: str
+	market: str
+	currency: str
+	exchange: Optional[str] = None
 
 
 class ValuedCashAccount(BaseModel):
@@ -169,6 +183,7 @@ class DashboardResponse(BaseModel):
 	cash_accounts: list[ValuedCashAccount]
 	holdings: list[ValuedHolding]
 	allocation: list[AllocationSlice]
+	hour_series: list[TimelinePoint]
 	day_series: list[TimelinePoint]
 	month_series: list[TimelinePoint]
 	year_series: list[TimelinePoint]

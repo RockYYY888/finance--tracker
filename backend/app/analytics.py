@@ -8,12 +8,14 @@ from app.schemas import TimelinePoint
 
 
 def _bucket_label(timestamp: datetime, granularity: str) -> str:
-	if granularity == "day":
+	if granularity == "hour":
 		return timestamp.strftime("%m-%d %H:00")
-	if granularity == "month":
+	if granularity == "day":
 		return timestamp.strftime("%m-%d")
-	if granularity == "year":
+	if granularity == "month":
 		return timestamp.strftime("%Y-%m")
+	if granularity == "year":
+		return timestamp.strftime("%Y")
 	msg = f"Unsupported granularity: {granularity}"
 	raise ValueError(msg)
 

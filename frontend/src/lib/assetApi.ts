@@ -6,6 +6,7 @@ import type {
 	CashAccountRecord,
 	HoldingInput,
 	HoldingRecord,
+	SecuritySearchResult,
 } from "../types/assets";
 
 function toJsonBody(payload: CashAccountInput | HoldingInput): string {
@@ -47,6 +48,10 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			apiClient.request<void>(`/api/holdings/${recordId}`, {
 				method: "DELETE",
 			}),
+		searchSecurities: (query) =>
+			apiClient.request<SecuritySearchResult[]>(
+				`/api/securities/search?q=${encodeURIComponent(query)}`,
+			),
 	};
 }
 
@@ -67,6 +72,7 @@ export function createAssetManagerController(
 			onEdit: (recordId, payload) => assetApiClient.updateHolding(recordId, payload),
 			onDelete: (recordId) => assetApiClient.deleteHolding(recordId),
 			onRefresh: () => assetApiClient.listHoldings(),
+			onSearch: (query) => assetApiClient.searchSecurities(query),
 		},
 	};
 }

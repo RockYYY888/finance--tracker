@@ -1,4 +1,6 @@
+import asyncio
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlmodel import SQLModel, Session, create_engine, select
 
+import app.main as main
 from app.main import (
 	create_account,
 	create_holding,
@@ -21,6 +24,26 @@ from app.schemas import (
 	SecurityHoldingCreate,
 	SecurityHoldingUpdate,
 )
+from app.services.market_data import Quote
+
+
+class StaticMarketDataClient:
+	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
+		if from_currency.upper() == to_currency.upper():
+			return 1.0, []
+		return 7.0, []
+
+	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
+		return (
+			Quote(
+				symbol=symbol,
+				name="Apple",
+				price=100.0,
+				currency="USD",
+				market_time=datetime(2026, 3, 1, tzinfo=timezone.utc),
+			),
+			[],
+		)
 
 
 @pytest.fixture
@@ -118,6 +141,30 @@ def test_delete_account_returns_404_when_missing(session: Session) -> None:
 
 	assert error.value.status_code == 404
 	assert error.value.detail == "Account not found."
+
+
+def test_list_accounts_returns_valued_balances(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	create_account(
+		CashAccountCreate(
+			name="Checking",
+			platform="Bank",
+			currency="usd",
+			balance=100,
+			account_type="bank",
+		),
+		None,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	accounts = asyncio.run(main.list_accounts(None, session))
+
+	assert len(accounts) == 1
+	assert accounts[0].fx_to_cny == 7.0
+	assert accounts[0].value_cny == 700.0
 
 
 def test_cash_account_schema_rejects_invalid_account_type() -> None:
@@ -221,6 +268,31 @@ def test_delete_holding_returns_404_when_missing(session: Session) -> None:
 
 	assert error.value.status_code == 404
 	assert error.value.detail == "Holding not found."
+
+
+def test_list_holdings_returns_enriched_quote_fields(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			market="us",
+		),
+		None,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	holdings = asyncio.run(main.list_holdings(None, session))
+
+	assert len(holdings) == 1
+	assert holdings[0].price == 100.0
+	assert holdings[0].price_currency == "USD"
+	assert holdings[0].value_cny == 1400.0
 
 
 def test_holding_schema_rejects_invalid_market() -> None:

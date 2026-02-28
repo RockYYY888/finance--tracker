@@ -15,6 +15,8 @@ import type {
 } from "../../types/assets";
 
 type AssetSection = "cash" | "holding";
+const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
+const EMPTY_HOLDINGS: HoldingRecord[] = [];
 
 export interface AssetManagerProps {
 	initialCashAccounts?: CashAccountRecord[];
@@ -103,26 +105,28 @@ function updateLocalHolding(
 }
 
 export function AssetManager({
-	initialCashAccounts = [],
-	initialHoldings = [],
+	initialCashAccounts,
+	initialHoldings,
 	cashActions,
 	holdingActions,
 	defaultSection = "cash",
-	title = "资产管理组件",
-	description = "拆分成可独立接入的录入与列表模块，先把移动端操作基础打稳。",
+	title = "资产录入",
+	description,
 	autoRefreshOnMount = false,
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
+	const resolvedCashAccounts = initialCashAccounts ?? EMPTY_CASH_ACCOUNTS;
+	const resolvedHoldings = initialHoldings ?? EMPTY_HOLDINGS;
 
 	const cashCollection = useAssetCollection({
-		initialItems: initialCashAccounts,
+		initialItems: resolvedCashAccounts,
 		actions: cashActions,
 		createLocalRecord: createLocalCashAccount,
 		updateLocalRecord: updateLocalCashAccount,
 	});
 
 	const holdingCollection = useAssetCollection({
-		initialItems: initialHoldings,
+		initialItems: resolvedHoldings,
 		actions: holdingActions,
 		createLocalRecord: createLocalHolding,
 		updateLocalRecord: updateLocalHolding,
@@ -170,7 +174,7 @@ export function AssetManager({
 				<div>
 					<p className="asset-manager__eyebrow">ASSET MODULES</p>
 					<h2>{title}</h2>
-					<p>{description}</p>
+					{description ? <p>{description}</p> : null}
 				</div>
 				<div className="asset-manager__summary">
 					<div className="asset-manager__summary-card is-cash">
@@ -213,14 +217,11 @@ export function AssetManager({
 										: null
 								}
 								recordId={cashCollection.editingRecord?.id ?? null}
-								subtitle="支持账户类型、备注与完整 CRUD，方便在手机上快速维护。"
 								busy={cashCollection.isSubmitting}
-								refreshing={cashCollection.isRefreshing}
 								errorMessage={cashCollection.errorMessage}
 								onCreate={(payload) => cashCollection.submit(payload)}
 								onEdit={(_recordId, payload) => cashCollection.submit(payload)}
 								onDelete={(recordId) => handleCashDelete(recordId)}
-								onRefresh={() => cashCollection.refresh()}
 								onCancel={cashCollection.closeEditor}
 							/>
 						) : null}
@@ -233,7 +234,6 @@ export function AssetManager({
 							onCreate={cashCollection.openCreate}
 							onEdit={(account) => cashCollection.openEdit(account)}
 							onDelete={(recordId) => handleCashDelete(recordId)}
-							onRefresh={() => cashCollection.refresh()}
 						/>
 					</>
 				) : (
@@ -247,14 +247,12 @@ export function AssetManager({
 										: null
 								}
 								recordId={holdingCollection.editingRecord?.id ?? null}
-								subtitle="支持市场、券商与备注字段，便于完整管理港股、美股和基金。"
 								busy={holdingCollection.isSubmitting}
-								refreshing={holdingCollection.isRefreshing}
 								errorMessage={holdingCollection.errorMessage}
 								onCreate={(payload) => holdingCollection.submit(payload)}
 								onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
 								onDelete={(recordId) => handleHoldingDelete(recordId)}
-								onRefresh={() => holdingCollection.refresh()}
+								onSearch={holdingActions?.onSearch}
 								onCancel={holdingCollection.closeEditor}
 							/>
 						) : null}
@@ -267,7 +265,6 @@ export function AssetManager({
 							onCreate={holdingCollection.openCreate}
 							onEdit={(holding) => holdingCollection.openEdit(holding)}
 							onDelete={(recordId) => handleHoldingDelete(recordId)}
-							onRefresh={() => holdingCollection.refresh()}
 						/>
 					</>
 				)}

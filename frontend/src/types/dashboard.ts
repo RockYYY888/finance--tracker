@@ -13,6 +13,7 @@ export const EMPTY_DASHBOARD: DashboardResponse = {
 	cash_accounts: [],
 	holdings: [],
 	allocation: [],
+	hour_series: [],
 	day_series: [],
 	month_series: [],
 	year_series: [],

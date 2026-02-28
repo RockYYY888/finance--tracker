@@ -30,13 +30,14 @@ export type AllocationSlice = {
 	value: number;
 };
 
-export type TimelineRange = "day" | "month" | "year";
+export type TimelineRange = "hour" | "day" | "month" | "year";
 
 export type PortfolioAnalyticsData = {
 	total_value_cny: number;
 	cash_accounts: ValuedCashAccount[];
 	holdings: ValuedHolding[];
 	allocation: AllocationSlice[];
+	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
 	year_series: TimelinePoint[];

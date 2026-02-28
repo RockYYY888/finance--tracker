@@ -21,13 +21,12 @@ export interface HoldingListProps {
 	onCreate?: () => void;
 	onEdit?: (holding: HoldingRecord) => void;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
-	onRefresh?: () => MaybePromise<unknown>;
 }
 
 export function HoldingList({
 	holdings,
 	title = "证券持仓",
-	subtitle = "使用卡片展示关键信息，减少横向滚动。",
+	subtitle,
 	loading = false,
 	busy = false,
 	errorMessage = null,
@@ -35,31 +34,12 @@ export function HoldingList({
 	onCreate,
 	onEdit,
 	onDelete,
-	onRefresh,
 }: HoldingListProps) {
 	const [localError, setLocalError] = useState<string | null>(null);
-	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [deletingId, setDeletingId] = useState<number | null>(null);
 
 	const effectiveError = localError ?? errorMessage;
-	const isActionLocked = busy || isRefreshing;
-
-	async function handleRefresh(): Promise<void> {
-		if (!onRefresh) {
-			return;
-		}
-
-		setLocalError(null);
-		setIsRefreshing(true);
-
-		try {
-			await onRefresh();
-		} catch (error) {
-			setLocalError(toErrorMessage(error, "刷新持仓失败，请稍后重试。"));
-		} finally {
-			setIsRefreshing(false);
-		}
-	}
+	const isActionLocked = busy;
 
 	async function handleDelete(recordId: number): Promise<void> {
 		if (!onDelete) {
@@ -84,19 +64,9 @@ export function HoldingList({
 				<div>
 					<p className="asset-manager__eyebrow">HOLDING LIST</p>
 					<h3>{title}</h3>
-					<p>{subtitle}</p>
+					{subtitle ? <p>{subtitle}</p> : null}
 				</div>
 				<div className="asset-manager__mini-actions">
-					{onRefresh ? (
-						<button
-							type="button"
-							className="asset-manager__button asset-manager__button--secondary"
-							onClick={() => void handleRefresh()}
-							disabled={isActionLocked}
-						>
-							{isRefreshing ? "刷新中..." : "刷新"}
-						</button>
-					) : null}
 					{onCreate ? (
 						<button
 							type="button"
@@ -117,7 +87,7 @@ export function HoldingList({
 			) : null}
 
 			{loading ? (
-				<div className="asset-manager__empty-state">正在同步证券持仓...</div>
+				<div className="asset-manager__empty-state">正在加载证券持仓...</div>
 			) : holdings.length === 0 ? (
 				<div className="asset-manager__empty-state">{emptyMessage}</div>
 			) : (
@@ -134,7 +104,7 @@ export function HoldingList({
 									</div>
 									<h3>{holding.name}</h3>
 									<p className="asset-manager__card-note">
-										最近同步：{formatTimestamp(holding.last_updated)}
+										更新：{formatTimestamp(holding.last_updated)}
 										{holding.broker?.trim() ? ` · ${holding.broker}` : ""}
 										{holding.note?.trim() ? ` · ${holding.note}` : ""}
 									</p>

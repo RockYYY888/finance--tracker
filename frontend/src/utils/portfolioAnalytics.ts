@@ -70,10 +70,14 @@ export function getChartColors(): string[] {
 
 export function getTimelineSeries(
 	range: TimelineRange,
+	hourSeries: TimelinePoint[],
 	daySeries: TimelinePoint[],
 	monthSeries: TimelinePoint[],
 	yearSeries: TimelinePoint[],
 ): TimelinePoint[] {
+	if (range === "hour") {
+		return hourSeries;
+	}
 	if (range === "month") {
 		return monthSeries;
 	}

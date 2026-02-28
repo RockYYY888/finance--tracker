@@ -89,6 +89,14 @@ export interface HoldingRecord extends HoldingInput {
 	last_updated?: string | null;
 }
 
+export interface SecuritySearchResult {
+	symbol: string;
+	name: string;
+	market: SecurityMarket;
+	currency: string;
+	exchange?: string | null;
+}
+
 export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	symbol: "",
 	name: "",
@@ -109,6 +117,9 @@ export type EditAssetAction<TInput, TRecord> = (
 export type DeleteAssetAction = (recordId: number) => MaybePromise<void>;
 
 export type RefreshAssetAction<TRecord> = () => MaybePromise<TRecord[]>;
+export type SearchSecurityAction = (
+	query: string,
+) => MaybePromise<SecuritySearchResult[]>;
 
 export interface AssetCollectionActions<TInput, TRecord> {
 	onCreate?: CreateAssetAction<TInput, TRecord>;
@@ -117,9 +128,14 @@ export interface AssetCollectionActions<TInput, TRecord> {
 	onRefresh?: RefreshAssetAction<TRecord>;
 }
 
+export interface HoldingCollectionActions
+	extends AssetCollectionActions<HoldingInput, HoldingRecord> {
+	onSearch?: SearchSecurityAction;
+}
+
 export interface AssetManagerController {
 	cashAccounts?: AssetCollectionActions<CashAccountInput, CashAccountRecord>;
-	holdings?: AssetCollectionActions<HoldingInput, HoldingRecord>;
+	holdings?: HoldingCollectionActions;
 }
 
 export interface AssetApiClient {
@@ -131,4 +147,5 @@ export interface AssetApiClient {
 	createHolding: (payload: HoldingInput) => Promise<HoldingRecord>;
 	updateHolding: (recordId: number, payload: HoldingInput) => Promise<HoldingRecord>;
 	deleteHolding: (recordId: number) => Promise<void>;
+	searchSecurities: (query: string) => Promise<SecuritySearchResult[]>;
 }

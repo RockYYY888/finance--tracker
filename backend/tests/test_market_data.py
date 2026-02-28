@@ -10,7 +10,10 @@ from app.services.market_data import (
 	MarketDataClient,
 	Quote,
 	QuoteLookupError,
+	SecuritySearchResult,
+	build_local_search_results,
 	build_fx_symbol,
+	infer_security_market,
 	normalize_symbol,
 )
 
@@ -59,6 +62,21 @@ class SequenceRateProvider:
 		return outcome
 
 
+class SequenceSearchProvider:
+	def __init__(self, outcomes: list[object]) -> None:
+		self._outcomes = outcomes
+		self.calls = 0
+		self.queries: list[str] = []
+
+	async def search(self, query: str) -> list[SecuritySearchResult]:
+		self.calls += 1
+		self.queries.append(query)
+		outcome = self._outcomes[min(self.calls - 1, len(self._outcomes) - 1)]
+		if isinstance(outcome, Exception):
+			raise outcome
+		return outcome
+
+
 def test_build_fx_symbol_uses_yahoo_pair_format() -> None:
 	assert build_fx_symbol("hkd", "cny") == "HKDCNY=X"
 
@@ -89,6 +107,12 @@ def test_normalize_symbol_supports_common_market_formats(
 def test_normalize_symbol_rejects_obviously_invalid_values() -> None:
 	with pytest.raises(ValueError, match="Invalid symbol format"):
 		normalize_symbol("bad symbol!")
+
+
+def test_infer_security_market_uses_symbol_and_exchange_hints() -> None:
+	assert infer_security_market("0700.HK") == "HK"
+	assert infer_security_market("600519.SS") == "CN"
+	assert infer_security_market("AAPL", "NMS") == "US"
 
 
 def test_fetch_quote_uses_fresh_cache_before_calling_provider() -> None:
@@ -150,6 +174,45 @@ def test_fetch_quote_returns_stale_cache_when_provider_fails() -> None:
 	assert fallback_quote.price == 88.8
 	assert warnings == ["AAPL 行情源不可用，已回退到最近缓存值: provider down"]
 	assert provider.calls == 2
+
+
+def test_search_securities_uses_cache_before_calling_provider() -> None:
+	results = [
+		SecuritySearchResult(
+			symbol="0700.HK",
+			name="Tencent Holdings",
+			market="HK",
+			currency="HKD",
+			exchange="HKG",
+		),
+	]
+	provider = SequenceSearchProvider([results])
+	client = MarketDataClient(search_provider=provider)
+
+	first_results = asyncio.run(client.search_securities("bad symbol!"))
+	second_results = asyncio.run(client.search_securities("Bad Symbol!"))
+
+	assert first_results == results
+	assert second_results == results
+	assert provider.calls == 1
+	assert provider.queries == ["bad symbol!"]
+
+
+def test_search_securities_returns_local_alias_when_provider_fails() -> None:
+	client = MarketDataClient(
+		search_provider=SequenceSearchProvider([QuoteLookupError("rate limited")]),
+	)
+
+	results = asyncio.run(client.search_securities("腾讯"))
+
+	assert results[0].symbol == "0700.HK"
+	assert results[0].name == "腾讯控股"
+
+
+def test_build_local_search_results_supports_symbol_fallback() -> None:
+	results = build_local_search_results("700")
+
+	assert results[0].symbol == "0700.HK"
 
 
 def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:
