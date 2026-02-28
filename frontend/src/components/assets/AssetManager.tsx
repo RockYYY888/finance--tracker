@@ -27,6 +27,7 @@ export interface AssetManagerProps {
 	title?: string;
 	description?: string;
 	autoRefreshOnMount?: boolean;
+	refreshToken?: number;
 }
 
 function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
@@ -113,6 +114,7 @@ export function AssetManager({
 	title = "资产录入",
 	description,
 	autoRefreshOnMount = false,
+	refreshToken = 0,
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
 	const resolvedCashAccounts = initialCashAccounts ?? EMPTY_CASH_ACCOUNTS;
@@ -133,13 +135,13 @@ export function AssetManager({
 	});
 
 	useEffect(() => {
-		if (!autoRefreshOnMount) {
+		if (!autoRefreshOnMount && refreshToken === 0) {
 			return;
 		}
 
 		void cashCollection.refresh();
 		void holdingCollection.refresh();
-	}, [autoRefreshOnMount]);
+	}, [autoRefreshOnMount, refreshToken]);
 
 	async function handleCashDelete(recordId: number): Promise<void> {
 		const targetAccount = cashCollection.items.find((item) => item.id === recordId);
@@ -231,7 +233,7 @@ export function AssetManager({
 							loading={cashCollection.isRefreshing}
 							busy={cashCollection.isSubmitting}
 							errorMessage={cashCollection.errorMessage}
-							onCreate={cashCollection.openCreate}
+							onCreate={showCashEditor ? undefined : cashCollection.openCreate}
 							onEdit={(account) => cashCollection.openEdit(account)}
 							onDelete={(recordId) => handleCashDelete(recordId)}
 						/>
@@ -262,7 +264,7 @@ export function AssetManager({
 							loading={holdingCollection.isRefreshing}
 							busy={holdingCollection.isSubmitting}
 							errorMessage={holdingCollection.errorMessage}
-							onCreate={holdingCollection.openCreate}
+							onCreate={showHoldingEditor ? undefined : holdingCollection.openCreate}
 							onEdit={(holding) => holdingCollection.openEdit(holding)}
 							onDelete={(recordId) => handleHoldingDelete(recordId)}
 						/>

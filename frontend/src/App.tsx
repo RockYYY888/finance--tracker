@@ -31,9 +31,18 @@ function App() {
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+	const [assetRefreshToken, setAssetRefreshToken] = useState(0);
 
 	useEffect(() => {
 		void loadDashboard();
+	}, []);
+
+	useEffect(() => {
+		const refreshTimer = window.setInterval(() => {
+			void loadDashboard();
+		}, 60 * 60 * 1000);
+
+		return () => window.clearInterval(refreshTimer);
 	}, []);
 
 	async function loadDashboard(): Promise<void> {
@@ -43,6 +52,7 @@ function App() {
 			const nextDashboard = await getDashboard();
 			setDashboard(nextDashboard);
 			setLastUpdatedAt(new Date().toISOString());
+			setAssetRefreshToken((currentValue) => currentValue + 1);
 		} catch (error) {
 			setErrorMessage(
 				error instanceof Error
@@ -165,9 +175,9 @@ function App() {
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
 					title="资产录入"
-					description="操作后自动更新。"
+					description="操作后自动更新，每小时刷新一次。"
 					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
-					autoRefreshOnMount
+					refreshToken={assetRefreshToken}
 				/>
 			</div>
 		</div>

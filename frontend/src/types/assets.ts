@@ -100,7 +100,7 @@ export interface SecuritySearchResult {
 export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	symbol: "",
 	name: "",
-	quantity: "",
+	quantity: "1",
 	fallback_currency: "HKD",
 	market: "HK",
 	broker: "",

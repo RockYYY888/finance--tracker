@@ -135,7 +135,7 @@ export function HoldingList({
 
 							<div className="asset-manager__metric-grid">
 								<div className="asset-manager__metric">
-									<span>持仓数量</span>
+									<span>{holding.market === "FUND" ? "份额" : "数量（股/支）"}</span>
 									<strong>{formatQuantity(holding.quantity)}</strong>
 								</div>
 								<div className="asset-manager__metric">
@@ -152,7 +152,7 @@ export function HoldingList({
 									</strong>
 								</div>
 								<div className="asset-manager__metric">
-									<span>备用币种</span>
+									<span>计价币种</span>
 									<strong>{holding.fallback_currency}</strong>
 								</div>
 								<div className="asset-manager__metric">

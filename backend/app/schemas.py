@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models import CASH_ACCOUNT_TYPES, SECURITY_MARKETS
 
@@ -100,6 +100,12 @@ class SecurityHoldingCreate(BaseModel):
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
 		return _normalize_optional_text(value)
 
+	@model_validator(mode="after")
+	def validate_quantity_for_market(self) -> SecurityHoldingCreate:
+		if self.market != "FUND" and not float(self.quantity).is_integer():
+			raise ValueError("股票请使用整数数量，基金可使用份额。")
+		return self
+
 
 class SecurityHoldingUpdate(BaseModel):
 	symbol: str = Field(min_length=1, max_length=32)
@@ -119,6 +125,12 @@ class SecurityHoldingUpdate(BaseModel):
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
 		return _normalize_optional_text(value)
+
+	@model_validator(mode="after")
+	def validate_quantity_for_market(self) -> SecurityHoldingUpdate:
+		if (self.market or "OTHER") != "FUND" and not float(self.quantity).is_integer():
+			raise ValueError("股票请使用整数数量，基金可使用份额。")
+		return self
 
 
 class SecurityHoldingRead(BaseModel):

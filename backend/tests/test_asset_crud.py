@@ -304,3 +304,26 @@ def test_holding_schema_rejects_invalid_market() -> None:
 			fallback_currency="USD",
 			market="JP",
 		)
+
+
+def test_holding_schema_rejects_fractional_stock_quantity() -> None:
+	with pytest.raises(ValidationError):
+		SecurityHoldingCreate(
+			symbol="AAPL",
+			name="Apple",
+			quantity=1.5,
+			fallback_currency="USD",
+			market="US",
+		)
+
+
+def test_holding_schema_allows_fractional_fund_units() -> None:
+	holding = SecurityHoldingCreate(
+		symbol="159915.SZ",
+		name="创业板 ETF",
+		quantity=1.5,
+		fallback_currency="CNY",
+		market="FUND",
+	)
+
+	assert holding.quantity == 1.5

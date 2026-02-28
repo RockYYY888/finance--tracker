@@ -61,6 +61,10 @@ function getSearchLabel(selection: { name: string; symbol: string }): string {
 	return `${selection.name} (${selection.symbol})`;
 }
 
+function isFundMarket(market: HoldingFormDraft["market"]): boolean {
+	return market === "FUND";
+}
+
 export function HoldingForm({
 	mode = "create",
 	value,
@@ -162,6 +166,9 @@ export function HoldingForm({
 	const isSubmitting = busy || isWorking;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑证券持仓" : "新增证券持仓");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
+	const quantityLabel = isFundMarket(draft.market) ? "份额" : "数量（股/支）";
+	const quantityStep = isFundMarket(draft.market) ? "0.0001" : "1";
+	const quantityMin = isFundMarket(draft.market) ? "0.0001" : "1";
 
 	function updateDraft<K extends keyof HoldingFormDraft>(
 		field: K,
@@ -216,6 +223,9 @@ export function HoldingForm({
 			}
 			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
 				throw new Error("请输入有效的持仓数量。");
+			}
+			if (!isFundMarket(draft.market) && !Number.isInteger(payload.quantity)) {
+				throw new Error("股票请使用整数数量；基金可使用份额。");
 			}
 
 			if (mode === "edit" && recordId !== null) {
@@ -368,20 +378,20 @@ export function HoldingForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>数量</span>
+						<span>{quantityLabel}</span>
 						<input
 							required
 							type="number"
-							min="0.0001"
-							step="0.0001"
+							min={quantityMin}
+							step={quantityStep}
 							value={draft.quantity}
 							onChange={(event) => updateDraft("quantity", event.target.value)}
-							placeholder="100"
+							placeholder={isFundMarket(draft.market) ? "1.0000" : "100"}
 						/>
 					</label>
 
 					<label className="asset-manager__field">
-						<span>币种</span>
+						<span>计价币种</span>
 						<input
 							required
 							value={draft.fallback_currency}
