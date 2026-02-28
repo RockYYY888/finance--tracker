@@ -1,0 +1,24 @@
+{
+	"name": "personal-asset-tracker-frontend",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc -b && vite build",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"react": "^18.3.1",
+		"react-dom": "^18.3.1",
+		"recharts": "^3.1.2"
+	},
+	"devDependencies": {
+		"@types/node": "^24.3.0",
+		"@types/react": "^18.3.24",
+		"@types/react-dom": "^18.3.7",
+		"@vitejs/plugin-react": "^5.0.2",
+		"typescript": "^5.9.2",
+		"vite": "^7.1.3"
+	}
+}

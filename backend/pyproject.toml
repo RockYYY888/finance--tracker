@@ -1,0 +1,20 @@
+[project]
+name = "personal-asset-tracker-backend"
+version = "0.1.0"
+description = "Backend for a personal asset tracking dashboard."
+requires-python = ">=3.11"
+dependencies = [
+	"fastapi>=0.115.12",
+	"httpx>=0.28.1",
+	"pydantic-settings>=2.10.1",
+	"pytest>=8.4.1",
+	"sqlmodel>=0.0.24",
+	"uvicorn[standard]>=0.34.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
