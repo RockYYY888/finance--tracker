@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
+from sqlalchemy import text
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -11,7 +12,7 @@ from sqlmodel import Session, select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.analytics import build_timeline
-from app.database import get_session, init_db
+from app.database import engine, get_session, init_db
 from app.models import CashAccount, PortfolioSnapshot, SecurityHolding, utc_now
 from app.schemas import (
 	AllocationSlice,
@@ -38,6 +39,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
 	init_db()
+	_ensure_legacy_schema()
 	yield
 
 
@@ -80,8 +82,61 @@ def _normalize_symbol(symbol: str) -> str:
 	return symbol.strip().upper()
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+	if value is None:
+		return None
+
+	stripped = value.strip()
+	return stripped or None
+
+
 def _touch_model(model: CashAccount | SecurityHolding) -> None:
 	model.updated_at = utc_now()
+
+
+def _load_table_columns(session: Session, table_name: str) -> set[str]:
+	rows = session.exec(text(f"PRAGMA table_info({table_name})")).all()
+	return {row[1] for row in rows}
+
+
+def _ensure_legacy_schema() -> None:
+	"""Add newly introduced columns when the local SQLite file predates them."""
+	schema_changes = (
+		(
+			CashAccount.__table__.name,
+			{
+				"account_type": "TEXT NOT NULL DEFAULT 'OTHER'",
+				"note": "TEXT",
+			},
+		),
+		(
+			SecurityHolding.__table__.name,
+			{
+				"market": "TEXT NOT NULL DEFAULT 'OTHER'",
+				"broker": "TEXT",
+				"note": "TEXT",
+			},
+		),
+	)
+
+	with Session(engine) as session:
+		has_changes = False
+		for table_name, column_defs in schema_changes:
+			existing_columns = _load_table_columns(session, table_name)
+			if not existing_columns:
+				continue
+
+			for column_name, definition in column_defs.items():
+				if column_name in existing_columns:
+					continue
+
+				session.exec(
+					text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"),
+				)
+				has_changes = True
+
+		if has_changes:
+			session.commit()
 
 
 async def _value_cash_accounts(
@@ -240,6 +295,8 @@ def create_account(
 		platform=payload.platform.strip(),
 		currency=_normalize_currency(payload.currency),
 		balance=payload.balance,
+		account_type=payload.account_type,
+		note=payload.note,
 	)
 	session.add(account)
 	session.commit()
@@ -262,11 +319,30 @@ def update_account(
 	account.platform = payload.platform.strip()
 	account.currency = _normalize_currency(payload.currency)
 	account.balance = payload.balance
+	if payload.account_type is not None:
+		account.account_type = payload.account_type
+	if "note" in payload.model_fields_set:
+		account.note = _normalize_optional_text(payload.note)
 	_touch_model(account)
 	session.add(account)
 	session.commit()
 	session.refresh(account)
 	return account
+
+
+@app.delete("/api/accounts/{account_id}", status_code=204)
+def delete_account(
+	account_id: int,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> Response:
+	account = session.get(CashAccount, account_id)
+	if account is None:
+		raise HTTPException(status_code=404, detail="Account not found.")
+
+	session.delete(account)
+	session.commit()
+	return Response(status_code=204)
 
 
 @app.get("/api/holdings", response_model=list[SecurityHoldingRead])
@@ -285,6 +361,9 @@ def create_holding(
 		name=payload.name.strip(),
 		quantity=payload.quantity,
 		fallback_currency=_normalize_currency(payload.fallback_currency),
+		market=payload.market,
+		broker=payload.broker,
+		note=payload.note,
 	)
 	session.add(holding)
 	session.commit()
@@ -307,11 +386,32 @@ def update_holding(
 	holding.name = payload.name.strip()
 	holding.quantity = payload.quantity
 	holding.fallback_currency = _normalize_currency(payload.fallback_currency)
+	if payload.market is not None:
+		holding.market = payload.market
+	if "broker" in payload.model_fields_set:
+		holding.broker = _normalize_optional_text(payload.broker)
+	if "note" in payload.model_fields_set:
+		holding.note = _normalize_optional_text(payload.note)
 	_touch_model(holding)
 	session.add(holding)
 	session.commit()
 	session.refresh(holding)
 	return holding
+
+
+@app.delete("/api/holdings/{holding_id}", status_code=204)
+def delete_holding(
+	holding_id: int,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> Response:
+	holding = session.get(SecurityHolding, holding_id)
+	if holding is None:
+		raise HTTPException(status_code=404, detail="Holding not found.")
+
+	session.delete(holding)
+	session.commit()
+	return Response(status_code=204)
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
