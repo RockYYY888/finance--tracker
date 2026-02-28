@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from sqlalchemy import text
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlmodel import Session, select
@@ -42,6 +42,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+	settings.validate_runtime()
 	init_db()
 	_ensure_legacy_schema()
 	yield
@@ -61,20 +62,25 @@ app.add_middleware(
 app.add_middleware(
 	CORSMiddleware,
 	allow_origins=settings.cors_origins(),
-	allow_credentials=True,
-	allow_methods=["*"],
-	allow_headers=["*"],
+	allow_credentials=False,
+	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allow_headers=["Content-Type", "X-API-Key"],
 )
 
 
 @app.middleware("http")
-async def add_security_headers(request, call_next):
+async def add_security_headers(request: Request, call_next):
 	response: Response = await call_next(request)
 	response.headers["Cache-Control"] = "no-store"
 	response.headers["Pragma"] = "no-cache"
+	response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+	response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+	response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()"
 	response.headers["Referrer-Policy"] = "same-origin"
 	response.headers["X-Content-Type-Options"] = "nosniff"
 	response.headers["X-Frame-Options"] = "DENY"
+	if request.headers.get("x-forwarded-proto", request.url.scheme) == "https":
+		response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 	return response
 
 
