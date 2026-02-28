@@ -22,8 +22,8 @@
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	border-radius: 28px;
 	background:
-		radial-gradient(circle at top right, rgba(17, 138, 178, 0.18), transparent 38%),
-		radial-gradient(circle at bottom left, rgba(239, 71, 111, 0.14), transparent 42%),
+		radial-gradient(circle at top right, rgba(91, 124, 150, 0.14), transparent 38%),
+		radial-gradient(circle at bottom left, rgba(187, 140, 78, 0.12), transparent 42%),
 		rgba(22, 22, 21, 0.92);
 	box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
 	min-width: 0;
@@ -98,7 +98,7 @@
 }
 
 .analytics-segmented button.active {
-	background: rgba(239, 71, 111, 0.18);
+	background: rgba(187, 140, 78, 0.18);
 	color: #f7f4eb;
 }
 
@@ -207,7 +207,7 @@
 .analytics-note {
 	padding: 0.65rem 0.8rem;
 	border-radius: 18px;
-	background: rgba(255, 209, 102, 0.08);
+	background: rgba(187, 140, 78, 0.08);
 	color: rgba(247, 244, 235, 0.9);
 	font-size: 0.86rem;
 	line-height: 1.5;

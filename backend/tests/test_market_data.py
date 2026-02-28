@@ -63,6 +63,14 @@ def test_build_fx_symbol_uses_yahoo_pair_format() -> None:
 	assert build_fx_symbol("hkd", "cny") == "HKDCNY=X"
 
 
+def test_coerce_utc_datetime_treats_naive_values_as_utc() -> None:
+	naive_timestamp = datetime(2026, 3, 1, 8, 0, 0)
+	normalized_timestamp = main._coerce_utc_datetime(naive_timestamp)
+
+	assert normalized_timestamp.tzinfo == timezone.utc
+	assert normalized_timestamp.hour == 8
+
+
 @pytest.mark.parametrize(
 	("raw_symbol", "expected"),
 	[

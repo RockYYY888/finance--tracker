@@ -112,11 +112,10 @@ function App() {
 
 			<header className="hero-panel">
 				<div className="hero-copy-block">
-					<p className="eyebrow">PERSONAL ASSET TRACKER</p>
+					<p className="eyebrow">ASSET DASHBOARD</p>
 					<h1>个人资产总览</h1>
 					<p className="hero-copy">
-						现金账户、港股、美股、基金和多币种资产统一按人民币展示。
-						录入、编辑、删除和趋势分析都已经接通，手机端也能顺手使用。
+						录入现金账户与证券持仓后，系统会统一按人民币估值，并在下方同步更新趋势与结构图。
 					</p>
 
 					<div className="hero-actions">
@@ -131,11 +130,19 @@ function App() {
 						<div className="hero-sync-chip">最近同步：{formatLastSynced(lastSyncedAt)}</div>
 					</div>
 
-					<div className="hero-tag-row">
-						<span className="hero-tag">PWA 可安装</span>
-						<span className="hero-tag">统一 CNY 估值</span>
-						<span className="hero-tag">默认免费行情源</span>
-						<span className="hero-tag">API Token / HTTPS 预留</span>
+					<div className="quick-guide">
+						<div className="quick-guide__item">
+							<span>1</span>
+							<p>先新增现金账户或持仓</p>
+						</div>
+						<div className="quick-guide__item">
+							<span>2</span>
+							<p>在下方直接编辑、删除或刷新</p>
+						</div>
+						<div className="quick-guide__item">
+							<span>3</span>
+							<p>查看总资产、分布和时间趋势</p>
+						</div>
 					</div>
 				</div>
 
@@ -154,24 +161,6 @@ function App() {
 					</div>
 				</div>
 			</header>
-
-			<section className="signal-grid">
-				<div className="signal-card">
-					<p className="eyebrow">MOBILE</p>
-					<h2>手机上直接用</h2>
-					<p>页面已支持窄屏，PWA 可添加到主屏幕，适合日常快速记账与查看。</p>
-				</div>
-				<div className="signal-card">
-					<p className="eyebrow">SECURITY</p>
-					<h2>默认偏保守</h2>
-					<p>本地开发可直连，生产可接 HTTPS 反向代理，并支持 API Token 校验。</p>
-				</div>
-				<div className="signal-card">
-					<p className="eyebrow">MARKET DATA</p>
-					<h2>免费接口 + 回退</h2>
-					<p>行情与汇率默认使用免费源，并带缓存与失败 warning，避免总览直接报错。</p>
-				</div>
-			</section>
 
 			{errorMessage ? <div className="banner error">{errorMessage}</div> : null}
 
@@ -195,7 +184,7 @@ function App() {
 						<p className="eyebrow">ANALYTICS</p>
 						<h2>趋势与结构分析</h2>
 						<p className="section-copy">
-							按天、月、年查看资产变化，同时观察现金占比、平台分布和持仓集中度。
+							按天、月、年查看资产变化，并快速判断现金占比、平台分布和持仓集中度。
 						</p>
 					</div>
 				</div>
@@ -216,8 +205,8 @@ function App() {
 				<AssetManager
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
-					title="录入、编辑与维护资产"
-					description="现金账户与证券持仓已经接入完整 CRUD。录入后会自动回刷上方总览与分析区。"
+					title="资产录入与维护"
+					description="在这里新增、编辑、删除现金账户和证券持仓。保存后总览会自动刷新。"
 					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
 					autoRefreshOnMount
 				/>

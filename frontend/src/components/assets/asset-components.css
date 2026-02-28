@@ -11,8 +11,8 @@
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	border-radius: 28px;
 	background:
-		radial-gradient(circle at top right, rgba(239, 71, 111, 0.14), transparent 50%),
-		radial-gradient(circle at bottom left, rgba(17, 138, 178, 0.12), transparent 48%),
+		radial-gradient(circle at top right, rgba(187, 140, 78, 0.12), transparent 50%),
+		radial-gradient(circle at bottom left, rgba(91, 124, 150, 0.1), transparent 48%),
 		linear-gradient(145deg, rgba(28, 28, 27, 0.96), rgba(18, 18, 17, 0.96));
 	box-shadow: 0 22px 48px rgba(0, 0, 0, 0.28);
 }
@@ -104,7 +104,7 @@
 
 .asset-manager__toolbar button.is-active {
 	color: #111111;
-	background: linear-gradient(135deg, #ffd166, #ef476f);
+	background: linear-gradient(135deg, #d7ad78, #b8894e);
 }
 
 .asset-manager__toolbar button:disabled,
@@ -221,8 +221,8 @@
 	padding: 0.8rem 1rem;
 	border: 0;
 	border-radius: 18px;
-	background: linear-gradient(135deg, #ef476f, #ffd166);
-	color: #111111;
+	background: linear-gradient(135deg, #d7ad78, #b8894e);
+	color: #161412;
 	font-size: 0.95rem;
 	font-weight: 700;
 	cursor: pointer;
@@ -243,9 +243,9 @@
 }
 
 .asset-manager__button--danger {
-	background: rgba(239, 71, 111, 0.16);
-	color: #ffb0bf;
-	border: 1px solid rgba(239, 71, 111, 0.28);
+	background: rgba(165, 88, 88, 0.18);
+	color: #e9b2b2;
+	border: 1px solid rgba(165, 88, 88, 0.26);
 }
 
 .asset-manager__message {
@@ -303,16 +303,16 @@
 	align-items: center;
 	padding: 0.35rem 0.65rem;
 	border-radius: 999px;
-	background: rgba(255, 209, 102, 0.12);
-	color: #ffd166;
+	background: rgba(187, 140, 78, 0.14);
+	color: #d7ad78;
 	font-size: 0.76rem;
 	font-weight: 700;
 	letter-spacing: 0.08em;
 }
 
 .asset-manager__badge--muted {
-	background: rgba(125, 211, 252, 0.12);
-	color: #7dd3fc;
+	background: rgba(91, 124, 150, 0.14);
+	color: #9cb4c7;
 }
 
 .asset-manager__metric-grid {

@@ -107,6 +107,14 @@ def _touch_model(model: CashAccount | SecurityHolding) -> None:
 	model.updated_at = utc_now()
 
 
+def _coerce_utc_datetime(value: datetime) -> datetime:
+	"""Normalize persisted datetimes so legacy naive rows compare safely."""
+	if value.tzinfo is None:
+		return value.replace(tzinfo=timezone.utc)
+
+	return value.astimezone(timezone.utc)
+
+
 def _load_table_columns(session: Session, table_name: str) -> set[str]:
 	rows = session.exec(text(f"PRAGMA table_info({table_name})")).all()
 	return {row[1] for row in rows}
@@ -236,7 +244,7 @@ def _persist_snapshot(session: Session, total_value_cny: float) -> None:
 		.limit(1),
 	).first()
 
-	if last_snapshot and last_snapshot.created_at >= cutoff:
+	if last_snapshot and _coerce_utc_datetime(last_snapshot.created_at) >= cutoff:
 		last_snapshot.total_value_cny = total_value_cny
 		last_snapshot.created_at = utc_now()
 		session.add(last_snapshot)
