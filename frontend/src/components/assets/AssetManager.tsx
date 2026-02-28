@@ -33,6 +33,8 @@ function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
 		platform: record.platform,
 		currency: record.currency,
 		balance: String(record.balance),
+		account_type: record.account_type,
+		note: record.note ?? "",
 	};
 }
 
@@ -42,6 +44,9 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		name: record.name,
 		quantity: String(record.quantity),
 		fallback_currency: record.fallback_currency,
+		market: record.market,
+		broker: record.broker ?? "",
+		note: record.note ?? "",
 	};
 }
 
@@ -52,6 +57,7 @@ function createLocalCashAccount(
 	return {
 		id: nextId,
 		...payload,
+		note: payload.note,
 		value_cny: payload.currency === "CNY" ? payload.balance : 0,
 		fx_to_cny: payload.currency === "CNY" ? 1 : null,
 	};
@@ -64,6 +70,7 @@ function updateLocalCashAccount(
 	return {
 		...currentRecord,
 		...payload,
+		note: payload.note,
 		value_cny: payload.currency === "CNY" ? payload.balance : currentRecord.value_cny ?? 0,
 		fx_to_cny: payload.currency === "CNY" ? 1 : currentRecord.fx_to_cny ?? null,
 	};
@@ -73,6 +80,8 @@ function createLocalHolding(payload: HoldingInput, nextId: number): HoldingRecor
 	return {
 		id: nextId,
 		...payload,
+		broker: payload.broker,
+		note: payload.note,
 		price: null,
 		price_currency: payload.fallback_currency,
 		value_cny: 0,
@@ -87,6 +96,8 @@ function updateLocalHolding(
 	return {
 		...currentRecord,
 		...payload,
+		broker: payload.broker,
+		note: payload.note,
 		price_currency: currentRecord.price_currency ?? payload.fallback_currency,
 	};
 }
@@ -148,6 +159,10 @@ export function AssetManager({
 		cashCollection.editingRecord !== null ? "edit" : "create";
 	const holdingFormMode =
 		holdingCollection.editingRecord !== null ? "edit" : "create";
+	const showCashEditor =
+		cashCollection.isEditorOpen || cashCollection.items.length === 0;
+	const showHoldingEditor =
+		holdingCollection.isEditorOpen || holdingCollection.items.length === 0;
 
 	return (
 		<section className="asset-manager">
@@ -189,24 +204,26 @@ export function AssetManager({
 			<div className="asset-manager__workspace">
 				{activeSection === "cash" ? (
 					<>
-						<CashAccountForm
-							mode={cashFormMode}
-							value={
-								cashCollection.editingRecord
-									? toCashDraft(cashCollection.editingRecord)
-									: null
-							}
-							recordId={cashCollection.editingRecord?.id ?? null}
-							subtitle="保留创建、编辑、删除、刷新四类交互入口，方便后续主页面接入。"
-							busy={cashCollection.isSubmitting}
-							refreshing={cashCollection.isRefreshing}
-							errorMessage={cashCollection.errorMessage}
-							onCreate={(payload) => cashCollection.submit(payload)}
-							onEdit={(_recordId, payload) => cashCollection.submit(payload)}
-							onDelete={(recordId) => handleCashDelete(recordId)}
-							onRefresh={() => cashCollection.refresh()}
-							onCancel={cashCollection.closeEditor}
-						/>
+						{showCashEditor ? (
+							<CashAccountForm
+								mode={cashFormMode}
+								value={
+									cashCollection.editingRecord
+										? toCashDraft(cashCollection.editingRecord)
+										: null
+								}
+								recordId={cashCollection.editingRecord?.id ?? null}
+								subtitle="支持账户类型、备注与完整 CRUD，方便在手机上快速维护。"
+								busy={cashCollection.isSubmitting}
+								refreshing={cashCollection.isRefreshing}
+								errorMessage={cashCollection.errorMessage}
+								onCreate={(payload) => cashCollection.submit(payload)}
+								onEdit={(_recordId, payload) => cashCollection.submit(payload)}
+								onDelete={(recordId) => handleCashDelete(recordId)}
+								onRefresh={() => cashCollection.refresh()}
+								onCancel={cashCollection.closeEditor}
+							/>
+						) : null}
 
 						<CashAccountList
 							accounts={cashCollection.items}
@@ -221,24 +238,26 @@ export function AssetManager({
 					</>
 				) : (
 					<>
-						<HoldingForm
-							mode={holdingFormMode}
-							value={
-								holdingCollection.editingRecord
-									? toHoldingDraft(holdingCollection.editingRecord)
-									: null
-							}
-							recordId={holdingCollection.editingRecord?.id ?? null}
-							subtitle="卡片列表优先，适合手机竖屏做快速录入和后续再编辑。"
-							busy={holdingCollection.isSubmitting}
-							refreshing={holdingCollection.isRefreshing}
-							errorMessage={holdingCollection.errorMessage}
-							onCreate={(payload) => holdingCollection.submit(payload)}
-							onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
-							onDelete={(recordId) => handleHoldingDelete(recordId)}
-							onRefresh={() => holdingCollection.refresh()}
-							onCancel={holdingCollection.closeEditor}
-						/>
+						{showHoldingEditor ? (
+							<HoldingForm
+								mode={holdingFormMode}
+								value={
+									holdingCollection.editingRecord
+										? toHoldingDraft(holdingCollection.editingRecord)
+										: null
+								}
+								recordId={holdingCollection.editingRecord?.id ?? null}
+								subtitle="支持市场、券商与备注字段，便于完整管理港股、美股和基金。"
+								busy={holdingCollection.isSubmitting}
+								refreshing={holdingCollection.isRefreshing}
+								errorMessage={holdingCollection.errorMessage}
+								onCreate={(payload) => holdingCollection.submit(payload)}
+								onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
+								onDelete={(recordId) => handleHoldingDelete(recordId)}
+								onRefresh={() => holdingCollection.refresh()}
+								onCancel={holdingCollection.closeEditor}
+							/>
+						) : null}
 
 						<HoldingList
 							holdings={holdingCollection.items}

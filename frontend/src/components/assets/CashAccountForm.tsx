@@ -8,7 +8,10 @@ import type {
 	CashAccountInput,
 	MaybePromise,
 } from "../../types/assets";
-import { DEFAULT_CASH_ACCOUNT_FORM_DRAFT } from "../../types/assets";
+import {
+	CASH_ACCOUNT_TYPE_OPTIONS,
+	DEFAULT_CASH_ACCOUNT_FORM_DRAFT,
+} from "../../types/assets";
 
 export interface CashAccountFormProps {
 	mode?: AssetEditorMode;
@@ -37,11 +40,15 @@ function toCashAccountDraft(
 }
 
 function toCashAccountInput(draft: CashAccountFormDraft): CashAccountInput {
+	const normalizedNote = draft.note.trim();
+
 	return {
 		name: draft.name.trim(),
 		platform: draft.platform.trim(),
 		currency: draft.currency.trim().toUpperCase(),
 		balance: Number(draft.balance),
+		account_type: draft.account_type,
+		note: normalizedNote || undefined,
 	};
 }
 
@@ -203,6 +210,25 @@ export function CashAccountForm({
 
 				<div className="asset-manager__field-grid">
 					<label className="asset-manager__field">
+						<span>账户类型</span>
+						<select
+							value={draft.account_type}
+							onChange={(event) =>
+								updateDraft(
+									"account_type",
+									event.target.value as CashAccountFormDraft["account_type"],
+								)
+							}
+						>
+							{CASH_ACCOUNT_TYPE_OPTIONS.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</label>
+
+					<label className="asset-manager__field">
 						<span>币种</span>
 						<input
 							required
@@ -225,6 +251,15 @@ export function CashAccountForm({
 						/>
 					</label>
 				</div>
+
+				<label className="asset-manager__field">
+					<span>备注</span>
+					<textarea
+						value={draft.note}
+						onChange={(event) => updateDraft("note", event.target.value)}
+						placeholder="可选，例如：仅作流动资金 / 固定储蓄"
+					/>
+				</label>
 
 				<div className="asset-manager__form-actions">
 					<button

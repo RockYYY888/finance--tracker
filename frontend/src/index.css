@@ -119,6 +119,46 @@ h3 {
 	color: #d6d4cb;
 }
 
+.hero-copy-block {
+	display: grid;
+	gap: 18px;
+}
+
+.hero-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+}
+
+.hero-sync-chip {
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	padding: 10px 14px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.05);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	color: #d6d4cb;
+}
+
+.hero-tag-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.hero-tag {
+	display: inline-flex;
+	align-items: center;
+	padding: 8px 12px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.05);
+	color: #f5f1e8;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	font-size: 0.88rem;
+}
+
 .summary-grid {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -175,6 +215,56 @@ h3 {
 .banner.warning {
 	background: rgba(255, 209, 102, 0.08);
 	border: 1px solid rgba(255, 209, 102, 0.2);
+}
+
+.banner.info {
+	background: rgba(17, 138, 178, 0.1);
+	border: 1px solid rgba(17, 138, 178, 0.24);
+}
+
+.signal-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 16px;
+	margin-bottom: 24px;
+}
+
+.signal-card {
+	padding: 20px;
+	border-radius: 24px;
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%),
+		rgba(24, 24, 22, 0.86);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	backdrop-filter: blur(20px);
+}
+
+.signal-card p:last-child {
+	margin: 10px 0 0;
+	color: #d6d4cb;
+}
+
+.section-shell {
+	padding: 24px;
+	margin-bottom: 24px;
+}
+
+.section-head {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 20px;
+}
+
+.section-copy {
+	margin: 10px 0 0;
+	color: #d6d4cb;
+}
+
+.integrated-stack {
+	display: grid;
+	gap: 24px;
 }
 
 .form-panel {
@@ -360,6 +450,7 @@ th {
 
 @media (max-width: 1100px) {
 	.hero-panel,
+	.signal-grid,
 	.form-panel,
 	.chart-layout,
 	.asset-grid {
@@ -396,6 +487,12 @@ th {
 	.panel-header {
 		flex-direction: column;
 		align-items: flex-start;
+	}
+
+	.hero-actions,
+	.section-head {
+		align-items: flex-start;
+		flex-direction: column;
 	}
 
 	.split-fields {

@@ -118,6 +118,10 @@
 	gap: 1rem;
 }
 
+.asset-manager__workspace > :only-child {
+	grid-column: 1 / -1;
+}
+
 .asset-manager__panel {
 	display: grid;
 	gap: 1rem;
@@ -174,10 +178,34 @@
 	font-size: 1rem;
 }
 
-.asset-manager__field input:focus {
+.asset-manager__field input:focus,
+.asset-manager__field select:focus,
+.asset-manager__field textarea:focus {
 	outline: 2px solid rgba(255, 209, 102, 0.4);
 	outline-offset: 0;
 	border-color: rgba(255, 209, 102, 0.35);
+}
+
+.asset-manager__field select,
+.asset-manager__field textarea {
+	width: 100%;
+	padding: 0.95rem 1rem;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.05);
+	color: #f6f3eb;
+	font-size: 1rem;
+}
+
+.asset-manager__field select {
+	min-height: 3.15rem;
+	appearance: none;
+}
+
+.asset-manager__field textarea {
+	min-height: 6rem;
+	resize: vertical;
+	font-family: inherit;
 }
 
 .asset-manager__field-grid {
@@ -264,6 +292,12 @@
 	gap: 0.25rem;
 }
 
+.asset-manager__badge-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+}
+
 .asset-manager__badge {
 	display: inline-flex;
 	align-items: center;
@@ -276,9 +310,14 @@
 	letter-spacing: 0.08em;
 }
 
+.asset-manager__badge--muted {
+	background: rgba(125, 211, 252, 0.12);
+	color: #7dd3fc;
+}
+
 .asset-manager__metric-grid {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 	gap: 0.7rem;
 }
 

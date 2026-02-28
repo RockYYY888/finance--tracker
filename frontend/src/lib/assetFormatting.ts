@@ -8,6 +8,22 @@ const numberFormatter = new Intl.NumberFormat("zh-CN", {
 	maximumFractionDigits: 4,
 });
 
+const cashAccountTypeLabels: Record<string, string> = {
+	ALIPAY: "支付宝",
+	WECHAT: "微信",
+	BANK: "银行卡",
+	CASH: "现金",
+	OTHER: "其他",
+};
+
+const securityMarketLabels: Record<string, string> = {
+	CN: "A 股 / 内地",
+	HK: "港股",
+	US: "美股",
+	FUND: "基金",
+	OTHER: "其他",
+};
+
 export function formatCnyAmount(value?: number | null): string {
 	const numericValue = Number(value ?? 0);
 	return cnyFormatter.format(Number.isFinite(numericValue) ? numericValue : 0);
@@ -38,4 +54,20 @@ export function formatTimestamp(value?: string | null): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	}).format(parsedValue);
+}
+
+export function formatCashAccountType(value?: string | null): string {
+	if (!value) {
+		return "其他";
+	}
+
+	return cashAccountTypeLabels[value] ?? value;
+}
+
+export function formatSecurityMarket(value?: string | null): string {
+	if (!value) {
+		return "其他";
+	}
+
+	return securityMarketLabels[value] ?? value;
 }

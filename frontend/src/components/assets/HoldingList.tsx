@@ -4,6 +4,7 @@ import {
 	formatCnyAmount,
 	formatMoneyAmount,
 	formatQuantity,
+	formatSecurityMarket,
 	formatTimestamp,
 } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
@@ -125,10 +126,17 @@ export function HoldingList({
 						<li key={holding.id} className="asset-manager__card">
 							<div className="asset-manager__card-top">
 								<div className="asset-manager__card-title">
-									<span className="asset-manager__badge">{holding.symbol}</span>
+									<div className="asset-manager__badge-row">
+										<span className="asset-manager__badge">{holding.symbol}</span>
+										<span className="asset-manager__badge asset-manager__badge--muted">
+											{formatSecurityMarket(holding.market)}
+										</span>
+									</div>
 									<h3>{holding.name}</h3>
 									<p className="asset-manager__card-note">
 										最近同步：{formatTimestamp(holding.last_updated)}
+										{holding.broker?.trim() ? ` · ${holding.broker}` : ""}
+										{holding.note?.trim() ? ` · ${holding.note}` : ""}
 									</p>
 								</div>
 								<div className="asset-manager__card-actions">
@@ -176,6 +184,10 @@ export function HoldingList({
 								<div className="asset-manager__metric">
 									<span>备用币种</span>
 									<strong>{holding.fallback_currency}</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>市场</span>
+									<strong>{formatSecurityMarket(holding.market)}</strong>
 								</div>
 							</div>
 						</li>

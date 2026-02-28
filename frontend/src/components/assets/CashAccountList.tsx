@@ -1,6 +1,10 @@
 import { useState } from "react";
 import "./asset-components.css";
-import { formatCnyAmount, formatMoneyAmount } from "../../lib/assetFormatting";
+import {
+	formatCashAccountType,
+	formatCnyAmount,
+	formatMoneyAmount,
+} from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
 import type { CashAccountRecord, MaybePromise } from "../../types/assets";
 
@@ -120,10 +124,15 @@ export function CashAccountList({
 						<li key={account.id} className="asset-manager__card">
 							<div className="asset-manager__card-top">
 								<div className="asset-manager__card-title">
-									<span className="asset-manager__badge">{account.platform}</span>
+									<div className="asset-manager__badge-row">
+										<span className="asset-manager__badge">{account.platform}</span>
+										<span className="asset-manager__badge asset-manager__badge--muted">
+											{formatCashAccountType(account.account_type)}
+										</span>
+									</div>
 									<h3>{account.name}</h3>
 									<p className="asset-manager__card-note">
-										账户 ID #{account.id}
+										{account.note?.trim() || `账户 ID #${account.id}`}
 									</p>
 								</div>
 								<div className="asset-manager__card-actions">

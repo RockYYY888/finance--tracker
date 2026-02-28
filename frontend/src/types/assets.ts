@@ -2,11 +2,39 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type AssetEditorMode = "create" | "edit";
 
+export type CashAccountType = "ALIPAY" | "WECHAT" | "BANK" | "CASH" | "OTHER";
+
+export const CASH_ACCOUNT_TYPE_OPTIONS: Array<{
+	value: CashAccountType;
+	label: string;
+}> = [
+	{ value: "ALIPAY", label: "支付宝" },
+	{ value: "WECHAT", label: "微信" },
+	{ value: "BANK", label: "银行卡" },
+	{ value: "CASH", label: "现金" },
+	{ value: "OTHER", label: "其他" },
+];
+
+export type SecurityMarket = "CN" | "HK" | "US" | "FUND" | "OTHER";
+
+export const SECURITY_MARKET_OPTIONS: Array<{
+	value: SecurityMarket;
+	label: string;
+}> = [
+	{ value: "CN", label: "A 股 / 内地" },
+	{ value: "HK", label: "港股" },
+	{ value: "US", label: "美股" },
+	{ value: "FUND", label: "基金" },
+	{ value: "OTHER", label: "其他" },
+];
+
 export interface CashAccountInput {
 	name: string;
 	platform: string;
 	currency: string;
 	balance: number;
+	account_type: CashAccountType;
+	note?: string;
 }
 
 export interface CashAccountFormDraft {
@@ -14,6 +42,8 @@ export interface CashAccountFormDraft {
 	platform: string;
 	currency: string;
 	balance: string;
+	account_type: CashAccountType;
+	note: string;
 }
 
 export interface CashAccountRecord extends CashAccountInput {
@@ -27,6 +57,8 @@ export const DEFAULT_CASH_ACCOUNT_FORM_DRAFT: CashAccountFormDraft = {
 	platform: "支付宝",
 	currency: "CNY",
 	balance: "",
+	account_type: "ALIPAY",
+	note: "",
 };
 
 export interface HoldingInput {
@@ -34,6 +66,9 @@ export interface HoldingInput {
 	name: string;
 	quantity: number;
 	fallback_currency: string;
+	market: SecurityMarket;
+	broker?: string;
+	note?: string;
 }
 
 export interface HoldingFormDraft {
@@ -41,6 +76,9 @@ export interface HoldingFormDraft {
 	name: string;
 	quantity: string;
 	fallback_currency: string;
+	market: SecurityMarket;
+	broker: string;
+	note: string;
 }
 
 export interface HoldingRecord extends HoldingInput {
@@ -56,6 +94,9 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	name: "",
 	quantity: "",
 	fallback_currency: "HKD",
+	market: "HK",
+	broker: "",
+	note: "",
 };
 
 export type CreateAssetAction<TInput, TRecord> = (payload: TInput) => MaybePromise<TRecord>;

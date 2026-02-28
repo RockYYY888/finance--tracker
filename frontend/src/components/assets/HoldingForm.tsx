@@ -8,7 +8,10 @@ import type {
 	HoldingInput,
 	MaybePromise,
 } from "../../types/assets";
-import { DEFAULT_HOLDING_FORM_DRAFT } from "../../types/assets";
+import {
+	DEFAULT_HOLDING_FORM_DRAFT,
+	SECURITY_MARKET_OPTIONS,
+} from "../../types/assets";
 
 export interface HoldingFormProps {
 	mode?: AssetEditorMode;
@@ -35,11 +38,17 @@ function toHoldingDraft(value?: Partial<HoldingFormDraft> | null): HoldingFormDr
 }
 
 function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
+	const normalizedBroker = draft.broker.trim();
+	const normalizedNote = draft.note.trim();
+
 	return {
 		symbol: draft.symbol.trim().toUpperCase(),
 		name: draft.name.trim(),
 		quantity: Number(draft.quantity),
 		fallback_currency: draft.fallback_currency.trim().toUpperCase(),
+		market: draft.market,
+		broker: normalizedBroker || undefined,
+		note: normalizedNote || undefined,
 	};
 }
 
@@ -199,6 +208,22 @@ export function HoldingForm({
 
 				<div className="asset-manager__field-grid">
 					<label className="asset-manager__field">
+						<span>市场</span>
+						<select
+							value={draft.market}
+							onChange={(event) =>
+								updateDraft("market", event.target.value as HoldingFormDraft["market"])
+							}
+						>
+							{SECURITY_MARKET_OPTIONS.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</label>
+
+					<label className="asset-manager__field">
 						<span>数量</span>
 						<input
 							required
@@ -223,6 +248,24 @@ export function HoldingForm({
 						/>
 					</label>
 				</div>
+
+				<label className="asset-manager__field">
+					<span>券商 / 账户来源</span>
+					<input
+						value={draft.broker}
+						onChange={(event) => updateDraft("broker", event.target.value)}
+						placeholder="可选，例如：港股通 / 富途 / IBKR"
+					/>
+				</label>
+
+				<label className="asset-manager__field">
+					<span>备注</span>
+					<textarea
+						value={draft.note}
+						onChange={(event) => updateDraft("note", event.target.value)}
+						placeholder="可选，例如：长期持有 / 对冲仓位"
+					/>
+				</label>
 
 				<div className="asset-manager__form-actions">
 					<button
