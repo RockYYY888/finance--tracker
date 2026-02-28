@@ -28,7 +28,11 @@ from app.schemas import (
 )
 from app.security import verify_api_token
 from app.settings import get_settings
-from app.services.market_data import MarketDataClient, QuoteLookupError
+from app.services.market_data import (
+	MarketDataClient,
+	QuoteLookupError,
+	normalize_symbol as normalize_market_symbol,
+)
 
 SessionDependency = Annotated[Session, Depends(get_session)]
 TokenDependency = Annotated[None, Depends(verify_api_token)]
@@ -79,7 +83,10 @@ def _normalize_currency(code: str) -> str:
 
 
 def _normalize_symbol(symbol: str) -> str:
-	return symbol.strip().upper()
+	try:
+		return normalize_market_symbol(symbol)
+	except ValueError as exc:
+		raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -148,8 +155,9 @@ async def _value_cash_accounts(
 
 	for account in accounts:
 		try:
-			fx_rate = await market_data_client.fetch_fx_rate(account.currency, "CNY")
+			fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(account.currency, "CNY")
 			value_cny = round(account.balance * fx_rate, 2)
+			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:
 			fx_rate = 0.0
 			value_cny = 0.0
@@ -180,12 +188,14 @@ async def _value_holdings(
 
 	for holding in holdings:
 		try:
-			quote = await market_data_client.fetch_quote(holding.symbol)
-			fx_rate = await market_data_client.fetch_fx_rate(quote.currency, "CNY")
+			quote, quote_warnings = await market_data_client.fetch_quote(holding.symbol)
+			fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(quote.currency, "CNY")
 			value_cny = round(holding.quantity * quote.price * fx_rate, 2)
 			price = round(quote.price, 4)
 			price_currency = quote.currency
 			last_updated = quote.market_time
+			warnings.extend(quote_warnings)
+			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:
 			value_cny = 0.0
 			price = 0.0
