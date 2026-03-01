@@ -31,6 +31,12 @@ import type {
 
 type AssetSection = "cash" | "investment" | "fixed" | "liability" | "other";
 
+type SummarySection = {
+	key: AssetSection;
+	label: string;
+	count: number;
+};
+
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
 const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
@@ -387,6 +393,14 @@ export function AssetManager({
 		return `asset-manager__summary-card asset-manager__summary-card--${section}`;
 	}
 
+	const summarySections: SummarySection[] = [
+		{ key: "cash", label: "现金", count: cashCollection.items.length },
+		{ key: "investment", label: "投资类", count: holdingCollection.items.length },
+		{ key: "fixed", label: "固定资产", count: fixedAssetCollection.items.length },
+		{ key: "liability", label: "负债", count: liabilityCollection.items.length },
+		{ key: "other", label: "其他", count: otherAssetCollection.items.length },
+	];
+
 	return (
 		<section className="asset-manager">
 			<header className="asset-manager__header">
@@ -395,67 +409,22 @@ export function AssetManager({
 					<h2>{title}</h2>
 					{description ? <p>{description}</p> : null}
 				</div>
-				<div className="asset-manager__summary">
-					<div className={summaryCountClass("cash")}>
-						<span>现金</span>
-						<strong>{cashCollection.items.length}</strong>
-					</div>
-					<div className={summaryCountClass("investment")}>
-						<span>投资类</span>
-						<strong>{holdingCollection.items.length}</strong>
-					</div>
-					<div className={summaryCountClass("fixed")}>
-						<span>固定资产</span>
-						<strong>{fixedAssetCollection.items.length}</strong>
-					</div>
-					<div className={summaryCountClass("liability")}>
-						<span>负债</span>
-						<strong>{liabilityCollection.items.length}</strong>
-					</div>
-					<div className={summaryCountClass("other")}>
-						<span>其他</span>
-						<strong>{otherAssetCollection.items.length}</strong>
-					</div>
+				<div className="asset-manager__summary" role="tablist" aria-label="资产类型切换">
+					{summarySections.map((section) => (
+						<button
+							key={section.key}
+							type="button"
+							role="tab"
+							aria-selected={activeSection === section.key}
+							className={`${summaryCountClass(section.key)} ${activeSection === section.key ? "is-active" : ""}`}
+							onClick={() => setActiveSection(section.key)}
+						>
+							<span>{section.label}</span>
+							<strong>{section.count}</strong>
+						</button>
+					))}
 				</div>
 			</header>
-
-			<div className="asset-manager__toolbar" role="tablist" aria-label="资产类型切换">
-				<button
-					type="button"
-					className={activeSection === "cash" ? "is-active" : undefined}
-					onClick={() => setActiveSection("cash")}
-				>
-					现金
-				</button>
-				<button
-					type="button"
-					className={activeSection === "investment" ? "is-active" : undefined}
-					onClick={() => setActiveSection("investment")}
-				>
-					投资类
-				</button>
-				<button
-					type="button"
-					className={activeSection === "fixed" ? "is-active" : undefined}
-					onClick={() => setActiveSection("fixed")}
-				>
-					固定资产
-				</button>
-				<button
-					type="button"
-					className={activeSection === "liability" ? "is-active" : undefined}
-					onClick={() => setActiveSection("liability")}
-				>
-					负债
-				</button>
-				<button
-					type="button"
-					className={activeSection === "other" ? "is-active" : undefined}
-					onClick={() => setActiveSection("other")}
-				>
-					其他
-				</button>
-			</div>
 
 			<div className="asset-manager__workspace">
 				{activeSection === "cash" ? (

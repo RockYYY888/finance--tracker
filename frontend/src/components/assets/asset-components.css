@@ -52,10 +52,46 @@
 }
 
 .asset-manager__summary-card {
+	display: grid;
+	gap: 0.2rem;
+	width: 100%;
 	padding: 0.9rem;
 	border-radius: 22px;
-	background: rgba(255, 255, 255, 0.035);
 	border: 1px solid var(--line-soft);
+	background: rgba(255, 255, 255, 0.035);
+	box-shadow: none;
+	text-align: left;
+	transition:
+		transform 160ms ease,
+		background-color 160ms ease,
+		border-color 160ms ease,
+		box-shadow 160ms ease;
+}
+
+.asset-manager__summary-card:hover:not(:disabled) {
+	transform: translateY(-1px);
+	border-color: rgba(99, 232, 255, 0.22);
+	background: rgba(255, 255, 255, 0.055);
+}
+
+.asset-manager__summary-card:focus-visible {
+	outline: 2px solid rgba(99, 232, 255, 0.32);
+	outline-offset: 0;
+	border-color: rgba(99, 232, 255, 0.32);
+}
+
+.asset-manager__summary-card.is-active {
+	border-color: rgba(99, 232, 255, 0.34);
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 34%),
+		linear-gradient(145deg, rgba(99, 232, 255, 0.14), rgba(122, 140, 255, 0.08));
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 12px 28px rgba(99, 232, 255, 0.12);
+}
+
+.asset-manager__summary-card.is-active span {
+	color: var(--text-soft);
 }
 
 .asset-manager__summary-card span {
@@ -94,39 +130,7 @@
 	color: #f6d68b;
 }
 
-.asset-manager__toolbar {
-	display: grid;
-	grid-template-columns: repeat(5, minmax(0, 1fr));
-	gap: 0.65rem;
-	padding: 0.35rem;
-	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.03);
-	border: 1px solid var(--line-soft);
-}
-
-.asset-manager__toolbar button {
-	min-height: 3rem;
-	padding: 0.7rem 1rem;
-	border: 0;
-	border-radius: 999px;
-	background: transparent;
-	color: var(--text-muted);
-	font-size: 0.95rem;
-	font-weight: 600;
-	cursor: pointer;
-	transition:
-		transform 160ms ease,
-		background-color 160ms ease,
-		color 160ms ease;
-}
-
-.asset-manager__toolbar button.is-active {
-	color: #07111f;
-	background: linear-gradient(135deg, var(--accent-cyan), #97fff0);
-	box-shadow: 0 10px 24px rgba(99, 232, 255, 0.2);
-}
-
-.asset-manager__toolbar button:disabled,
+.asset-manager__summary-card:disabled,
 .asset-manager__button:disabled {
 	cursor: not-allowed;
 	opacity: 0.58;
