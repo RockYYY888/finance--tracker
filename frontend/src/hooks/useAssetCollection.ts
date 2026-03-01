@@ -52,8 +52,15 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const nextLocalIdRef = useRef(getNextLocalId(initialItems));
+	const hydratedSignatureRef = useRef(JSON.stringify(initialItems));
 
 	useEffect(() => {
+		const nextSignature = JSON.stringify(initialItems);
+		if (hydratedSignatureRef.current === nextSignature) {
+			return;
+		}
+
+		hydratedSignatureRef.current = nextSignature;
 		setItems(initialItems);
 		nextLocalIdRef.current = Math.max(
 			nextLocalIdRef.current,
@@ -120,9 +127,26 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 					throw new Error("当前记录已失效，请重新进入后重试。");
 				}
 
-				const nextRecord = options.actions?.onEdit
-					? await options.actions.onEdit(editingRecord.id, payload)
-					: options.updateLocalRecord(editingRecord, payload);
+				const optimisticRecord = options.updateLocalRecord(editingRecord, payload);
+				setItems((currentItems) =>
+					currentItems.map((item) =>
+						item.id === optimisticRecord.id ? optimisticRecord : item,
+					),
+				);
+
+				let nextRecord = optimisticRecord;
+				try {
+					nextRecord = options.actions?.onEdit
+						? await options.actions.onEdit(editingRecord.id, payload)
+						: optimisticRecord;
+				} catch (error) {
+					setItems((currentItems) =>
+						currentItems.map((item) =>
+							item.id === editingRecord.id ? editingRecord : item,
+						),
+					);
+					throw error;
+				}
 
 				setItems((currentItems) =>
 					currentItems.map((item) =>
@@ -130,11 +154,26 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 					),
 				);
 			} else {
-				const nextRecord = options.actions?.onCreate
-					? await options.actions.onCreate(payload)
-					: options.createLocalRecord(payload, nextLocalIdRef.current++);
+				const optimisticRecord = options.createLocalRecord(payload, nextLocalIdRef.current++);
+				setItems((currentItems) => [optimisticRecord, ...currentItems]);
 
-				setItems((currentItems) => [nextRecord, ...currentItems]);
+				let nextRecord = optimisticRecord;
+				try {
+					nextRecord = options.actions?.onCreate
+						? await options.actions.onCreate(payload)
+						: optimisticRecord;
+				} catch (error) {
+					setItems((currentItems) =>
+						currentItems.filter((item) => item.id !== optimisticRecord.id),
+					);
+					throw error;
+				}
+
+				setItems((currentItems) =>
+					currentItems.map((item) =>
+						item.id === optimisticRecord.id ? nextRecord : item,
+					),
+				);
 			}
 
 			closeEditor();
@@ -157,16 +196,27 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 		setErrorMessage(null);
 
 		try {
-			if (options.actions?.onDelete) {
-				await options.actions.onDelete(record.id);
-			}
-
 			setItems((currentItems) =>
 				currentItems.filter((item) => item.id !== record.id),
 			);
 
-			if (editingRecordId === record.id) {
-				closeEditor();
+			const wasEditingCurrentRecord = editingRecordId === record.id;
+			if (wasEditingCurrentRecord) {
+				setEditingRecordId(null);
+				setIsEditorOpen(false);
+			}
+
+			try {
+				if (options.actions?.onDelete) {
+					await options.actions.onDelete(record.id);
+				}
+			} catch (error) {
+				setItems((currentItems) => [record, ...currentItems]);
+				if (wasEditingCurrentRecord) {
+					setEditingRecordId(record.id);
+					setIsEditorOpen(true);
+				}
+				throw error;
 			}
 		} catch (error) {
 			setErrorMessage(toErrorMessage(error, "删除记录失败，请稍后重试。"));

@@ -457,7 +457,7 @@ export function AssetManager({
 									: cashCollection.openCreate
 							}
 							onEdit={(account) => cashCollection.openEdit(account)}
-							onDelete={cashActions?.onDelete}
+							onDelete={(recordId) => removeCashRecord(recordId)}
 						/>
 					</>
 				) : null}
@@ -493,7 +493,7 @@ export function AssetManager({
 									: holdingCollection.openCreate
 							}
 							onEdit={(holding) => holdingCollection.openEdit(holding)}
-							onDelete={holdingActions?.onDelete}
+							onDelete={(recordId) => removeHoldingRecord(recordId)}
 						/>
 					</>
 				) : null}
@@ -528,7 +528,7 @@ export function AssetManager({
 									: fixedAssetCollection.openCreate
 							}
 							onEdit={(asset) => fixedAssetCollection.openEdit(asset)}
-							onDelete={fixedAssetActions?.onDelete}
+							onDelete={(recordId) => removeFixedAssetRecord(recordId)}
 						/>
 					</>
 				) : null}
@@ -563,7 +563,7 @@ export function AssetManager({
 									: liabilityCollection.openCreate
 							}
 							onEdit={(entry) => liabilityCollection.openEdit(entry)}
-							onDelete={liabilityActions?.onDelete}
+							onDelete={(recordId) => removeLiabilityRecord(recordId)}
 						/>
 					</>
 				) : null}
@@ -598,7 +598,7 @@ export function AssetManager({
 									: otherAssetCollection.openCreate
 							}
 							onEdit={(asset) => otherAssetCollection.openEdit(asset)}
-							onDelete={otherAssetActions?.onDelete}
+							onDelete={(recordId) => removeOtherAssetRecord(recordId)}
 						/>
 					</>
 				) : null}
