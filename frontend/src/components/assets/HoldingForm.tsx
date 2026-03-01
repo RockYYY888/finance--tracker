@@ -65,6 +65,10 @@ function isFundMarket(market: HoldingFormDraft["market"]): boolean {
 	return market === "FUND";
 }
 
+function shouldStartSearch(query: string): boolean {
+	return query.trim().length >= 2;
+}
+
 export function HoldingForm({
 	mode = "create",
 	value,
@@ -114,6 +118,14 @@ export function HoldingForm({
 		].filter(Boolean);
 
 		if (!normalizedQuery) {
+			setSearchResults([]);
+			setIsSearchOpen(false);
+			setSearchError(null);
+			setIsSearching(false);
+			return;
+		}
+
+		if (!shouldStartSearch(searchQuery)) {
 			setSearchResults([]);
 			setIsSearchOpen(false);
 			setSearchError(null);
@@ -292,6 +304,8 @@ export function HoldingForm({
 
 						{isSearching ? (
 							<p className="asset-manager__helper-text">正在搜索…</p>
+						) : searchEnabled && searchQuery.trim().length === 1 && !draft.symbol ? (
+							<p className="asset-manager__helper-text">请输入至少 2 个字符。</p>
 						) : searchEnabled &&
 							searchQuery.trim() &&
 							!draft.symbol &&

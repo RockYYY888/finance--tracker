@@ -432,14 +432,12 @@ class MarketDataClient:
 		try:
 			provider_results = await self.search_provider.search(normalized_query)
 		except QuoteLookupError:
-			if local_results:
-				self.search_cache.set(
-					cache_key,
-					local_results,
-					ttl_seconds=self.search_ttl_seconds,
-				)
-				return local_results
-			raise
+			self.search_cache.set(
+				cache_key,
+				local_results,
+				ttl_seconds=self.search_ttl_seconds,
+			)
+			return local_results
 
 		results = _merge_search_results(local_results, provider_results)
 		self.search_cache.set(cache_key, results, ttl_seconds=self.search_ttl_seconds)

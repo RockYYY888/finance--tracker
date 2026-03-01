@@ -500,13 +500,7 @@ async def search_securities(
 	if not query:
 		return []
 
-	try:
-		return await market_data_client.search_securities(query)
-	except QuoteLookupError as exc:
-		raise HTTPException(
-			status_code=502,
-			detail=f"证券搜索暂时不可用，请稍后再试。{exc}",
-		) from exc
+	return await market_data_client.search_securities(query)
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)

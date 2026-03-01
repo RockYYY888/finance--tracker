@@ -209,6 +209,16 @@ def test_search_securities_returns_local_alias_when_provider_fails() -> None:
 	assert results[0].name == "腾讯控股"
 
 
+def test_search_securities_returns_empty_list_when_provider_fails_without_local_match() -> None:
+	client = MarketDataClient(
+		search_provider=SequenceSearchProvider([QuoteLookupError("rate limited")]),
+	)
+
+	results = asyncio.run(client.search_securities("unmatched query"))
+
+	assert results == []
+
+
 def test_build_local_search_results_supports_symbol_fallback() -> None:
 	results = build_local_search_results("700")
 
