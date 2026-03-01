@@ -74,12 +74,13 @@ export function formatCompactCny(value: number): string {
 }
 
 /**
- * Formats a ratio as a percentage with at most one decimal place.
+ * Formats a ratio as a percentage with two decimal places.
  */
 export function formatPercentage(value: number): string {
 	return new Intl.NumberFormat("zh-CN", {
 		style: "percent",
-		maximumFractionDigits: 1,
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
 	}).format(Number.isFinite(value) ? value : 0);
 }
 
@@ -94,10 +95,10 @@ export function formatPercentMetric(value: number, withSign = false): string {
 
 export function formatCompactPercentMetric(value: number): string {
 	if (!Number.isFinite(value)) {
-		return "0%";
+		return "0.00%";
 	}
 
-	return `${Math.round(value)}%`;
+	return `${value.toFixed(2)}%`;
 }
 
 export function getChartColors(): string[] {
