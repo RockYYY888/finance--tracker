@@ -1,10 +1,9 @@
-{$ASSET_TRACKER_DOMAIN:localhost} {
+http://:80 {
 	encode zstd gzip
 
 	header {
 		Permissions-Policy "camera=(), geolocation=(), microphone=()"
 		Referrer-Policy "same-origin"
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 	}
@@ -13,7 +12,7 @@
 	handle @api {
 		reverse_proxy backend:8000 {
 			header_up X-API-Key {$ASSET_TRACKER_API_TOKEN}
-			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Proto http
 		}
 	}
 
