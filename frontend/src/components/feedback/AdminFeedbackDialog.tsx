@@ -159,7 +159,7 @@ export function AdminFeedbackDialog({
 											</button>
 											<button
 												type="button"
-												className="ghost-button"
+												className="ghost-button ghost-button--danger"
 												disabled={busy || isClosed}
 												onClick={() => void onCloseItem(item.id)}
 											>

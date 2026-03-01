@@ -816,6 +816,16 @@ button:disabled {
 	color: var(--text-main);
 }
 
+.ghost-button--danger {
+	background: rgba(255, 96, 128, 0.16);
+	border: 1px solid rgba(255, 96, 128, 0.34);
+	color: #ffd7df;
+}
+
+.ghost-button--danger:hover:not(:disabled) {
+	background: rgba(255, 96, 128, 0.24);
+}
+
 .split-fields {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
