@@ -2,7 +2,7 @@ import { useState } from "react";
 import "./asset-components.css";
 import {
 	formatCnyAmount,
-	formatMoneyAmount,
+	formatPriceAmount,
 	formatQuantity,
 	formatSecurityMarket,
 	formatTimestamp,
@@ -151,7 +151,7 @@ export function HoldingList({
 								<div className="asset-manager__metric">
 									<span>现价</span>
 									<strong>
-										{formatMoneyAmount(
+										{formatPriceAmount(
 											holding.price ?? 0,
 											holding.price_currency ?? holding.fallback_currency,
 										)}

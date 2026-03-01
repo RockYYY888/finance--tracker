@@ -8,6 +8,11 @@ const numberFormatter = new Intl.NumberFormat("zh-CN", {
 	maximumFractionDigits: 4,
 });
 
+const priceFormatter = new Intl.NumberFormat("zh-CN", {
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 2,
+});
+
 const cashAccountTypeLabels: Record<string, string> = {
 	ALIPAY: "支付宝",
 	WECHAT: "微信",
@@ -33,6 +38,11 @@ export function formatCnyAmount(value?: number | null): string {
 export function formatMoneyAmount(value: number, currency: string): string {
 	const numericValue = Number.isFinite(value) ? value : 0;
 	return `${numberFormatter.format(numericValue)} ${currency.toUpperCase()}`;
+}
+
+export function formatPriceAmount(value: number, currency: string): string {
+	const numericValue = Number.isFinite(value) ? value : 0;
+	return `${priceFormatter.format(numericValue)} ${currency.toUpperCase()}`;
 }
 
 export function formatQuantity(value: number): string {
