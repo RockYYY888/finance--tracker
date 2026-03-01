@@ -239,6 +239,178 @@
 	font-family: inherit;
 }
 
+.asset-date-picker {
+	position: relative;
+}
+
+.asset-date-trigger {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 0.75rem;
+	width: 100%;
+	min-height: 3.15rem;
+	padding: 0.95rem 1rem;
+	border: 1px solid var(--line-soft);
+	border-radius: 18px;
+	background: rgba(11, 24, 41, 0.82);
+	color: var(--text-main);
+	font-size: 1rem;
+	font-weight: 500;
+	text-align: left;
+	box-shadow: none;
+}
+
+.asset-date-trigger:hover:not(:disabled) {
+	transform: none;
+	border-color: rgba(99, 232, 255, 0.24);
+	background: rgba(13, 27, 47, 0.9);
+}
+
+.asset-date-trigger:focus-visible {
+	outline: 2px solid rgba(99, 232, 255, 0.32);
+	outline-offset: 0;
+	border-color: rgba(99, 232, 255, 0.32);
+}
+
+.asset-date-trigger:disabled {
+	opacity: 0.58;
+	cursor: not-allowed;
+}
+
+.asset-date-trigger.is-empty {
+	color: var(--text-muted);
+}
+
+.asset-date-trigger__value {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.asset-date-trigger__icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.2rem;
+	height: 1.2rem;
+	color: var(--text-soft);
+}
+
+.asset-date-trigger__icon svg {
+	width: 100%;
+	height: 100%;
+}
+
+.asset-date-popover {
+	position: absolute;
+	top: calc(100% + 0.55rem);
+	left: 0;
+	z-index: 24;
+	display: grid;
+	gap: 0.7rem;
+	min-width: min(100%, 320px);
+	padding: 0.9rem;
+	border-radius: 20px;
+	border: 1px solid var(--line-strong);
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%),
+		linear-gradient(155deg, rgba(8, 18, 34, 0.98), rgba(6, 13, 25, 0.98));
+	box-shadow: 0 24px 48px rgba(0, 0, 0, 0.34);
+}
+
+.asset-date-popover .rdp-root {
+	--rdp-accent-color: var(--accent-cyan);
+	--rdp-accent-background-color: rgba(99, 232, 255, 0.14);
+	--rdp-day-width: 2.5rem;
+	--rdp-day-height: 2.5rem;
+	--rdp-day_button-width: 2.35rem;
+	--rdp-day_button-height: 2.35rem;
+	--rdp-nav_button-width: 2rem;
+	--rdp-nav_button-height: 2rem;
+	--rdp-weekday-opacity: 0.72;
+	--rdp-dropdown-gap: 0.4rem;
+	margin: 0;
+	color: var(--text-main);
+	font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+}
+
+.asset-date-popover .rdp-months {
+	justify-content: center;
+}
+
+.asset-date-popover .rdp-chevron {
+	fill: var(--accent-cyan);
+}
+
+.asset-date-popover .rdp-button_previous,
+.asset-date-popover .rdp-button_next {
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.03);
+	box-shadow: none;
+}
+
+.asset-date-popover .rdp-button_previous:hover,
+.asset-date-popover .rdp-button_next:hover {
+	transform: none;
+	background: rgba(99, 232, 255, 0.08);
+}
+
+.asset-date-popover .rdp-dropdown {
+	min-height: 2rem;
+	padding: 0.2rem 0.5rem;
+	border-radius: 10px;
+	border: 1px solid rgba(99, 232, 255, 0.14);
+	background: rgba(11, 24, 41, 0.8);
+	color: var(--text-main);
+}
+
+.asset-date-popover .rdp-day_button {
+	border-radius: 999px;
+	color: var(--text-main);
+	font-weight: 500;
+}
+
+.asset-date-popover .rdp-day_button:hover {
+	background: rgba(99, 232, 255, 0.08);
+}
+
+.asset-date-popover .rdp-selected .rdp-day_button {
+	background: linear-gradient(135deg, var(--accent-cyan), #97fff0);
+	color: #07111f;
+}
+
+.asset-date-popover .rdp-today:not(.rdp-selected) .rdp-day_button {
+	border: 1px solid rgba(99, 232, 255, 0.22);
+}
+
+.asset-date-popover__actions {
+	display: flex;
+	justify-content: space-between;
+	gap: 0.65rem;
+}
+
+.asset-date-popover__action {
+	min-height: 2.35rem;
+	padding: 0.55rem 0.9rem;
+	border-radius: 12px;
+	background: rgba(99, 232, 255, 0.1);
+	color: var(--text-main);
+	font-size: 0.88rem;
+	font-weight: 600;
+	box-shadow: none;
+}
+
+.asset-date-popover__action:hover {
+	transform: none;
+	background: rgba(99, 232, 255, 0.16);
+}
+
+.asset-date-popover__action--muted {
+	background: rgba(255, 255, 255, 0.05);
+	color: var(--text-muted);
+}
+
 .asset-manager__field-grid {
 	display: grid;
 	gap: 0.85rem;

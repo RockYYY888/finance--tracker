@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import "./asset-components.css";
+import { DatePickerField } from "./DatePickerField";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	AssetEditorMode,
@@ -214,10 +215,10 @@ export function OtherAssetForm({
 
 					<label className="asset-manager__field">
 						<span>形成日</span>
-						<input
-							type="date"
+						<DatePickerField
 							value={draft.started_on}
-							onChange={(event) => updateDraft("started_on", event.target.value)}
+							onChange={(nextValue) => updateDraft("started_on", nextValue)}
+							placeholder="选择形成日"
 						/>
 					</label>
 				</div>
