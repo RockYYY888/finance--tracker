@@ -23,15 +23,51 @@ function parsePayload<T>(responseText: string): T {
 	}
 }
 
+type ApiErrorDetailItem = {
+	msg?: string;
+};
+
+function extractValidationErrorMessage(detail: unknown): string | null {
+	if (!Array.isArray(detail)) {
+		return null;
+	}
+
+	const messages = detail
+		.map((item) => {
+			if (!item || typeof item !== "object") {
+				return null;
+			}
+
+			const message = (item as ApiErrorDetailItem).msg;
+			if (typeof message !== "string") {
+				return null;
+			}
+
+			return message.replace(/^Value error,\s*/, "").trim() || null;
+		})
+		.filter((message): message is string => message !== null);
+
+	if (messages.length === 0) {
+		return null;
+	}
+
+	return Array.from(new Set(messages)).join("；");
+}
+
 function extractErrorMessage(responseText: string, statusCode: number): string {
 	if (!responseText.trim()) {
 		return `Request failed with status ${statusCode}`;
 	}
 
 	try {
-		const parsed = JSON.parse(responseText) as { detail?: string };
+		const parsed = JSON.parse(responseText) as { detail?: string | unknown[] };
 		if (typeof parsed.detail === "string" && parsed.detail.trim()) {
 			return parsed.detail;
+		}
+
+		const validationMessage = extractValidationErrorMessage(parsed.detail);
+		if (validationMessage) {
+			return validationMessage;
 		}
 	} catch {
 		return responseText;
