@@ -807,11 +807,11 @@ class MarketDataClient:
 		raise last_error or QuoteLookupError(f"Quote provider request failed for {symbol}.")
 
 	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
-		"""Clear short-lived runtime caches so a manual refresh can force new provider fetches."""
-		self.quote_cache.clear()
-		self.fx_cache.clear()
+		"""Expire runtime caches so refreshes refetch while stale values remain available."""
+		self.quote_cache.expire_all()
+		self.fx_cache.expire_all()
 		if clear_search:
-			self.search_cache.clear()
+			self.search_cache.expire_all()
 
 	async def fetch_quote(
 		self,

@@ -43,3 +43,9 @@ class TTLCache(Generic[CacheValue]):
 
 	def clear(self) -> None:
 		self._entries.clear()
+
+	def expire_all(self) -> None:
+		"""Mark every entry expired while keeping stale values available for fallback."""
+		now = self._now()
+		for entry in self._entries.values():
+			entry.expires_at = now

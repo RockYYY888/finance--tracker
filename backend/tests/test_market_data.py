@@ -242,8 +242,20 @@ def test_clear_runtime_caches_clears_quote_and_fx_but_keeps_search_by_default() 
 	client.clear_runtime_caches()
 
 	assert client.quote_cache.get("AAPL") is None
+	assert client.quote_cache.get_stale("AAPL") is not None
 	assert client.fx_cache.get("USD:CNY") is None
+	assert client.fx_cache.get_stale("USD:CNY") == 7.2
 	assert client.search_cache.get("aapl") == []
+
+
+def test_clear_runtime_caches_keeps_search_stale_when_requested() -> None:
+	client = MarketDataClient()
+	client.search_cache.set("aapl", [], ttl_seconds=60)
+
+	client.clear_runtime_caches(clear_search=True)
+
+	assert client.search_cache.get("aapl") is None
+	assert client.search_cache.get_stale("aapl") == []
 
 
 def test_fetch_quote_prefers_crypto_provider_for_crypto_symbols() -> None:
