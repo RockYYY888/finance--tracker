@@ -7,6 +7,7 @@ import app.main as main
 from app.models import SecurityHolding
 from app.services.cache import TTLCache
 from app.services.market_data import (
+	BitgetQuoteProvider,
 	EastMoneySecuritySearchProvider,
 	MarketDataClient,
 	Quote,
@@ -330,6 +331,28 @@ def test_search_securities_keeps_distinct_crypto_providers() -> None:
 	assert {result.source for result in results} == {"Bitget", "Yahoo Finance"}
 
 
+def test_build_local_search_results_supports_usdt_alias() -> None:
+	results = build_local_search_results("usdt")
+
+	assert results[0].symbol == "USDT-USD"
+	assert results[0].market == "CRYPTO"
+	assert results[0].source == "Bitget"
+
+
+def test_fetch_quote_uses_crypto_market_hint_for_stablecoin_symbol() -> None:
+	client = MarketDataClient(
+		quote_provider=SequenceQuoteProvider([QuoteLookupError("rate limited")]),
+		crypto_quote_provider=BitgetQuoteProvider(),
+	)
+
+	quote, warnings = asyncio.run(client.fetch_quote("USDT", "CRYPTO"))
+
+	assert quote.symbol == "USDT-USD"
+	assert quote.price == 1.0
+	assert quote.currency == "USD"
+	assert warnings == []
+
+
 def test_parse_eastmoney_search_item_maps_a_share_codes() -> None:
 	result = parse_eastmoney_search_item({
 		"Code": "688256",
@@ -388,7 +411,11 @@ def test_fetch_fx_rate_raises_when_no_cache_and_providers_fail() -> None:
 
 
 class FailingMarketDataClient:
-	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+	) -> tuple[Quote, list[str]]:
 		raise QuoteLookupError("provider down")
 
 	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:

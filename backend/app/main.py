@@ -500,7 +500,10 @@ async def _value_holdings(
 
 	for holding in holdings:
 		try:
-			quote, quote_warnings = await market_data_client.fetch_quote(holding.symbol)
+			quote, quote_warnings = await market_data_client.fetch_quote(
+				holding.symbol,
+				holding.market,
+			)
 			currency_code = _normalize_currency(quote.currency)
 			override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
 			if override_rate is not None:

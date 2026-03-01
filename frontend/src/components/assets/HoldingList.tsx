@@ -12,6 +12,10 @@ import {
 import { toErrorMessage } from "../../lib/apiClient";
 import type { HoldingRecord, MaybePromise } from "../../types/assets";
 
+function shouldShowHoldingSource(source?: string | null): boolean {
+	return Boolean(source && source !== "代码推断" && source !== "本地映射");
+}
+
 export interface HoldingListProps {
 	holdings: HoldingRecord[];
 	title?: string;
@@ -107,7 +111,9 @@ export function HoldingList({
 									<h3>{holding.name}</h3>
 									<p className="asset-manager__card-note">
 										更新：{formatTimestamp(holding.last_updated)}
-										{holding.broker?.trim() ? ` · ${holding.broker}` : ""}
+										{shouldShowHoldingSource(holding.broker?.trim())
+											? ` · ${holding.broker?.trim()}`
+											: ""}
 										{holding.note?.trim() ? ` · ${holding.note}` : ""}
 									</p>
 								</div>

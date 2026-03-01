@@ -74,6 +74,14 @@ function shouldStartSearch(query: string): boolean {
 	return query.trim().length >= 2;
 }
 
+function isImplicitSearchSourceLabel(source?: string | null): boolean {
+	return source === "代码推断" || source === "本地映射";
+}
+
+function shouldPrefillBroker(source?: string | null): boolean {
+	return Boolean(source && !isImplicitSearchSourceLabel(source));
+}
+
 export function HoldingForm({
 	mode = "create",
 	value,
@@ -229,7 +237,11 @@ export function HoldingForm({
 			name: result.name,
 			market: result.market,
 			fallback_currency: result.currency || currentDraft.fallback_currency,
-			broker: result.source || currentDraft.broker,
+			broker: shouldPrefillBroker(result.source)
+				? result.source ?? currentDraft.broker
+				: isImplicitSearchSourceLabel(currentDraft.broker)
+					? ""
+					: currentDraft.broker,
 		}));
 	}
 

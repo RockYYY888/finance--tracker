@@ -52,7 +52,11 @@ class StaticMarketDataClient:
 			return 1.0, []
 		return 7.0, []
 
-	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+	) -> tuple[Quote, list[str]]:
 		return (
 			Quote(
 				symbol=symbol,

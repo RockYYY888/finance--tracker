@@ -253,6 +253,28 @@ LOCAL_SEARCH_CATALOG = (
 			source=BITGET_SOURCE_LABEL,
 		),
 	),
+	(
+		("usdt", "泰达币", "tether"),
+		SecuritySearchResult(
+			symbol="USDT-USD",
+			name="Tether USDt",
+			market="CRYPTO",
+			currency="USD",
+			exchange=BITGET_EXCHANGE,
+			source=BITGET_SOURCE_LABEL,
+		),
+	),
+	(
+		("usdc", "usd coin"),
+		SecuritySearchResult(
+			symbol="USDC-USD",
+			name="USD Coin",
+			market="CRYPTO",
+			currency="USD",
+			exchange=BITGET_EXCHANGE,
+			source=BITGET_SOURCE_LABEL,
+		),
+	),
 )
 
 
@@ -422,7 +444,7 @@ def build_local_search_results(query: str) -> list[SecuritySearchResult]:
 						market=market,
 						currency=_default_currency_for_market(market),
 						exchange=BITGET_EXCHANGE if market == "CRYPTO" else None,
-						source=BITGET_SOURCE_LABEL if market == "CRYPTO" else "代码推断",
+						source=BITGET_SOURCE_LABEL if market == "CRYPTO" else None,
 					),
 				)
 
@@ -535,6 +557,15 @@ class BitgetQuoteProvider:
 		"""Fetch spot crypto quotes from Bitget's public market endpoint."""
 		normalized_symbol = normalize_symbol_for_market(symbol, "CRYPTO")
 		base, _, _quote = normalized_symbol.partition("-")
+		if base in BITGET_STABLE_QUOTES:
+			return Quote(
+				symbol=normalized_symbol,
+				name="Tether USDt" if base == "USDT" else "USD Coin",
+				price=1.0,
+				currency="USD",
+				market_time=datetime.now(timezone.utc),
+			)
+
 		bitget_symbol = build_bitget_symbol(normalized_symbol)
 
 		try:
@@ -757,10 +788,15 @@ class MarketDataClient:
 		if clear_search:
 			self.search_cache.clear()
 
-	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+	) -> tuple[Quote, list[str]]:
 		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
-		normalized_symbol = normalize_symbol_for_market(symbol)
-		market = infer_security_market(normalized_symbol)
+		normalized_market = (market or "").strip().upper() or None
+		normalized_symbol = normalize_symbol_for_market(symbol, normalized_market)
+		resolved_market = normalized_market or infer_security_market(normalized_symbol)
 		cached_quote = self.quote_cache.get(normalized_symbol)
 		if cached_quote is not None:
 			return cached_quote, []
@@ -768,7 +804,7 @@ class MarketDataClient:
 		try:
 			quote = await self.quote_provider.fetch_quote(normalized_symbol)
 		except QuoteLookupError as exc:
-			if market in {"HK", "CN"}:
+			if resolved_market in {"HK", "CN"}:
 				try:
 					quote = await self.fallback_quote_provider.fetch_quote(normalized_symbol)
 				except QuoteLookupError as fallback_exc:
@@ -779,7 +815,7 @@ class MarketDataClient:
 							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {combined_error}",
 						]
 					raise QuoteLookupError(combined_error) from fallback_exc
-			elif market == "CRYPTO":
+			elif resolved_market == "CRYPTO":
 				try:
 					quote = await self.crypto_quote_provider.fetch_quote(normalized_symbol)
 				except QuoteLookupError as crypto_exc:
