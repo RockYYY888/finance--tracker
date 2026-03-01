@@ -138,8 +138,11 @@ async def lifespan(_: FastAPI):
 
 	try:
 		with Session(engine) as session:
-			for user in session.exec(select(UserAccount)).all():
-				await _get_cached_dashboard(session, user, force_refresh=True)
+			await _refresh_user_dashboards(
+				session,
+				session.exec(select(UserAccount)).all(),
+				clear_market_data=True,
+			)
 	except Exception:
 		logger.exception("Initial dashboard refresh failed during startup.")
 
@@ -347,8 +350,11 @@ async def _background_refresh_loop() -> None:
 		await _sleep_until_next_minute()
 		try:
 			with Session(engine) as session:
-				for user in session.exec(select(UserAccount)).all():
-					await _get_cached_dashboard(session, user, force_refresh=True)
+				await _refresh_user_dashboards(
+					session,
+					session.exec(select(UserAccount)).all(),
+					clear_market_data=True,
+				)
 		except Exception:
 			logger.exception("Scheduled dashboard refresh failed.")
 
@@ -458,6 +464,19 @@ async def _load_display_fx_rates() -> tuple[dict[str, float], float | None, floa
 			hkd_cny_rate = round(rate, 6)
 
 	return rates, usd_cny_rate, hkd_cny_rate, warnings
+
+
+async def _refresh_user_dashboards(
+	session: Session,
+	users: list[UserAccount],
+	*,
+	clear_market_data: bool = False,
+) -> None:
+	if clear_market_data:
+		market_data_client.clear_runtime_caches()
+
+	for user in users:
+		await _get_cached_dashboard(session, user, force_refresh=True)
 
 
 async def _value_cash_accounts(
