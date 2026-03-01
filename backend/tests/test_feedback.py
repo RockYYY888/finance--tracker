@@ -10,6 +10,7 @@ from app.main import (
 	get_feedback_summary,
 	list_feedback_for_admin,
 	list_feedback_for_current_user,
+	mark_feedback_seen_for_current_user,
 	reply_to_feedback_for_admin,
 	submit_feedback,
 )
@@ -143,10 +144,24 @@ def test_feedback_summary_counts_pending_items_for_admin_and_user(session: Sessi
 		session,
 	)
 
-	user_summary = get_feedback_summary(normal_user, session, None)
 	admin_summary = get_feedback_summary(admin_user, session, None)
+	user_summary_before_reply = get_feedback_summary(normal_user, session, None)
 
-	assert user_summary.mode == "user-pending"
-	assert user_summary.inbox_count == 2
+	reply_to_feedback_for_admin(
+		1,
+		AdminFeedbackReplyUpdate(reply_message="已收到。", close=False),
+		admin_user,
+		session,
+		None,
+	)
+
+	user_summary_after_reply = get_feedback_summary(normal_user, session, None)
+	mark_feedback_seen_for_current_user(normal_user, session, None)
+	user_summary_after_seen = get_feedback_summary(normal_user, session, None)
+
 	assert admin_summary.mode == "admin-open"
 	assert admin_summary.inbox_count == 2
+	assert user_summary_before_reply.mode == "user-unread"
+	assert user_summary_before_reply.inbox_count == 0
+	assert user_summary_after_reply.inbox_count == 1
+	assert user_summary_after_seen.inbox_count == 0

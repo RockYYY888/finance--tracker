@@ -22,6 +22,7 @@ const feedbackApiMocks = vi.hoisted(() => ({
 	submitUserFeedback: vi.fn(),
 	getFeedbackSummary: vi.fn(),
 	listFeedbackForCurrentUser: vi.fn(),
+	markFeedbackSeenForCurrentUser: vi.fn(),
 	listFeedbackForAdmin: vi.fn(),
 	replyToFeedbackForAdmin: vi.fn(),
 	closeFeedbackForAdmin: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("./lib/feedbackApi", () => ({
 	submitUserFeedback: feedbackApiMocks.submitUserFeedback,
 	getFeedbackSummary: feedbackApiMocks.getFeedbackSummary,
 	listFeedbackForCurrentUser: feedbackApiMocks.listFeedbackForCurrentUser,
+	markFeedbackSeenForCurrentUser: feedbackApiMocks.markFeedbackSeenForCurrentUser,
 	listFeedbackForAdmin: feedbackApiMocks.listFeedbackForAdmin,
 	replyToFeedbackForAdmin: feedbackApiMocks.replyToFeedbackForAdmin,
 	closeFeedbackForAdmin: feedbackApiMocks.closeFeedbackForAdmin,
@@ -99,6 +101,7 @@ describe("App session restore", () => {
 			mode: "user-pending",
 		});
 		feedbackApiMocks.listFeedbackForCurrentUser.mockResolvedValue([]);
+		feedbackApiMocks.markFeedbackSeenForCurrentUser.mockResolvedValue(undefined);
 		feedbackApiMocks.listFeedbackForAdmin.mockResolvedValue([]);
 		feedbackApiMocks.replyToFeedbackForAdmin.mockResolvedValue({
 			id: 1,
@@ -107,6 +110,7 @@ describe("App session restore", () => {
 			reply_message: "reply",
 			replied_at: new Date().toISOString(),
 			replied_by: "admin",
+			reply_seen_at: null,
 			resolved_at: null,
 			closed_by: null,
 			created_at: new Date().toISOString(),
@@ -118,6 +122,7 @@ describe("App session restore", () => {
 			reply_message: null,
 			replied_at: null,
 			replied_by: null,
+			reply_seen_at: null,
 			resolved_at: null,
 			closed_by: null,
 			created_at: new Date().toISOString(),

@@ -380,6 +380,7 @@ def _ensure_legacy_schema() -> None:
 				"reply_message": "TEXT",
 				"replied_at": "TEXT",
 				"replied_by": "TEXT",
+				"reply_seen_at": "TEXT",
 				"resolved_at": "TEXT",
 				"closed_by": "TEXT",
 			},
@@ -1489,6 +1490,7 @@ def _to_feedback_read(feedback: UserFeedback) -> UserFeedbackRead:
 		reply_message=feedback.reply_message,
 		replied_at=feedback.replied_at,
 		replied_by=feedback.replied_by,
+		reply_seen_at=feedback.reply_seen_at,
 		resolved_at=feedback.resolved_at,
 		closed_by=feedback.closed_by,
 		created_at=feedback.created_at,
@@ -1613,6 +1615,33 @@ def list_feedback_for_current_user(
 	return [_to_feedback_read(feedback) for feedback in feedback_items]
 
 
+@app.post("/api/feedback/mark-seen", response_model=ActionMessageRead)
+def mark_feedback_seen_for_current_user(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> ActionMessageRead:
+	feedback_items = list(
+		session.exec(
+			select(UserFeedback).where(
+				UserFeedback.user_id == current_user.username,
+				UserFeedback.replied_at.is_not(None),
+				UserFeedback.reply_seen_at.is_(None),
+			),
+		),
+	)
+	if not feedback_items:
+		return ActionMessageRead(message="没有新的回复。")
+
+	now = utc_now()
+	for feedback in feedback_items:
+		feedback.reply_seen_at = now
+		session.add(feedback)
+
+	session.commit()
+	return ActionMessageRead(message="消息已标记为已读。")
+
+
 @app.get("/api/feedback/summary", response_model=FeedbackSummaryRead)
 def get_feedback_summary(
 	current_user: CurrentUserDependency,
@@ -1634,13 +1663,13 @@ def get_feedback_summary(
 			session.exec(
 				select(UserFeedback.id).where(
 					UserFeedback.user_id == current_user.username,
-					UserFeedback.reply_message.is_(None),
-					UserFeedback.resolved_at.is_(None),
+					UserFeedback.replied_at.is_not(None),
+					UserFeedback.reply_seen_at.is_(None),
 				),
 			),
 		),
 	)
-	return FeedbackSummaryRead(inbox_count=inbox_count, mode="user-pending")
+	return FeedbackSummaryRead(inbox_count=inbox_count, mode="user-unread")
 
 
 @app.get("/api/admin/feedback", response_model=list[UserFeedbackRead])
@@ -1680,6 +1709,7 @@ def reply_to_feedback_for_admin(
 	feedback.reply_message = payload.reply_message
 	feedback.replied_at = utc_now()
 	feedback.replied_by = current_user.username
+	feedback.reply_seen_at = None
 	if payload.close and feedback.resolved_at is None:
 		feedback.resolved_at = utc_now()
 		feedback.closed_by = current_user.username

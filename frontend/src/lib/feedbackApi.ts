@@ -25,6 +25,12 @@ export async function getFeedbackSummary(): Promise<FeedbackSummary> {
 	return feedbackApiClient.request<FeedbackSummary>("/api/feedback/summary");
 }
 
+export async function markFeedbackSeenForCurrentUser(): Promise<void> {
+	return feedbackApiClient.request<void>("/api/feedback/mark-seen", {
+		method: "POST",
+	});
+}
+
 export async function listFeedbackForAdmin(): Promise<UserFeedbackRecord[]> {
 	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/admin/feedback");
 }

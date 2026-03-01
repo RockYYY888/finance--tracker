@@ -9,6 +9,7 @@ export interface UserFeedbackRecord {
 	reply_message: string | null;
 	replied_at: string | null;
 	replied_by: string | null;
+	reply_seen_at: string | null;
 	resolved_at: string | null;
 	closed_by: string | null;
 	created_at: string;

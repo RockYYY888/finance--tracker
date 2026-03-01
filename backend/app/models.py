@@ -47,6 +47,7 @@ class UserFeedback(SQLModel, table=True):
 	reply_message: str | None = Field(default=None, max_length=2000)
 	replied_at: datetime | None = Field(default=None, index=True)
 	replied_by: str | None = Field(default=None, max_length=32)
+	reply_seen_at: datetime | None = Field(default=None, index=True)
 	resolved_at: datetime | None = Field(default=None, index=True)
 	closed_by: str | None = Field(default=None, max_length=32)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)

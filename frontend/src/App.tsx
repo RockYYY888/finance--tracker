@@ -22,6 +22,7 @@ import {
 	getFeedbackSummary,
 	listFeedbackForCurrentUser,
 	listFeedbackForAdmin,
+	markFeedbackSeenForCurrentUser,
 	replyToFeedbackForAdmin,
 	submitUserFeedback,
 } from "./lib/feedbackApi";
@@ -663,6 +664,7 @@ function App() {
 		try {
 			const items = await listFeedbackForCurrentUser();
 			setUserFeedbackItems(items);
+			await markFeedbackSeenForCurrentUser();
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setUserInboxErrorMessage(

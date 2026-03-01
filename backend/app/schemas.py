@@ -322,6 +322,7 @@ class UserFeedbackRead(BaseModel):
 	reply_message: str | None = None
 	replied_at: datetime | None = None
 	replied_by: str | None = None
+	reply_seen_at: datetime | None = None
 	resolved_at: datetime | None = None
 	closed_by: str | None = None
 	created_at: datetime
