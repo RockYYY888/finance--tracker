@@ -38,6 +38,15 @@ export type TimelinePoint = {
 	value: number;
 };
 
+export type HoldingReturnSeries = {
+	symbol: string;
+	name: string;
+	hour_series: TimelinePoint[];
+	day_series: TimelinePoint[];
+	month_series: TimelinePoint[];
+	year_series: TimelinePoint[];
+};
+
 export type AllocationSlice = {
 	label: string;
 	value: number;
@@ -54,6 +63,11 @@ export type PortfolioAnalyticsData = {
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
 	year_series: TimelinePoint[];
+	holdings_return_hour_series: TimelinePoint[];
+	holdings_return_day_series: TimelinePoint[];
+	holdings_return_month_series: TimelinePoint[];
+	holdings_return_year_series: TimelinePoint[];
+	holding_return_series: HoldingReturnSeries[];
 };
 
 export type ChartLegendItem = {

@@ -11,6 +11,8 @@ from sqlmodel import SQLModel, Session, create_engine, select
 import app.main as main
 from app.main import (
 	_persist_hour_snapshot,
+	_persist_holdings_return_snapshot,
+	_summarize_holdings_return_state,
 	create_account,
 	create_holding,
 	delete_account,
@@ -18,7 +20,7 @@ from app.main import (
 	update_account,
 	update_holding,
 )
-from app.models import CashAccount, PortfolioSnapshot, SecurityHolding
+from app.models import CashAccount, HoldingPerformanceSnapshot, PortfolioSnapshot, SecurityHolding
 from app.schemas import (
 	CashAccountCreate,
 	CashAccountUpdate,
@@ -179,6 +181,85 @@ def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Sessi
 		0,
 		tzinfo=timezone.utc,
 	)
+
+
+def test_persist_holdings_return_snapshot_compacts_rows_within_the_same_hour(
+	session: Session,
+) -> None:
+	session.add(
+		HoldingPerformanceSnapshot(
+			scope="TOTAL",
+			symbol=None,
+			name="非现金资产",
+			return_pct=1.5,
+			created_at=datetime(2026, 3, 1, 3, 12, tzinfo=timezone.utc),
+		),
+	)
+	session.add(
+		HoldingPerformanceSnapshot(
+			scope="HOLDING",
+			symbol="0700.HK",
+			name="腾讯控股",
+			return_pct=2.2,
+			created_at=datetime(2026, 3, 1, 3, 16, tzinfo=timezone.utc),
+		),
+	)
+	session.commit()
+
+	_persist_holdings_return_snapshot(
+		session,
+		datetime(2026, 3, 1, 3, 0, tzinfo=timezone.utc),
+		3.5,
+		(main.LiveHoldingReturnPoint(symbol="0700.HK", name="腾讯控股", return_pct=4.25),),
+	)
+
+	snapshots = session.exec(
+		select(HoldingPerformanceSnapshot).order_by(HoldingPerformanceSnapshot.scope.asc()),
+	).all()
+
+	assert len(snapshots) == 2
+	assert snapshots[0].scope == "HOLDING"
+	assert snapshots[0].return_pct == 4.25
+	assert snapshots[1].scope == "TOTAL"
+	assert snapshots[1].return_pct == 3.5
+
+
+def test_summarize_holdings_return_state_returns_weighted_aggregate() -> None:
+	aggregate_return_pct, holding_points = _summarize_holdings_return_state(
+		[
+			main.ValuedHolding(
+				id=1,
+				symbol="0700.HK",
+				name="腾讯控股",
+				quantity=100,
+				fallback_currency="HKD",
+				cost_basis_price=500,
+				market="HK",
+				price=550,
+				price_currency="HKD",
+				fx_to_cny=0.8,
+				value_cny=44000,
+				return_pct=10.0,
+			),
+			main.ValuedHolding(
+				id=2,
+				symbol="9988.HK",
+				name="阿里巴巴-W",
+				quantity=200,
+				fallback_currency="HKD",
+				cost_basis_price=100,
+				market="HK",
+				price=90,
+				price_currency="HKD",
+				fx_to_cny=0.8,
+				value_cny=14400,
+				return_pct=-10.0,
+			),
+		],
+	)
+
+	assert aggregate_return_pct == 4.29
+	assert [point.symbol for point in holding_points] == ["0700.HK", "9988.HK"]
 
 
 def test_list_accounts_returns_valued_balances(

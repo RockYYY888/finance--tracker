@@ -2,12 +2,26 @@ from datetime import datetime, timezone
 
 import app.main as main
 
-from app.analytics import build_timeline
-from app.models import PortfolioSnapshot
+from app.analytics import build_return_timeline, build_timeline
+from app.models import HoldingPerformanceSnapshot, PortfolioSnapshot
 
 
 def make_snapshot(timestamp: datetime, total: float) -> PortfolioSnapshot:
 	return PortfolioSnapshot(created_at=timestamp, total_value_cny=total)
+
+
+def make_return_snapshot(
+	timestamp: datetime,
+	return_pct: float,
+	symbol: str = "TOTAL",
+) -> HoldingPerformanceSnapshot:
+	return HoldingPerformanceSnapshot(
+		scope="TOTAL" if symbol == "TOTAL" else "HOLDING",
+		symbol=None if symbol == "TOTAL" else symbol,
+		name=None if symbol == "TOTAL" else symbol,
+		return_pct=return_pct,
+		created_at=timestamp,
+	)
 
 
 def test_build_timeline_uses_latest_snapshot_per_hour_bucket() -> None:
@@ -19,7 +33,7 @@ def test_build_timeline_uses_latest_snapshot_per_hour_bucket() -> None:
 
 	series = build_timeline(snapshots, "hour")
 
-	assert [point.label for point in series] == ["02-28 09:00", "02-28 10:00"]
+	assert [point.label for point in series] == ["02-28 17:00", "02-28 18:00"]
 	assert [point.value for point in series] == [1200, 1400]
 
 
@@ -33,7 +47,7 @@ def test_build_timeline_uses_latest_snapshot_per_day_bucket() -> None:
 	series = build_timeline(snapshots, "day")
 
 	assert [point.label for point in series] == ["02-27", "02-28"]
-	assert [point.value for point in series] == [1100, 1200]
+	assert [point.value for point in series] == [900, 1200]
 
 
 def test_build_timeline_uses_latest_snapshot_per_month_bucket() -> None:
@@ -70,8 +84,21 @@ def test_build_timeline_handles_naive_and_aware_snapshot_timestamps() -> None:
 
 	series = build_timeline(snapshots, "hour")
 
-	assert [point.label for point in series] == ["03-01 03:00"]
+	assert [point.label for point in series] == ["03-01 11:00"]
 	assert [point.value for point in series] == [1250]
+
+
+def test_build_return_timeline_uses_latest_snapshot_per_hour_bucket() -> None:
+	snapshots = [
+		make_return_snapshot(datetime(2026, 3, 1, 3, 5), 1.5),
+		make_return_snapshot(datetime(2026, 3, 1, 3, 50, tzinfo=timezone.utc), 2.25),
+		make_return_snapshot(datetime(2026, 3, 1, 4, 0, tzinfo=timezone.utc), -0.75),
+	]
+
+	series = build_return_timeline(snapshots, "hour")
+
+	assert [point.label for point in series] == ["03-01 11:00", "03-01 12:00"]
+	assert [point.value for point in series] == [2.25, -0.75]
 
 
 def test_is_current_minute_matches_same_bucket() -> None:

@@ -44,3 +44,12 @@ class PortfolioSnapshot(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	total_value_cny: float = Field(default=0)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
+class HoldingPerformanceSnapshot(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	scope: str = Field(default="TOTAL", max_length=16, index=True)
+	symbol: Optional[str] = Field(default=None, index=True)
+	name: Optional[str] = Field(default=None, max_length=120)
+	return_pct: float = Field(default=0)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)

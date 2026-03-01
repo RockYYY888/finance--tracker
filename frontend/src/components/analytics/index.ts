@@ -6,9 +6,11 @@ export {
 } from "./PortfolioAnalytics";
 export { PortfolioInsights } from "./PortfolioInsights";
 export { PortfolioTrendChart } from "./PortfolioTrendChart";
+export { ReturnTrendChart } from "./ReturnTrendChart";
 
 export type {
 	AllocationSlice,
+	HoldingReturnSeries,
 	PortfolioAnalyticsData,
 	TimelinePoint,
 	TimelineRange,

@@ -200,6 +200,15 @@ class TimelinePoint(BaseModel):
 	value: float
 
 
+class HoldingReturnSeries(BaseModel):
+	symbol: str
+	name: str
+	hour_series: list[TimelinePoint]
+	day_series: list[TimelinePoint]
+	month_series: list[TimelinePoint]
+	year_series: list[TimelinePoint]
+
+
 class DashboardResponse(BaseModel):
 	total_value_cny: float
 	cash_value_cny: float
@@ -211,4 +220,9 @@ class DashboardResponse(BaseModel):
 	day_series: list[TimelinePoint]
 	month_series: list[TimelinePoint]
 	year_series: list[TimelinePoint]
+	holdings_return_hour_series: list[TimelinePoint]
+	holdings_return_day_series: list[TimelinePoint]
+	holdings_return_month_series: list[TimelinePoint]
+	holdings_return_year_series: list[TimelinePoint]
+	holding_return_series: list[HoldingReturnSeries]
 	warnings: list[str]

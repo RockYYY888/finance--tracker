@@ -17,5 +17,10 @@ export const EMPTY_DASHBOARD: DashboardResponse = {
 	day_series: [],
 	month_series: [],
 	year_series: [],
+	holdings_return_hour_series: [],
+	holdings_return_day_series: [],
+	holdings_return_month_series: [],
+	holdings_return_year_series: [],
+	holding_return_series: [],
 	warnings: [],
 };

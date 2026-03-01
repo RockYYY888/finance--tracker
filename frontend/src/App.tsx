@@ -246,18 +246,23 @@ function App() {
 					</div>
 				</div>
 
-				<PortfolioAnalytics
-					total_value_cny={dashboard.total_value_cny}
-					cash_accounts={dashboard.cash_accounts}
-					holdings={dashboard.holdings}
-					allocation={dashboard.allocation}
-					hour_series={dashboard.hour_series}
-					day_series={dashboard.day_series}
-					month_series={dashboard.month_series}
-					year_series={dashboard.year_series}
-					loading={isLoadingDashboard}
-				/>
-			</section>
+					<PortfolioAnalytics
+						total_value_cny={dashboard.total_value_cny}
+						cash_accounts={dashboard.cash_accounts}
+						holdings={dashboard.holdings}
+						allocation={dashboard.allocation}
+						hour_series={dashboard.hour_series}
+						day_series={dashboard.day_series}
+						month_series={dashboard.month_series}
+						year_series={dashboard.year_series}
+						holdings_return_hour_series={dashboard.holdings_return_hour_series}
+						holdings_return_day_series={dashboard.holdings_return_day_series}
+						holdings_return_month_series={dashboard.holdings_return_month_series}
+						holdings_return_year_series={dashboard.holdings_return_year_series}
+						holding_return_series={dashboard.holding_return_series}
+						loading={isLoadingDashboard}
+					/>
+				</section>
 
 			<div className="integrated-stack">
 				<AssetManager

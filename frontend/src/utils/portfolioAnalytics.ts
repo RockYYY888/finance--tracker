@@ -75,6 +75,23 @@ export function formatPercentage(value: number): string {
 	}).format(Number.isFinite(value) ? value : 0);
 }
 
+export function formatPercentMetric(value: number, withSign = false): string {
+	if (!Number.isFinite(value)) {
+		return "0.00%";
+	}
+
+	const prefix = withSign && value > 0 ? "+" : "";
+	return `${prefix}${value.toFixed(2)}%`;
+}
+
+export function formatCompactPercentMetric(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "0%";
+	}
+
+	return `${Math.round(value)}%`;
+}
+
 export function getChartColors(): string[] {
 	return CHART_COLORS;
 }
