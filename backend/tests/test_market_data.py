@@ -214,6 +214,26 @@ def test_fetch_quote_uses_fallback_provider_when_primary_fails() -> None:
 	assert fallback_provider.calls == 1
 
 
+def test_fetch_quote_uses_crypto_fallback_provider_when_primary_fails() -> None:
+	primary_provider = SequenceQuoteProvider([QuoteLookupError("rate limited")])
+	crypto_provider = SequenceQuoteProvider([
+		_make_quote(symbol="BTC-USD", price=84500.0, currency="USD"),
+	])
+	client = MarketDataClient(
+		quote_provider=primary_provider,
+		crypto_quote_provider=crypto_provider,
+	)
+
+	quote, warnings = asyncio.run(client.fetch_quote("BTC-USD"))
+
+	assert quote.symbol == "BTC-USD"
+	assert quote.price == 84500.0
+	assert quote.currency == "USD"
+	assert warnings == []
+	assert primary_provider.calls == 1
+	assert crypto_provider.calls == 1
+
+
 def test_search_securities_uses_cache_before_calling_provider() -> None:
 	results = [
 		SecuritySearchResult(
@@ -272,6 +292,29 @@ def test_build_local_search_results_supports_crypto_aliases() -> None:
 	results = build_local_search_results("比特币")
 
 	assert results[0].symbol == "BTC-USD"
+	assert results[0].source == "Bitget"
+
+
+def test_search_securities_keeps_distinct_crypto_providers() -> None:
+	local_query = "btc"
+	client = MarketDataClient(
+		china_search_provider=SequenceSearchProvider([[]]),
+		search_provider=SequenceSearchProvider([[
+			SecuritySearchResult(
+				symbol="BTC-USD",
+				name="Bitcoin",
+				market="CRYPTO",
+				currency="USD",
+				exchange="CCC",
+				source="Yahoo Finance",
+			),
+		]]),
+	)
+
+	results = asyncio.run(client.search_securities(local_query))
+
+	assert len(results) == 2
+	assert {result.source for result in results} == {"Bitget", "Yahoo Finance"}
 
 
 def test_parse_eastmoney_search_item_maps_a_share_codes() -> None:

@@ -333,7 +333,7 @@ export function HoldingForm({
 							<div className="asset-manager__search-list" role="listbox">
 								{searchResults.map((result) => (
 									<button
-										key={`${result.symbol}-${result.exchange ?? "unknown"}`}
+										key={`${result.symbol}-${result.exchange ?? "unknown"}-${result.source ?? "unknown"}`}
 										type="button"
 										className="asset-manager__search-item"
 										onMouseDown={(event) => {

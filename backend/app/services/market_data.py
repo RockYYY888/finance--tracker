@@ -16,6 +16,9 @@ SEARCHABLE_QUOTE_TYPES = {"EQUITY", "ETF", "MUTUALFUND", "CRYPTOCURRENCY"}
 US_EXCHANGES = {"NMS", "NGM", "NYQ", "ASE", "PCX", "BTS", "NCM", "NSQ", "OOTC", "PNK"}
 CRYPTO_EXCHANGES = {"CCC", "CCY", "CRY", "COIN"}
 EASTMONEY_SEARCH_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
+BITGET_EXCHANGE = "BITGET"
+BITGET_SOURCE_LABEL = "Bitget"
+BITGET_STABLE_QUOTES = {"USDT", "USDC"}
 
 
 class QuoteLookupError(RuntimeError):
@@ -81,6 +84,32 @@ def build_eastmoney_secid(symbol: str) -> str:
 		return f"116.{code.zfill(5)}"
 
 	raise ValueError(f"Eastmoney quote does not support symbol {normalized_symbol}.")
+
+
+def build_bitget_symbol(symbol: str) -> str:
+	"""Map app-level crypto symbols into Bitget's spot symbol format."""
+	normalized_symbol = normalize_symbol_for_market(symbol, "CRYPTO")
+	base, _, _quote = normalized_symbol.partition("-")
+	quote_currency = "USDT" if "USDT" in BITGET_STABLE_QUOTES else sorted(BITGET_STABLE_QUOTES)[0]
+	return f"{base}{quote_currency}"
+
+
+def _parse_epoch_millis(value: str | int | float | None) -> datetime | None:
+	if value in (None, ""):
+		return None
+
+	try:
+		numeric_value = int(float(value))
+	except (TypeError, ValueError):
+		return None
+
+	if numeric_value <= 0:
+		return None
+
+	if numeric_value > 10_000_000_000:
+		return datetime.fromtimestamp(numeric_value / 1000, tz=timezone.utc)
+
+	return datetime.fromtimestamp(numeric_value, tz=timezone.utc)
 
 
 @dataclass(slots=True)
@@ -209,8 +238,8 @@ LOCAL_SEARCH_CATALOG = (
 			name="Bitcoin",
 			market="CRYPTO",
 			currency="USD",
-			exchange="CCC",
-			source="本地映射",
+			exchange=BITGET_EXCHANGE,
+			source=BITGET_SOURCE_LABEL,
 		),
 	),
 	(
@@ -220,8 +249,8 @@ LOCAL_SEARCH_CATALOG = (
 			name="Ethereum",
 			market="CRYPTO",
 			currency="USD",
-			exchange="CCC",
-			source="本地映射",
+			exchange=BITGET_EXCHANGE,
+			source=BITGET_SOURCE_LABEL,
 		),
 	),
 )
@@ -354,10 +383,15 @@ def _merge_search_results(
 	seen_symbols: set[str] = set()
 
 	for result in [*primary_results, *secondary_results]:
-		if result.symbol in seen_symbols:
+		dedupe_key = (
+			f"{result.symbol}::{result.source or ''}"
+			if result.market == "CRYPTO"
+			else result.symbol
+		)
+		if dedupe_key in seen_symbols:
 			continue
 		merged_results.append(result)
-		seen_symbols.add(result.symbol)
+		seen_symbols.add(dedupe_key)
 
 	return merged_results
 
@@ -387,8 +421,8 @@ def build_local_search_results(query: str) -> list[SecuritySearchResult]:
 						name=symbol,
 						market=market,
 						currency=_default_currency_for_market(market),
-						exchange=None,
-						source="代码推断",
+						exchange=BITGET_EXCHANGE if market == "CRYPTO" else None,
+						source=BITGET_SOURCE_LABEL if market == "CRYPTO" else "代码推断",
 					),
 				)
 
@@ -488,6 +522,62 @@ class EastMoneyQuoteProvider:
 			price=price,
 			currency="HKD" if normalized_symbol.endswith(".HK") else "CNY",
 			market_time=datetime.now(timezone.utc),
+		)
+
+
+class BitgetQuoteProvider:
+	BITGET_TICKER_URL = "https://api.bitget.com/api/v2/spot/market/tickers"
+
+	def __init__(self, timeout: float = 10.0) -> None:
+		self.timeout = timeout
+
+	async def fetch_quote(self, symbol: str) -> Quote:
+		"""Fetch spot crypto quotes from Bitget's public market endpoint."""
+		normalized_symbol = normalize_symbol_for_market(symbol, "CRYPTO")
+		base, _, _quote = normalized_symbol.partition("-")
+		bitget_symbol = build_bitget_symbol(normalized_symbol)
+
+		try:
+			async with httpx.AsyncClient(timeout=self.timeout) as client:
+				response = await client.get(
+					self.BITGET_TICKER_URL,
+					params={"symbol": bitget_symbol},
+					headers={"User-Agent": "Mozilla/5.0"},
+				)
+				response.raise_for_status()
+				payload = response.json()
+		except httpx.HTTPError as exc:
+			raise QuoteLookupError(f"Bitget quote request failed for {normalized_symbol}.") from exc
+
+		if str(payload.get("code") or "").strip() not in {"", "00000"}:
+			raise QuoteLookupError(f"Bitget quote request failed for {normalized_symbol}.")
+
+		data = payload.get("data") or {}
+		if isinstance(data, list):
+			data = data[0] if data else {}
+
+		raw_price = data.get("close") or data.get("lastPr") or data.get("last")
+		if raw_price in (None, "", 0, "0"):
+			raise QuoteLookupError(f"No Bitget quote data returned for {normalized_symbol}.")
+
+		try:
+			price = float(raw_price)
+		except (TypeError, ValueError) as exc:
+			raise QuoteLookupError(
+				f"Incomplete Bitget quote data returned for {normalized_symbol}.",
+			) from exc
+
+		if price <= 0:
+			raise QuoteLookupError(f"Incomplete Bitget quote data returned for {normalized_symbol}.")
+
+		return Quote(
+			symbol=normalized_symbol,
+			name=base,
+			price=price,
+			currency="USD",
+			market_time=_parse_epoch_millis(
+				data.get("ts") or data.get("timestamp") or payload.get("requestTime"),
+			),
 		)
 
 
@@ -636,6 +726,7 @@ class MarketDataClient:
 		self,
 		quote_provider: YahooQuoteProvider | None = None,
 		fallback_quote_provider: EastMoneyQuoteProvider | None = None,
+		crypto_quote_provider: BitgetQuoteProvider | None = None,
 		china_search_provider: EastMoneySecuritySearchProvider | None = None,
 		search_provider: YahooSecuritySearchProvider | None = None,
 		fx_provider: FrankfurterRateProvider | None = None,
@@ -648,6 +739,7 @@ class MarketDataClient:
 	) -> None:
 		self.quote_provider = quote_provider or YahooQuoteProvider()
 		self.fallback_quote_provider = fallback_quote_provider or EastMoneyQuoteProvider()
+		self.crypto_quote_provider = crypto_quote_provider or BitgetQuoteProvider()
 		self.china_search_provider = china_search_provider or EastMoneySecuritySearchProvider()
 		self.search_provider = search_provider or YahooSecuritySearchProvider()
 		self.fx_provider = fx_provider or FrankfurterRateProvider()
@@ -661,6 +753,7 @@ class MarketDataClient:
 	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
 		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
 		normalized_symbol = normalize_symbol_for_market(symbol)
+		market = infer_security_market(normalized_symbol)
 		cached_quote = self.quote_cache.get(normalized_symbol)
 		if cached_quote is not None:
 			return cached_quote, []
@@ -668,17 +761,28 @@ class MarketDataClient:
 		try:
 			quote = await self.quote_provider.fetch_quote(normalized_symbol)
 		except QuoteLookupError as exc:
-			market = infer_security_market(normalized_symbol)
 			if market in {"HK", "CN"}:
 				try:
 					quote = await self.fallback_quote_provider.fetch_quote(normalized_symbol)
-				except QuoteLookupError:
+				except QuoteLookupError as fallback_exc:
+					combined_error = "; ".join((str(exc), str(fallback_exc)))
 					stale_quote = self.quote_cache.get_stale(normalized_symbol)
 					if stale_quote is not None:
 						return stale_quote, [
-							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {exc}",
+							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {combined_error}",
 						]
-					raise exc
+					raise QuoteLookupError(combined_error) from fallback_exc
+			elif market == "CRYPTO":
+				try:
+					quote = await self.crypto_quote_provider.fetch_quote(normalized_symbol)
+				except QuoteLookupError as crypto_exc:
+					combined_error = "; ".join((str(exc), str(crypto_exc)))
+					stale_quote = self.quote_cache.get_stale(normalized_symbol)
+					if stale_quote is not None:
+						return stale_quote, [
+							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {combined_error}",
+						]
+					raise QuoteLookupError(combined_error) from crypto_exc
 			else:
 				stale_quote = self.quote_cache.get_stale(normalized_symbol)
 				if stale_quote is not None:
