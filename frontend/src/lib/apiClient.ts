@@ -27,6 +27,37 @@ type ApiErrorDetailItem = {
 	msg?: string;
 };
 
+function translateValidationMessage(message: string): string {
+	const normalizedMessage = message.replace(/^Value error,\s*/, "").trim();
+	if (!normalizedMessage) {
+		return "输入内容不符合要求。";
+	}
+
+	if (normalizedMessage === "Field required") {
+		return "请完整填写必填项。";
+	}
+
+	const minLengthMatch = normalizedMessage.match(
+		/^String should have at least (\d+) characters?$/,
+	);
+	if (minLengthMatch) {
+		return `输入内容至少需要 ${minLengthMatch[1]} 个字符。`;
+	}
+
+	const maxLengthMatch = normalizedMessage.match(
+		/^String should have at most (\d+) characters?$/,
+	);
+	if (maxLengthMatch) {
+		return `输入内容不能超过 ${maxLengthMatch[1]} 个字符。`;
+	}
+
+	if (normalizedMessage === "Input should be a valid string") {
+		return "输入格式不正确。";
+	}
+
+	return normalizedMessage;
+}
+
 function extractValidationErrorMessage(detail: unknown): string | null {
 	if (!Array.isArray(detail)) {
 		return null;
@@ -43,7 +74,7 @@ function extractValidationErrorMessage(detail: unknown): string | null {
 				return null;
 			}
 
-			return message.replace(/^Value error,\s*/, "").trim() || null;
+			return translateValidationMessage(message);
 		})
 		.filter((message): message is string => message !== null);
 
@@ -54,9 +85,34 @@ function extractValidationErrorMessage(detail: unknown): string | null {
 	return Array.from(new Set(messages)).join("；");
 }
 
+function getStatusFallbackMessage(statusCode: number): string {
+	switch (statusCode) {
+		case 400:
+			return "请求内容不正确，请检查后重试。";
+		case 401:
+			return "登录状态无效或已过期，请重新登录。";
+		case 403:
+			return "当前请求被服务器拒绝。";
+		case 404:
+			return "请求的内容不存在。";
+		case 409:
+			return "当前内容已存在或状态冲突。";
+		case 422:
+			return "输入内容不符合要求，请检查后重试。";
+		case 429:
+			return "请求过于频繁，请稍后再试。";
+		default:
+			if (statusCode >= 500) {
+				return "服务器暂时不可用，请稍后再试。";
+			}
+
+			return `请求失败（${statusCode}）。`;
+	}
+}
+
 function extractErrorMessage(responseText: string, statusCode: number): string {
 	if (!responseText.trim()) {
-		return `Request failed with status ${statusCode}`;
+		return getStatusFallbackMessage(statusCode);
 	}
 
 	try {
@@ -70,10 +126,29 @@ function extractErrorMessage(responseText: string, statusCode: number): string {
 			return validationMessage;
 		}
 	} catch {
-		return responseText;
+		return responseText.trim() || getStatusFallbackMessage(statusCode);
 	}
 
-	return `Request failed with status ${statusCode}`;
+	return getStatusFallbackMessage(statusCode);
+}
+
+function toNetworkErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		const normalizedMessage = error.message.trim();
+		if (
+			normalizedMessage === "Failed to fetch"
+			|| normalizedMessage === "Load failed"
+			|| normalizedMessage === "NetworkError when attempting to fetch resource."
+		) {
+			return "无法连接到服务器，请检查网络或服务状态。";
+		}
+
+		if (normalizedMessage) {
+			return normalizedMessage;
+		}
+	}
+
+	return "无法连接到服务器，请检查网络或服务状态。";
 }
 
 /**
@@ -94,11 +169,16 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 				requestHeaders.set("X-API-Key", apiToken);
 			}
 
-			const response = await fetcher(`${baseUrl}${path}`, {
-				...init,
-				credentials: init?.credentials ?? "include",
-				headers: requestHeaders,
-			});
+			let response: Response;
+			try {
+				response = await fetcher(`${baseUrl}${path}`, {
+					...init,
+					credentials: init?.credentials ?? "include",
+					headers: requestHeaders,
+				});
+			} catch (error) {
+				throw new Error(toNetworkErrorMessage(error));
+			}
 			const responseText = await response.text();
 
 			if (!response.ok) {
