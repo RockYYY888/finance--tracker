@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { EmailDialog } from "./components/auth/EmailDialog";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
 import { PortfolioAnalytics } from "./components/analytics";
@@ -11,6 +12,7 @@ import {
 	logoutCurrentUser,
 	registerWithPassword,
 	resetPasswordWithEmail,
+	updateCurrentUserEmail,
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
 import { submitUserFeedback } from "./lib/feedbackApi";
@@ -18,6 +20,7 @@ import type {
 	AuthLoginCredentials,
 	AuthRegisterCredentials,
 	PasswordResetPayload,
+	UserEmailUpdate,
 } from "./types/auth";
 import type {
 	AssetManagerController,
@@ -344,6 +347,7 @@ function App() {
 	const [currentUserId, setCurrentUserId] = useState<string | null>(() =>
 		readRememberedSessionUserId()
 	);
+	const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 	const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 	const [authNoticeMessage, setAuthNoticeMessage] = useState<string | null>(null);
 	const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
@@ -356,6 +360,10 @@ function App() {
 	const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
+	const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+	const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
+	const [emailDialogErrorMessage, setEmailDialogErrorMessage] = useState<string | null>(null);
+	const [emailNoticeMessage, setEmailNoticeMessage] = useState<string | null>(null);
 	const dashboardRequestInFlightRef = useRef(false);
 	const pendingDashboardRefreshRef = useRef(false);
 	const pendingForceRefreshRef = useRef(false);
@@ -371,15 +379,19 @@ function App() {
 		pendingForceRefreshRef.current = false;
 	}
 
-	function markSignedIn(userId: string): void {
+	function markSignedInWithProfile(userId: string, email: string | null): void {
 		rememberSessionUserId(userId);
 		setCurrentUserId(userId);
+		setCurrentUserEmail(email);
 		setAuthStatus("authenticated");
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
 		setFeedbackNoticeMessage(null);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
+		setEmailNoticeMessage(null);
+		setEmailDialogErrorMessage(null);
+		setIsEmailDialogOpen(false);
 		setDashboard(EMPTY_DASHBOARD);
 		setIsLoadingDashboard(true);
 	}
@@ -387,11 +399,15 @@ function App() {
 	function markSignedOut(): void {
 		clearRememberedSessionUserId();
 		setCurrentUserId(null);
+		setCurrentUserEmail(null);
 		setAuthStatus("anonymous");
 		setAuthNoticeMessage(null);
 		setFeedbackNoticeMessage(null);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
+		setEmailNoticeMessage(null);
+		setEmailDialogErrorMessage(null);
+		setIsEmailDialogOpen(false);
 		resetDashboardState();
 	}
 
@@ -454,7 +470,7 @@ function App() {
 				SESSION_CHECK_TIMEOUT_MS,
 				"会话检查超时",
 			);
-			markSignedIn(session.user_id);
+			markSignedInWithProfile(session.user_id, session.email ?? null);
 		} catch {
 			markSignedOut();
 		}
@@ -477,7 +493,7 @@ function App() {
 				AUTH_SUBMISSION_TIMEOUT_MS,
 				"请求超时，请检查后端服务或网络后重试。",
 			);
-			markSignedIn(session.user_id);
+			markSignedInWithProfile(session.user_id, session.email ?? null);
 		} catch (error) {
 			setAuthErrorMessage(
 				error instanceof Error ? error.message : "登录失败，请稍后再试。",
@@ -528,6 +544,25 @@ function App() {
 		setIsFeedbackOpen(true);
 	}
 
+	function openEmailDialog(): void {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
+		setEmailDialogErrorMessage(null);
+		setEmailNoticeMessage(null);
+		setIsEmailDialogOpen(true);
+	}
+
+	function closeEmailDialog(): void {
+		if (isSubmittingEmail) {
+			return;
+		}
+
+		setEmailDialogErrorMessage(null);
+		setIsEmailDialogOpen(false);
+	}
+
 	function closeFeedbackDialog(): void {
 		if (isSubmittingFeedback) {
 			return;
@@ -551,6 +586,25 @@ function App() {
 			);
 		} finally {
 			setIsSubmittingFeedback(false);
+		}
+	}
+
+	async function handleSubmitEmail(payload: UserEmailUpdate): Promise<void> {
+		setIsSubmittingEmail(true);
+		setEmailDialogErrorMessage(null);
+		setEmailNoticeMessage(null);
+
+		try {
+			const session = await updateCurrentUserEmail(payload);
+			setCurrentUserEmail(session.email ?? null);
+			setEmailNoticeMessage("邮箱已更新。");
+			setIsEmailDialogOpen(false);
+		} catch (error) {
+			setEmailDialogErrorMessage(
+				error instanceof Error ? error.message : "邮箱保存失败，请稍后再试。",
+			);
+		} finally {
+			setIsSubmittingEmail(false);
 		}
 	}
 
@@ -861,6 +915,9 @@ function App() {
 					<p className="eyebrow">CNY CONTROL PANEL</p>
 					<h1>你好，{currentUserId}</h1>
 					<p className="hero-copy">你的资产与会话已隔离保存。</p>
+					<p className="hero-subtle">
+						{currentUserEmail ? currentUserEmail : "未绑定邮箱，可用于找回密码。"}
+					</p>
 					<div className="hero-actions">
 						<button
 							type="button"
@@ -879,6 +936,14 @@ function App() {
 									? "同步中..."
 									: `最近更新：${formatLastUpdated(lastUpdatedAt)}`}
 							</span>
+						</button>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
+							onClick={openEmailDialog}
+							disabled={isRecoveringSession || isSubmittingEmail}
+						>
+							{currentUserEmail ? "修改邮箱" : "绑定邮箱"}
 						</button>
 						<button
 							type="button"
@@ -952,6 +1017,12 @@ function App() {
 			{feedbackNoticeMessage ? (
 				<div className="banner info">
 					<p>{feedbackNoticeMessage}</p>
+				</div>
+			) : null}
+
+			{emailNoticeMessage ? (
+				<div className="banner info">
+					<p>{emailNoticeMessage}</p>
 				</div>
 			) : null}
 
@@ -1033,6 +1104,14 @@ function App() {
 				errorMessage={feedbackErrorMessage}
 				onClose={closeFeedbackDialog}
 				onSubmit={handleSubmitFeedback}
+			/>
+			<EmailDialog
+				open={isEmailDialogOpen}
+				busy={isSubmittingEmail}
+				initialEmail={currentUserEmail}
+				errorMessage={emailDialogErrorMessage}
+				onClose={closeEmailDialog}
+				onSubmit={(email) => handleSubmitEmail({ email })}
 			/>
 		</div>
 	);

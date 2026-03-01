@@ -198,6 +198,13 @@ h3 {
 	font-size: 1rem;
 }
 
+.hero-subtle {
+	margin: -2px 0 0;
+	color: rgba(151, 184, 224, 0.86);
+	font-size: 0.86rem;
+	letter-spacing: 0.03em;
+}
+
 .hero-copy-block {
 	display: grid;
 	gap: 12px;

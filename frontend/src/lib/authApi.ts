@@ -5,12 +5,17 @@ import type {
 	AuthRegisterCredentials,
 	AuthSession,
 	PasswordResetPayload,
+	UserEmailUpdate,
 } from "../types/auth";
 
 const authApiClient = createApiClient();
 
 function toJsonBody(
-	payload: AuthLoginCredentials | AuthRegisterCredentials | PasswordResetPayload,
+	payload:
+		| AuthLoginCredentials
+		| AuthRegisterCredentials
+		| PasswordResetPayload
+		| UserEmailUpdate,
 ): string {
 	return JSON.stringify(payload);
 }
@@ -38,6 +43,13 @@ export async function resetPasswordWithEmail(
 ): Promise<ActionMessage> {
 	return authApiClient.request<ActionMessage>("/api/auth/reset-password", {
 		method: "POST",
+		body: toJsonBody(payload),
+	});
+}
+
+export async function updateCurrentUserEmail(payload: UserEmailUpdate): Promise<AuthSession> {
+	return authApiClient.request<AuthSession>("/api/auth/email", {
+		method: "PATCH",
 		body: toJsonBody(payload),
 	});
 }

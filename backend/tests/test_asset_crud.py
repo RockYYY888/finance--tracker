@@ -12,6 +12,7 @@ import app.main as main
 from app.main import (
 	_authenticate_user_account,
 	_create_user_account,
+	_update_user_email,
 	create_fixed_asset,
 	_persist_hour_snapshot,
 	_persist_holdings_return_snapshot,
@@ -48,6 +49,7 @@ from app.schemas import (
 	PasswordResetRequest,
 	SecurityHoldingCreate,
 	SecurityHoldingUpdate,
+	UserEmailUpdate,
 )
 from app.security import verify_password
 from app.services.market_data import Quote
@@ -245,6 +247,26 @@ def test_reset_user_password_with_matching_email(session: Session) -> None:
 	)
 
 	assert verify_password("asdf5678", user.password_digest) is True
+
+
+def test_update_user_email_refreshes_visible_email_and_digest(session: Session) -> None:
+	current_user = _create_user_account(
+		session,
+		AuthRegisterCredentials(
+			user_id="mail_owner",
+			email="old@example.com",
+			password="qwer1234",
+		),
+	)
+
+	updated_user = _update_user_email(
+		session,
+		current_user,
+		UserEmailUpdate(email="new@example.com"),
+	)
+
+	assert updated_user.email == "new@example.com"
+	assert updated_user.email_digest is not None
 
 
 def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Session) -> None:

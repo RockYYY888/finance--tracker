@@ -11,6 +11,7 @@ const authApiMocks = vi.hoisted(() => ({
 	logoutCurrentUser: vi.fn(),
 	registerWithPassword: vi.fn(),
 	resetPasswordWithEmail: vi.fn(),
+	updateCurrentUserEmail: vi.fn(),
 }));
 
 const dashboardApiMocks = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ vi.mock("./lib/authApi", () => ({
 	logoutCurrentUser: authApiMocks.logoutCurrentUser,
 	registerWithPassword: authApiMocks.registerWithPassword,
 	resetPasswordWithEmail: authApiMocks.resetPasswordWithEmail,
+	updateCurrentUserEmail: authApiMocks.updateCurrentUserEmail,
 }));
 
 vi.mock("./lib/dashboardApi", () => ({
@@ -69,11 +71,12 @@ describe("App session restore", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		window.sessionStorage.clear();
+		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
 		dashboardApiMocks.getDashboard.mockResolvedValue({ ...EMPTY_DASHBOARD });
 	});
 
 	it("keeps the app shell visible while restoring a remembered session", async () => {
-		const pendingSession = createDeferredPromise<{ user_id: string }>();
+		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
 		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
 		window.sessionStorage.setItem(STORAGE_KEY, "alice");
 
@@ -83,7 +86,7 @@ describe("App session restore", () => {
 		expect(screen.getByText("你好，alice")).not.toBeNull();
 		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
 
-		pendingSession.resolve({ user_id: "alice" });
+		pendingSession.resolve({ user_id: "alice", email: null });
 
 		await waitFor(() => {
 			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);

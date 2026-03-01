@@ -1,5 +1,6 @@
 export type AuthSession = {
 	user_id: string;
+	email: string | null;
 };
 
 export type AuthLoginCredentials = {
@@ -21,4 +22,8 @@ export type PasswordResetPayload = {
 
 export type ActionMessage = {
 	message: string;
+};
+
+export type UserEmailUpdate = {
+	email: string;
 };

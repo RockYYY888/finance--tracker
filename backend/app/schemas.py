@@ -269,6 +269,7 @@ class AuthLoginCredentials(BaseModel):
 
 class AuthSessionRead(BaseModel):
 	user_id: str
+	email: str | None = None
 
 
 class PasswordResetRequest(BaseModel):
@@ -294,6 +295,15 @@ class PasswordResetRequest(BaseModel):
 
 class ActionMessageRead(BaseModel):
 	message: str
+
+
+class UserEmailUpdate(BaseModel):
+	email: str = Field(min_length=3, max_length=320)
+
+	@field_validator("email", mode="before")
+	@classmethod
+	def validate_email(cls, value: str) -> str:
+		return normalize_email(value)
 
 
 class UserFeedbackCreate(BaseModel):

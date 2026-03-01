@@ -52,6 +52,7 @@ from app.schemas import (
 	OtherAssetUpdate,
 	PasswordResetRequest,
 	SecuritySearchRead,
+	UserEmailUpdate,
 	SecurityHoldingCreate,
 	SecurityHoldingRead,
 	SecurityHoldingUpdate,
@@ -367,6 +368,7 @@ def _ensure_legacy_schema() -> None:
 		(
 			UserAccount.__table__.name,
 			{
+				"email": "TEXT",
 				"email_digest": "TEXT",
 			},
 		),
@@ -1405,6 +1407,7 @@ def _create_user_account(session: Session, credentials: AuthRegisterCredentials)
 
 	user = UserAccount(
 		username=credentials.user_id,
+		email=credentials.email,
 		password_digest=hash_password(credentials.password),
 		email_digest=email_digest,
 	)
@@ -1440,6 +1443,27 @@ def _reset_user_password_with_email(
 	return user
 
 
+def _update_user_email(
+	session: Session,
+	current_user: UserAccount,
+	payload: UserEmailUpdate,
+) -> UserAccount:
+	email_digest = hash_email(payload.email)
+	existing_user = session.exec(
+		select(UserAccount).where(UserAccount.email_digest == email_digest),
+	).first()
+	if existing_user is not None and existing_user.username != current_user.username:
+		raise HTTPException(status_code=409, detail="该邮箱已被其他账号使用。")
+
+	current_user.email = payload.email
+	current_user.email_digest = email_digest
+	current_user.updated_at = utc_now()
+	session.add(current_user)
+	session.commit()
+	session.refresh(current_user)
+	return current_user
+
+
 @app.get("/api/auth/session", response_model=AuthSessionRead)
 def get_auth_session(
 	request: Request,
@@ -1455,7 +1479,7 @@ def get_auth_session(
 		request.session.clear()
 		raise HTTPException(status_code=401, detail="请重新登录。")
 
-	return AuthSessionRead(user_id=user.username)
+	return AuthSessionRead(user_id=user.username, email=user.email)
 
 
 @app.post("/api/auth/register", response_model=AuthSessionRead, status_code=201)
@@ -1467,7 +1491,7 @@ def register_user(
 ) -> AuthSessionRead:
 	user = _create_user_account(session, payload)
 	request.session["user_id"] = user.username
-	return AuthSessionRead(user_id=user.username)
+	return AuthSessionRead(user_id=user.username, email=user.email)
 
 
 @app.post("/api/auth/login", response_model=AuthSessionRead)
@@ -1479,7 +1503,7 @@ def login_user(
 ) -> AuthSessionRead:
 	user = _authenticate_user_account(session, payload)
 	request.session["user_id"] = user.username
-	return AuthSessionRead(user_id=user.username)
+	return AuthSessionRead(user_id=user.username, email=user.email)
 
 
 @app.post("/api/auth/reset-password", response_model=ActionMessageRead)
@@ -1490,6 +1514,19 @@ def reset_password_with_email(
 ) -> ActionMessageRead:
 	_reset_user_password_with_email(session, payload)
 	return ActionMessageRead(message="密码已重置，请使用新密码登录。")
+
+
+@app.patch("/api/auth/email", response_model=AuthSessionRead)
+def update_user_email(
+	request: Request,
+	payload: UserEmailUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> AuthSessionRead:
+	user = _update_user_email(session, current_user, payload)
+	request.session["user_id"] = user.username
+	return AuthSessionRead(user_id=user.username, email=user.email)
 
 
 @app.post("/api/auth/logout", status_code=204)
