@@ -40,7 +40,7 @@ function App() {
 	useEffect(() => {
 		const refreshTimer = window.setInterval(() => {
 			void loadDashboard();
-		}, 60 * 60 * 1000);
+		}, 60 * 1000);
 
 		return () => window.clearInterval(refreshTimer);
 	}, []);
@@ -175,7 +175,7 @@ function App() {
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
 					title="资产录入"
-					description="操作后自动更新，每小时刷新一次。"
+					description="操作后自动更新，每分钟刷新一次。"
 					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
 					refreshToken={assetRefreshToken}
 				/>

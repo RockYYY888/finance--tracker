@@ -12,6 +12,7 @@ from app.services.market_data import (
 	Quote,
 	QuoteLookupError,
 	SecuritySearchResult,
+	build_eastmoney_secid,
 	build_local_search_results,
 	build_fx_symbol,
 	infer_security_market,
@@ -97,6 +98,8 @@ def test_coerce_utc_datetime_treats_naive_values_as_utc() -> None:
 	[
 		("sh600519", "600519.SS"),
 		("700", "0700.HK"),
+		("02015.HK", "2015.HK"),
+		("09988", "9988.HK"),
 		("brk-b", "BRK-B"),
 	],
 )
@@ -122,6 +125,12 @@ def test_infer_security_market_uses_symbol_and_exchange_hints() -> None:
 def test_normalize_symbol_for_market_maps_crypto_aliases_to_usd_pairs() -> None:
 	assert normalize_symbol_for_market("btc", "CRYPTO") == "BTC-USD"
 	assert normalize_symbol_for_market("eth/usdt", "CRYPTO") == "ETH-USD"
+
+
+def test_build_eastmoney_secid_maps_cn_and_hk_symbols() -> None:
+	assert build_eastmoney_secid("0700.HK") == "116.00700"
+	assert build_eastmoney_secid("600519.SS") == "1.600519"
+	assert build_eastmoney_secid("300750.SZ") == "0.300750"
 
 
 def test_fetch_quote_uses_fresh_cache_before_calling_provider() -> None:
@@ -183,6 +192,26 @@ def test_fetch_quote_returns_stale_cache_when_provider_fails() -> None:
 	assert fallback_quote.price == 88.8
 	assert warnings == ["AAPL 行情源不可用，已回退到最近缓存值: provider down"]
 	assert provider.calls == 2
+
+
+def test_fetch_quote_uses_fallback_provider_when_primary_fails() -> None:
+	primary_provider = SequenceQuoteProvider([QuoteLookupError("rate limited")])
+	fallback_provider = SequenceQuoteProvider([
+		_make_quote(symbol="0700.HK", price=518.0, currency="HKD"),
+	])
+	client = MarketDataClient(
+		quote_provider=primary_provider,
+		fallback_quote_provider=fallback_provider,
+	)
+
+	quote, warnings = asyncio.run(client.fetch_quote("0700.HK"))
+
+	assert quote.symbol == "0700.HK"
+	assert quote.price == 518.0
+	assert quote.currency == "HKD"
+	assert warnings == []
+	assert primary_provider.calls == 1
+	assert fallback_provider.calls == 1
 
 
 def test_search_securities_uses_cache_before_calling_provider() -> None:
@@ -268,7 +297,7 @@ def test_parse_eastmoney_search_item_maps_hk_codes() -> None:
 	})
 
 	assert result is not None
-	assert result.symbol == "02015.HK"
+	assert result.symbol == "2015.HK"
 	assert result.market == "HK"
 
 

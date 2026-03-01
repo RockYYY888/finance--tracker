@@ -27,6 +27,11 @@ def build_fx_symbol(from_currency: str, to_currency: str) -> str:
 	return f"{from_currency.upper()}{to_currency.upper()}=X"
 
 
+def _normalize_hk_code(raw_code: str) -> str:
+	"""Normalize HK numeric codes to a canonical 4+ digit form without extra leading zeroes."""
+	return str(int(raw_code)).zfill(4)
+
+
 def normalize_symbol(symbol: str) -> str:
 	"""Normalize common CN/HK/US ticker formats into Yahoo-compatible symbols."""
 	candidate = symbol.strip().upper()
@@ -41,26 +46,41 @@ def normalize_symbol(symbol: str) -> str:
 		return f"{match.group(2)}.{suffix}"
 
 	if match := re.fullmatch(r"^HK(\d{1,5})$", candidate):
-		return f"{match.group(1).zfill(4)}.HK"
+		return f"{_normalize_hk_code(match.group(1))}.HK"
 
 	if re.fullmatch(r"^\d{6}\.(SS|SZ)$", candidate):
 		return candidate
 
 	if re.fullmatch(r"^\d{1,5}\.HK$", candidate):
 		code, _, _ = candidate.partition(".")
-		return f"{code.zfill(4)}.HK"
+		return f"{_normalize_hk_code(code)}.HK"
 
 	if re.fullmatch(r"^\d{6}$", candidate):
 		suffix = "SS" if candidate[0] in {"5", "6", "9"} else "SZ"
 		return f"{candidate}.{suffix}"
 
 	if re.fullmatch(r"^\d{1,5}$", candidate):
-		return f"{candidate.zfill(4)}.HK"
+		return f"{_normalize_hk_code(candidate)}.HK"
 
 	if re.fullmatch(r"^[A-Z][A-Z0-9]*(?:[.-][A-Z0-9]+)?$", candidate):
 		return candidate
 
 	raise ValueError(INVALID_SYMBOL_MESSAGE)
+
+
+def build_eastmoney_secid(symbol: str) -> str:
+	"""Map normalized CN/HK symbols into Eastmoney's secid format."""
+	normalized_symbol = normalize_symbol(symbol)
+
+	if normalized_symbol.endswith(".SS"):
+		return f"1.{normalized_symbol.removesuffix('.SS')}"
+	if normalized_symbol.endswith(".SZ"):
+		return f"0.{normalized_symbol.removesuffix('.SZ')}"
+	if normalized_symbol.endswith(".HK"):
+		code = normalized_symbol.removesuffix(".HK")
+		return f"116.{code.zfill(5)}"
+
+	raise ValueError(f"Eastmoney quote does not support symbol {normalized_symbol}.")
 
 
 @dataclass(slots=True)
@@ -402,6 +422,58 @@ class YahooQuoteProvider:
 		)
 
 
+class EastMoneyQuoteProvider:
+	EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+
+	def __init__(self, timeout: float = 10.0) -> None:
+		self.timeout = timeout
+
+	async def fetch_quote(self, symbol: str) -> Quote:
+		"""Fetch CN/HK quotes from Eastmoney when the primary source is unavailable."""
+		try:
+			secid = build_eastmoney_secid(symbol)
+		except ValueError as exc:
+			raise QuoteLookupError(str(exc)) from exc
+
+		normalized_symbol = normalize_symbol(symbol)
+
+		try:
+			async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+				response = await client.get(
+					self.EASTMONEY_QUOTE_URL,
+					params={"secid": secid, "fields": "f43,f57,f58"},
+					headers={
+						"User-Agent": "Mozilla/5.0",
+						"Referer": "https://quote.eastmoney.com/",
+					},
+				)
+				response.raise_for_status()
+				payload = response.json()
+		except httpx.HTTPError as exc:
+			raise QuoteLookupError(
+				f"Eastmoney quote request failed for {normalized_symbol}.",
+			) from exc
+
+		data = payload.get("data") or {}
+		raw_price = data.get("f43")
+		raw_name = data.get("f58")
+		if raw_price in (None, 0):
+			raise QuoteLookupError(f"No Eastmoney quote data returned for {normalized_symbol}.")
+
+		scale = 1000 if normalized_symbol.endswith(".HK") else 100
+		price = float(raw_price) / scale
+		if price <= 0:
+			raise QuoteLookupError(f"Incomplete Eastmoney quote data returned for {normalized_symbol}.")
+
+		return Quote(
+			symbol=normalized_symbol,
+			name=str(raw_name or normalized_symbol).strip() or normalized_symbol,
+			price=price,
+			currency="HKD" if normalized_symbol.endswith(".HK") else "CNY",
+			market_time=datetime.now(timezone.utc),
+		)
+
+
 class YahooSecuritySearchProvider:
 	YAHOO_SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
 
@@ -545,6 +617,7 @@ class MarketDataClient:
 	def __init__(
 		self,
 		quote_provider: YahooQuoteProvider | None = None,
+		fallback_quote_provider: EastMoneyQuoteProvider | None = None,
 		china_search_provider: EastMoneySecuritySearchProvider | None = None,
 		search_provider: YahooSecuritySearchProvider | None = None,
 		fx_provider: FrankfurterRateProvider | None = None,
@@ -556,6 +629,7 @@ class MarketDataClient:
 		fx_ttl_seconds: int = 600,
 	) -> None:
 		self.quote_provider = quote_provider or YahooQuoteProvider()
+		self.fallback_quote_provider = fallback_quote_provider or EastMoneyQuoteProvider()
 		self.china_search_provider = china_search_provider or EastMoneySecuritySearchProvider()
 		self.search_provider = search_provider or YahooSecuritySearchProvider()
 		self.fx_provider = fx_provider or FrankfurterRateProvider()
@@ -576,12 +650,27 @@ class MarketDataClient:
 		try:
 			quote = await self.quote_provider.fetch_quote(normalized_symbol)
 		except QuoteLookupError as exc:
-			stale_quote = self.quote_cache.get_stale(normalized_symbol)
-			if stale_quote is not None:
-				return stale_quote, [
-					f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {exc}",
-				]
-			raise
+			market = infer_security_market(normalized_symbol)
+			if market in {"HK", "CN"}:
+				try:
+					quote = await self.fallback_quote_provider.fetch_quote(normalized_symbol)
+				except QuoteLookupError:
+					stale_quote = self.quote_cache.get_stale(normalized_symbol)
+					if stale_quote is not None:
+						return stale_quote, [
+							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {exc}",
+						]
+					raise exc
+			else:
+				stale_quote = self.quote_cache.get_stale(normalized_symbol)
+				if stale_quote is not None:
+					return stale_quote, [
+						f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {exc}",
+					]
+				raise
+		else:
+			self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
+			return quote, []
 
 		self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
 		return quote, []
