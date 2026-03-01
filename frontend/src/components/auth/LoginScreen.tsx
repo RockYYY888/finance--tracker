@@ -6,6 +6,7 @@ type AuthMode = "login" | "register";
 
 type LoginScreenProps = {
 	loading?: boolean;
+	checkingSession?: boolean;
 	errorMessage?: string | null;
 	onLogin: (payload: AuthCredentials) => Promise<void>;
 	onRegister: (payload: AuthCredentials) => Promise<void>;
@@ -13,6 +14,7 @@ type LoginScreenProps = {
 
 export function LoginScreen({
 	loading = false,
+	checkingSession = false,
 	errorMessage,
 	onLogin,
 	onRegister,
@@ -72,6 +74,9 @@ export function LoginScreen({
 						<p className="auth-kicker">{isLoginMode ? "账号登录" : "新账号注册"}</p>
 						<h2>{panelTitle}</h2>
 						<p className="auth-panel__copy">{panelCopy}</p>
+						{checkingSession ? (
+							<p className="auth-panel__status">正在检查登录状态，你也可以直接登录。</p>
+						) : null}
 					</div>
 
 					<form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>

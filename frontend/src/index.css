@@ -441,6 +441,12 @@ h3 {
 	color: var(--text-muted);
 }
 
+.auth-panel__status {
+	margin: 0.1rem 0 0;
+	color: var(--accent-cyan);
+	font-size: 0.86rem;
+}
+
 .auth-form {
 	display: grid;
 	gap: 1rem;

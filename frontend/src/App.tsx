@@ -27,6 +27,8 @@ import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import { formatCny } from "./utils/portfolioAnalytics";
 
 type AuthStatus = "checking" | "anonymous" | "authenticated";
+const SESSION_CHECK_TIMEOUT_MS = 3000;
+const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 
 function getMillisecondsUntilNextMinute(): number {
 	const now = new Date();
@@ -73,6 +75,29 @@ function formatFxRate(rate: number | null | undefined): string {
 	}
 
 	return rate.toFixed(4);
+}
+
+async function withTimeout<T>(
+	task: Promise<T>,
+	timeoutMs: number,
+	timeoutMessage: string,
+): Promise<T> {
+	let timeoutId = 0;
+
+	try {
+		return await Promise.race([
+			task,
+			new Promise<T>((_, reject) => {
+				timeoutId = window.setTimeout(() => {
+					reject(new Error(timeoutMessage));
+				}, timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timeoutId) {
+			window.clearTimeout(timeoutId);
+		}
+	}
 }
 
 function roundCnyValue(value: number): number {
@@ -377,7 +402,11 @@ function App() {
 		setAuthErrorMessage(null);
 
 		try {
-			const session = await getAuthSession();
+			const session = await withTimeout(
+				getAuthSession(),
+				SESSION_CHECK_TIMEOUT_MS,
+				"会话检查超时",
+			);
 			markSignedIn(session.user_id);
 		} catch {
 			markSignedOut();
@@ -390,11 +419,16 @@ function App() {
 	): Promise<void> {
 		setIsSubmittingAuth(true);
 		setAuthErrorMessage(null);
+		setAuthStatus("anonymous");
 
 		try {
-			const session = mode === "login"
-				? await loginWithPassword(payload)
-				: await registerWithPassword(payload);
+			const session = await withTimeout(
+				mode === "login"
+					? loginWithPassword(payload)
+					: registerWithPassword(payload),
+				AUTH_SUBMISSION_TIMEOUT_MS,
+				"请求超时，请检查后端服务或网络后重试。",
+			);
 			markSignedIn(session.user_id);
 		} catch (error) {
 			setAuthErrorMessage(
@@ -504,7 +538,8 @@ function App() {
 	if (authStatus !== "authenticated" || !currentUserId) {
 		return (
 			<LoginScreen
-				loading={authStatus === "checking" || isSubmittingAuth}
+				loading={isSubmittingAuth}
+				checkingSession={authStatus === "checking"}
 				errorMessage={authErrorMessage}
 				onLogin={(payload) => submitAuth("login", payload)}
 				onRegister={(payload) => submitAuth("register", payload)}
