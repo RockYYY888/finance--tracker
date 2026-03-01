@@ -79,6 +79,7 @@ export function OtherAssetForm({
 	const isSubmitting = busy || isWorking;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑其他资产" : "新增其他资产");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
+	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
 
 	function updateDraft<K extends keyof OtherAssetFormDraft>(
 		field: K,
@@ -237,14 +238,14 @@ export function OtherAssetForm({
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
 
-					{mode === "edit" && onCancel ? (
+					{onCancel ? (
 						<button
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
 							disabled={isSubmitting}
 						>
-							取消编辑
+							{cancelLabel}
 						</button>
 					) : null}
 

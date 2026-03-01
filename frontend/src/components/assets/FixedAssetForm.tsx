@@ -81,6 +81,7 @@ export function FixedAssetForm({
 	const isSubmitting = busy || isWorking;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑固定资产" : "新增固定资产");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
+	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
 
 	function updateDraft<K extends keyof FixedAssetFormDraft>(
 		field: K,
@@ -239,14 +240,14 @@ export function FixedAssetForm({
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
 
-					{mode === "edit" && onCancel ? (
+					{onCancel ? (
 						<button
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
 							disabled={isSubmitting}
 						>
-							取消编辑
+							{cancelLabel}
 						</button>
 					) : null}
 

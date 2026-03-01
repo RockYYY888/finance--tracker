@@ -83,6 +83,7 @@ export function CashAccountForm({
 	const isSubmitting = busy || isWorking;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑现金账户" : "新增现金账户");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
+	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
 
 	function updateDraft<K extends keyof CashAccountFormDraft>(
 		field: K,
@@ -236,14 +237,14 @@ export function CashAccountForm({
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
 
-					{mode === "edit" && onCancel ? (
+					{onCancel ? (
 						<button
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
 							disabled={isSubmitting}
 						>
-							取消编辑
+							{cancelLabel}
 						</button>
 					) : null}
 

@@ -191,6 +191,7 @@ export function HoldingForm({
 	const isSubmitting = busy || isWorking;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑投资类资产" : "新增投资类资产");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
+	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
 	const quantityLabel = draft.market === "FUND"
 		? "份额"
 		: draft.market === "CRYPTO"
@@ -494,14 +495,14 @@ export function HoldingForm({
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
 
-					{mode === "edit" && onCancel ? (
+					{onCancel ? (
 						<button
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
 							disabled={isSubmitting}
 						>
-							取消编辑
+							{cancelLabel}
 						</button>
 					) : null}
 

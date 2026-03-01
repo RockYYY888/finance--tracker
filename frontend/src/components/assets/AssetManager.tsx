@@ -429,7 +429,7 @@ export function AssetManager({
 			<div className="asset-manager__workspace">
 				{activeSection === "cash" ? (
 					<>
-						{(cashCollection.isEditorOpen || cashCollection.items.length === 0) ? (
+						{cashCollection.isEditorOpen ? (
 							<CashAccountForm
 								mode={cashCollection.editingRecord ? "edit" : "create"}
 								value={
@@ -451,11 +451,7 @@ export function AssetManager({
 							loading={cashCollection.isRefreshing}
 							busy={cashCollection.isSubmitting}
 							errorMessage={cashCollection.errorMessage}
-							onCreate={
-								cashCollection.isEditorOpen || cashCollection.items.length === 0
-									? undefined
-									: cashCollection.openCreate
-							}
+							onCreate={cashCollection.isEditorOpen ? undefined : cashCollection.openCreate}
 							onEdit={(account) => cashCollection.openEdit(account)}
 							onDelete={(recordId) => removeCashRecord(recordId)}
 						/>
@@ -464,7 +460,7 @@ export function AssetManager({
 
 				{activeSection === "investment" ? (
 					<>
-						{(holdingCollection.isEditorOpen || holdingCollection.items.length === 0) ? (
+						{holdingCollection.isEditorOpen ? (
 							<HoldingForm
 								mode={holdingCollection.editingRecord ? "edit" : "create"}
 								value={
@@ -487,11 +483,7 @@ export function AssetManager({
 							loading={holdingCollection.isRefreshing}
 							busy={holdingCollection.isSubmitting}
 							errorMessage={holdingCollection.errorMessage}
-							onCreate={
-								holdingCollection.isEditorOpen || holdingCollection.items.length === 0
-									? undefined
-									: holdingCollection.openCreate
-							}
+							onCreate={holdingCollection.isEditorOpen ? undefined : holdingCollection.openCreate}
 							onEdit={(holding) => holdingCollection.openEdit(holding)}
 							onDelete={(recordId) => removeHoldingRecord(recordId)}
 						/>
@@ -500,7 +492,7 @@ export function AssetManager({
 
 				{activeSection === "fixed" ? (
 					<>
-						{(fixedAssetCollection.isEditorOpen || fixedAssetCollection.items.length === 0) ? (
+						{fixedAssetCollection.isEditorOpen ? (
 							<FixedAssetForm
 								mode={fixedAssetCollection.editingRecord ? "edit" : "create"}
 								value={
@@ -522,11 +514,7 @@ export function AssetManager({
 							loading={fixedAssetCollection.isRefreshing}
 							busy={fixedAssetCollection.isSubmitting}
 							errorMessage={fixedAssetCollection.errorMessage}
-							onCreate={
-								fixedAssetCollection.isEditorOpen || fixedAssetCollection.items.length === 0
-									? undefined
-									: fixedAssetCollection.openCreate
-							}
+							onCreate={fixedAssetCollection.isEditorOpen ? undefined : fixedAssetCollection.openCreate}
 							onEdit={(asset) => fixedAssetCollection.openEdit(asset)}
 							onDelete={(recordId) => removeFixedAssetRecord(recordId)}
 						/>
@@ -535,7 +523,7 @@ export function AssetManager({
 
 				{activeSection === "liability" ? (
 					<>
-						{(liabilityCollection.isEditorOpen || liabilityCollection.items.length === 0) ? (
+						{liabilityCollection.isEditorOpen ? (
 							<LiabilityForm
 								mode={liabilityCollection.editingRecord ? "edit" : "create"}
 								value={
@@ -557,11 +545,7 @@ export function AssetManager({
 							loading={liabilityCollection.isRefreshing}
 							busy={liabilityCollection.isSubmitting}
 							errorMessage={liabilityCollection.errorMessage}
-							onCreate={
-								liabilityCollection.isEditorOpen || liabilityCollection.items.length === 0
-									? undefined
-									: liabilityCollection.openCreate
-							}
+							onCreate={liabilityCollection.isEditorOpen ? undefined : liabilityCollection.openCreate}
 							onEdit={(entry) => liabilityCollection.openEdit(entry)}
 							onDelete={(recordId) => removeLiabilityRecord(recordId)}
 						/>
@@ -570,7 +554,7 @@ export function AssetManager({
 
 				{activeSection === "other" ? (
 					<>
-						{(otherAssetCollection.isEditorOpen || otherAssetCollection.items.length === 0) ? (
+						{otherAssetCollection.isEditorOpen ? (
 							<OtherAssetForm
 								mode={otherAssetCollection.editingRecord ? "edit" : "create"}
 								value={
@@ -592,11 +576,7 @@ export function AssetManager({
 							loading={otherAssetCollection.isRefreshing}
 							busy={otherAssetCollection.isSubmitting}
 							errorMessage={otherAssetCollection.errorMessage}
-							onCreate={
-								otherAssetCollection.isEditorOpen || otherAssetCollection.items.length === 0
-									? undefined
-									: otherAssetCollection.openCreate
-							}
+							onCreate={otherAssetCollection.isEditorOpen ? undefined : otherAssetCollection.openCreate}
 							onEdit={(asset) => otherAssetCollection.openEdit(asset)}
 							onDelete={(recordId) => removeOtherAssetRecord(recordId)}
 						/>

@@ -81,6 +81,7 @@ export function LiabilityForm({
 	const isSubmitting = busy || isWorking;
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑负债" : "新增负债");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
+	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
 
 	function updateDraft<K extends keyof LiabilityFormDraft>(
 		field: K,
@@ -237,14 +238,14 @@ export function LiabilityForm({
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
 					</button>
 
-					{mode === "edit" && onCancel ? (
+					{onCancel ? (
 						<button
 							type="button"
 							className="asset-manager__button asset-manager__button--secondary"
 							onClick={onCancel}
 							disabled={isSubmitting}
 						>
-							取消编辑
+							{cancelLabel}
 						</button>
 					) : null}
 
