@@ -155,6 +155,41 @@ export function summarizeTimeline(series: TimelinePoint[]): {
 	};
 }
 
+/**
+ * Calculates the geometric mean of step-over-step return changes for the active timeline grain.
+ * Timeline values are stored as return percentages, so they are converted into growth factors first.
+ */
+export function summarizeCompoundedStepRate(series: TimelinePoint[]): number {
+	const validPoints = series.filter(
+		(point) => Number.isFinite(point.value) && (1 + point.value / 100) > 0,
+	);
+
+	if (validPoints.length < 2) {
+		return 0;
+	}
+
+	let cumulativeRatio = 1;
+	let intervalCount = 0;
+
+	for (let index = 1; index < validPoints.length; index += 1) {
+		const previousFactor = 1 + validPoints[index - 1].value / 100;
+		const currentFactor = 1 + validPoints[index].value / 100;
+
+		if (previousFactor <= 0 || currentFactor <= 0) {
+			continue;
+		}
+
+		cumulativeRatio *= currentFactor / previousFactor;
+		intervalCount += 1;
+	}
+
+	if (intervalCount === 0) {
+		return 0;
+	}
+
+	return (Math.pow(cumulativeRatio, 1 / intervalCount) - 1) * 100;
+}
+
 export function buildAllocationLegend(
 	allocation: AllocationSlice[],
 	totalValueCny: number,

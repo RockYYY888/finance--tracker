@@ -85,6 +85,7 @@ export function PortfolioAnalytics({
 						defaultRange={defaultRange}
 						selectorLabel="范围"
 						emptyMessage="暂无整体收益率数据。"
+						showCompoundedStepRate
 					/>
 					<ReturnTrendChart
 						title="单只持仓收益率"

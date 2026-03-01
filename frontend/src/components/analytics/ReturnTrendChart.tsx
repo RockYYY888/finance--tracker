@@ -21,6 +21,7 @@ import {
 	formatCompactPercentMetric,
 	formatPercentMetric,
 	getTimelineSeries,
+	summarizeCompoundedStepRate,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
@@ -42,6 +43,7 @@ type ReturnTrendChartProps = {
 	loading?: boolean;
 	selectorLabel?: string;
 	emptyMessage?: string;
+	showCompoundedStepRate?: boolean;
 };
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
@@ -49,6 +51,13 @@ const RANGE_LABELS: Record<TimelineRange, string> = {
 	day: "30天",
 	month: "12月",
 	year: "年",
+};
+
+const COMPOUNDED_STEP_LABELS: Record<TimelineRange, string> = {
+	hour: "小时平均环比",
+	day: "日均环比",
+	month: "月均环比",
+	year: "年均环比",
 };
 
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
@@ -93,6 +102,7 @@ export function ReturnTrendChart({
 	loading = false,
 	selectorLabel = "标的",
 	emptyMessage = "暂无可用的收益率历史数据。",
+	showCompoundedStepRate = false,
 }: ReturnTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [selectedKey, setSelectedKey] = useState(seriesOptions[0]?.key ?? "");
@@ -115,6 +125,7 @@ export function ReturnTrendChart({
 		)
 		: [];
 	const summary = summarizeTimeline(series);
+	const compoundedStepRate = summarizeCompoundedStepRate(series);
 	const hasData = series.length > 0;
 
 	return (
@@ -168,6 +179,12 @@ export function ReturnTrendChart({
 					<span>周期变化</span>
 					<strong>{formatPercentMetric(summary.changeValue, true)}</strong>
 				</div>
+				{showCompoundedStepRate ? (
+					<div className="analytics-pill">
+						<span>{COMPOUNDED_STEP_LABELS[range]}</span>
+						<strong>{formatPercentMetric(compoundedStepRate, true)}</strong>
+					</div>
+				) : null}
 			</div>
 
 			{loading ? (
