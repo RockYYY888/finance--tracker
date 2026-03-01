@@ -6,7 +6,9 @@ import type {
 	TimelinePoint,
 	TimelineRange,
 	ValuedCashAccount,
+	ValuedFixedAsset,
 	ValuedHolding,
+	ValuedOtherAsset,
 } from "../types/portfolioAnalytics";
 
 const CHART_COLORS = [
@@ -150,9 +152,8 @@ export function buildAllocationLegend(
 	allocation: AllocationSlice[],
 	totalValueCny: number,
 ): ChartLegendItem[] {
-	const denominator = totalValueCny > 0
-		? totalValueCny
-		: allocation.reduce((sum, slice) => sum + slice.value, 0);
+	const positiveAssetTotal = allocation.reduce((sum, slice) => sum + Math.max(slice.value, 0), 0);
+	const denominator = positiveAssetTotal > 0 ? positiveAssetTotal : Math.max(totalValueCny, 0);
 
 	return allocation
 		.filter((slice) => slice.value > 0)
@@ -208,6 +209,8 @@ export function buildHoldingsBreakdown(
 export function buildPlatformBreakdown(
 	cashAccounts: ValuedCashAccount[],
 	holdings: ValuedHolding[],
+	fixedAssets: ValuedFixedAsset[],
+	otherAssets: ValuedOtherAsset[],
 ): BreakdownChartItem[] {
 	const platformTotals = new Map<string, number>();
 
@@ -216,11 +219,31 @@ export function buildPlatformBreakdown(
 		platformTotals.set(key, (platformTotals.get(key) ?? 0) + account.value_cny);
 	}
 
-	const holdingsValue = holdings.reduce((sum, holding) => sum + holding.value_cny, 0);
-	if (holdingsValue > 0) {
+	for (const holding of holdings) {
+		if (holding.value_cny <= 0) {
+			continue;
+		}
+
+		const key = holding.broker?.trim() || "投资类（未标记来源）";
 		platformTotals.set(
-			"证券持仓",
-			(platformTotals.get("证券持仓") ?? 0) + holdingsValue,
+			key,
+			(platformTotals.get(key) ?? 0) + holding.value_cny,
+		);
+	}
+
+	const fixedAssetsValue = fixedAssets.reduce((sum, asset) => sum + asset.value_cny, 0);
+	if (fixedAssetsValue > 0) {
+		platformTotals.set(
+			"固定资产",
+			(platformTotals.get("固定资产") ?? 0) + fixedAssetsValue,
+		);
+	}
+
+	const otherAssetsValue = otherAssets.reduce((sum, asset) => sum + asset.value_cny, 0);
+	if (otherAssetsValue > 0) {
+		platformTotals.set(
+			"其他资产",
+			(platformTotals.get("其他资产") ?? 0) + otherAssetsValue,
 		);
 	}
 

@@ -28,9 +28,10 @@ export function AllocationChart({
 	total_value_cny,
 	allocation,
 	title = "资产分布",
-	description = "现金与证券占比",
+	description = "按当前正向资产结构汇总，负债已单独扣减。",
 }: AllocationChartProps) {
 	const legendItems = buildAllocationLegend(allocation, total_value_cny);
+	const positiveAssetTotal = legendItems.reduce((sum, item) => sum + item.value_cny, 0);
 
 	return (
 		<section className="analytics-card">
@@ -73,8 +74,8 @@ export function AllocationChart({
 					</div>
 
 					<div className="analytics-donut__summary">
-						<span>当前总资产</span>
-						<strong>{formatCny(total_value_cny)}</strong>
+						<span>正向资产合计</span>
+						<strong>{formatCny(positiveAssetTotal)}</strong>
 					</div>
 
 					<div className="analytics-legend">

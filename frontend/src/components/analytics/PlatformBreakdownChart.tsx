@@ -11,7 +11,9 @@ import {
 
 import type {
 	ValuedCashAccount,
+	ValuedFixedAsset,
 	ValuedHolding,
+	ValuedOtherAsset,
 } from "../../types/portfolioAnalytics";
 import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
@@ -29,6 +31,8 @@ import "./analytics.css";
 type PlatformBreakdownChartProps = {
 	cash_accounts: ValuedCashAccount[];
 	holdings: ValuedHolding[];
+	fixed_assets: ValuedFixedAsset[];
+	other_assets: ValuedOtherAsset[];
 	title?: string;
 	description?: string;
 };
@@ -36,10 +40,17 @@ type PlatformBreakdownChartProps = {
 export function PlatformBreakdownChart({
 	cash_accounts,
 	holdings,
-	title = "平台分布",
-	description = "按平台汇总市值",
+	fixed_assets,
+	other_assets,
+	title = "平台与来源",
+	description = "按现金平台、投资来源与资产入口汇总。",
 }: PlatformBreakdownChartProps) {
-	const platformBreakdown = buildPlatformBreakdown(cash_accounts, holdings);
+	const platformBreakdown = buildPlatformBreakdown(
+		cash_accounts,
+		holdings,
+		fixed_assets,
+		other_assets,
+	);
 	const chartHeight = getBarChartHeight(platformBreakdown.length);
 
 	return (
@@ -50,7 +61,7 @@ export function PlatformBreakdownChart({
 					<h2 className="analytics-card__title">{title}</h2>
 					<p className="analytics-card__description">{description}</p>
 				</div>
-				<span className="analytics-bar-note">覆盖 {platformBreakdown.length} 个入口</span>
+				<span className="analytics-bar-note">覆盖 {platformBreakdown.length} 个来源</span>
 			</div>
 
 			{platformBreakdown.length === 0 ? (

@@ -24,9 +24,9 @@ export function PortfolioAnalytics({
 	total_value_cny,
 	cash_accounts,
 	holdings,
-	fixed_assets: _fixedAssets,
+	fixed_assets,
 	liabilities: _liabilities,
-	other_assets: _otherAssets,
+	other_assets,
 	allocation,
 	hour_series,
 	day_series,
@@ -102,6 +102,8 @@ export function PortfolioAnalytics({
 				<PlatformBreakdownChart
 					cash_accounts={cash_accounts}
 					holdings={holdings}
+					fixed_assets={fixed_assets}
+					other_assets={other_assets}
 				/>
 			</div>
 		</section>
