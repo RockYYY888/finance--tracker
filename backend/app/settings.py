@@ -84,6 +84,13 @@ class Settings(BaseSettings):
 
 		return self._runtime_session_secret
 
+	def email_pepper_value(self) -> str:
+		configured_secret = self._configured_session_secret_value()
+		if configured_secret is not None:
+			return configured_secret
+
+		return "asset-tracker-email-digest-pepper"
+
 	def cors_origins(self) -> list[str]:
 		configured_origins = [_normalize_origin(item) for item in _split_csv(self.allowed_origins)]
 		if configured_origins:

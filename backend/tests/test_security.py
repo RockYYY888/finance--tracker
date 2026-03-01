@@ -7,8 +7,11 @@ from fastapi.testclient import TestClient
 
 from app.security import (
 	hash_password,
+	hash_email,
+	normalize_email,
 	normalize_user_id,
 	verify_api_token,
+	verify_email,
 	verify_password,
 )
 from app.settings import get_settings
@@ -158,6 +161,17 @@ def test_normalize_user_id_accepts_lowercase_slug() -> None:
 def test_normalize_user_id_rejects_invalid_identifier() -> None:
 	with pytest.raises(ValueError):
 		normalize_user_id("Admin-01")
+
+
+def test_normalize_email_accepts_common_address() -> None:
+	assert normalize_email(" Admin@Example.com ") == "admin@example.com"
+
+
+def test_email_digest_round_trip() -> None:
+	email_digest = hash_email("admin@example.com")
+
+	assert verify_email("admin@example.com", email_digest) is True
+	assert verify_email("other@example.com", email_digest) is False
 
 
 def test_password_hash_round_trip() -> None:

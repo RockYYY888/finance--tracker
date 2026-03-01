@@ -31,9 +31,10 @@ from app.models import (
 	utc_now,
 )
 from app.schemas import (
+	ActionMessageRead,
 	AllocationSlice,
-	AuthCredentials,
 	AuthLoginCredentials,
+	AuthRegisterCredentials,
 	AuthSessionRead,
 	CashAccountCreate,
 	CashAccountRead,
@@ -49,6 +50,7 @@ from app.schemas import (
 	OtherAssetCreate,
 	OtherAssetRead,
 	OtherAssetUpdate,
+	PasswordResetRequest,
 	SecuritySearchRead,
 	SecurityHoldingCreate,
 	SecurityHoldingRead,
@@ -63,10 +65,12 @@ from app.schemas import (
 )
 from app.security import (
 	get_session_user_id,
+	hash_email,
 	hash_password,
 	normalize_user_id,
 	require_session_user_id,
 	verify_api_token,
+	verify_email,
 	verify_password,
 )
 from app.settings import get_settings
@@ -360,6 +364,12 @@ def _load_table_columns(session: Session, table_name: str) -> set[str]:
 def _ensure_legacy_schema() -> None:
 	"""Add newly introduced columns when the local SQLite file predates them."""
 	schema_changes = (
+		(
+			UserAccount.__table__.name,
+			{
+				"email_digest": "TEXT",
+			},
+		),
 		(
 			CashAccount.__table__.name,
 			{
@@ -1385,13 +1395,18 @@ def healthcheck() -> dict[str, str]:
 	return {"status": "ok"}
 
 
-def _create_user_account(session: Session, credentials: AuthCredentials) -> UserAccount:
+def _create_user_account(session: Session, credentials: AuthRegisterCredentials) -> UserAccount:
 	if _get_user(session, credentials.user_id) is not None:
 		raise HTTPException(status_code=409, detail="用户名已存在。")
+
+	email_digest = hash_email(credentials.email)
+	if session.exec(select(UserAccount).where(UserAccount.email_digest == email_digest)).first():
+		raise HTTPException(status_code=409, detail="该邮箱已被其他账号使用。")
 
 	user = UserAccount(
 		username=credentials.user_id,
 		password_digest=hash_password(credentials.password),
+		email_digest=email_digest,
 	)
 	session.add(user)
 	session.commit()
@@ -1406,6 +1421,22 @@ def _authenticate_user_account(
 	user = _get_user(session, credentials.user_id)
 	if user is None or not verify_password(credentials.password, user.password_digest):
 		raise HTTPException(status_code=401, detail="账号或密码错误。")
+	return user
+
+
+def _reset_user_password_with_email(
+	session: Session,
+	payload: PasswordResetRequest,
+) -> UserAccount:
+	user = _get_user(session, payload.user_id)
+	if user is None or not verify_email(payload.email, user.email_digest):
+		raise HTTPException(status_code=401, detail="用户名或邮箱不匹配。")
+
+	user.password_digest = hash_password(payload.new_password)
+	user.updated_at = utc_now()
+	session.add(user)
+	session.commit()
+	session.refresh(user)
 	return user
 
 
@@ -1430,7 +1461,7 @@ def get_auth_session(
 @app.post("/api/auth/register", response_model=AuthSessionRead, status_code=201)
 def register_user(
 	request: Request,
-	payload: AuthCredentials,
+	payload: AuthRegisterCredentials,
 	_: TokenDependency,
 	session: SessionDependency,
 ) -> AuthSessionRead:
@@ -1449,6 +1480,16 @@ def login_user(
 	user = _authenticate_user_account(session, payload)
 	request.session["user_id"] = user.username
 	return AuthSessionRead(user_id=user.username)
+
+
+@app.post("/api/auth/reset-password", response_model=ActionMessageRead)
+def reset_password_with_email(
+	payload: PasswordResetRequest,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> ActionMessageRead:
+	_reset_user_password_with_email(session, payload)
+	return ActionMessageRead(message="密码已重置，请使用新密码登录。")
 
 
 @app.post("/api/auth/logout", status_code=204)

@@ -34,6 +34,7 @@ def utc_now() -> datetime:
 class UserAccount(SQLModel, table=True):
 	username: str = Field(primary_key=True, max_length=32)
 	password_digest: str = Field(max_length=512)
+	email_digest: str | None = Field(default=None, max_length=64, index=True)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 

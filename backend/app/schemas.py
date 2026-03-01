@@ -13,7 +13,7 @@ from app.models import (
 	OTHER_ASSET_CATEGORIES,
 	SECURITY_MARKETS,
 )
-from app.security import normalize_user_id, validate_password_strength
+from app.security import normalize_email, normalize_user_id, validate_password_strength
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -236,8 +236,9 @@ class OtherAssetRead(BaseModel):
 	return_pct: Optional[float] = None
 
 
-class AuthCredentials(BaseModel):
+class AuthRegisterCredentials(BaseModel):
 	user_id: str = Field(min_length=3, max_length=32)
+	email: str = Field(min_length=3, max_length=320)
 	password: str = Field(min_length=8, max_length=128)
 
 	@field_validator("user_id", mode="before")
@@ -249,6 +250,11 @@ class AuthCredentials(BaseModel):
 	@classmethod
 	def validate_password(cls, value: str) -> str:
 		return validate_password_strength(value)
+
+	@field_validator("email", mode="before")
+	@classmethod
+	def validate_email(cls, value: str) -> str:
+		return normalize_email(value)
 
 
 class AuthLoginCredentials(BaseModel):
@@ -263,6 +269,31 @@ class AuthLoginCredentials(BaseModel):
 
 class AuthSessionRead(BaseModel):
 	user_id: str
+
+
+class PasswordResetRequest(BaseModel):
+	user_id: str = Field(min_length=3, max_length=32)
+	email: str = Field(min_length=3, max_length=320)
+	new_password: str = Field(min_length=8, max_length=128)
+
+	@field_validator("user_id", mode="before")
+	@classmethod
+	def validate_user_id(cls, value: str) -> str:
+		return normalize_user_id(value)
+
+	@field_validator("email", mode="before")
+	@classmethod
+	def validate_email(cls, value: str) -> str:
+		return normalize_email(value)
+
+	@field_validator("new_password", mode="before")
+	@classmethod
+	def validate_password(cls, value: str) -> str:
+		return validate_password_strength(value)
+
+
+class ActionMessageRead(BaseModel):
+	message: str
 
 
 class UserFeedbackCreate(BaseModel):

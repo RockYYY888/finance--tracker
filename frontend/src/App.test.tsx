@@ -10,6 +10,7 @@ const authApiMocks = vi.hoisted(() => ({
 	loginWithPassword: vi.fn(),
 	logoutCurrentUser: vi.fn(),
 	registerWithPassword: vi.fn(),
+	resetPasswordWithEmail: vi.fn(),
 }));
 
 const dashboardApiMocks = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ vi.mock("./lib/authApi", () => ({
 	loginWithPassword: authApiMocks.loginWithPassword,
 	logoutCurrentUser: authApiMocks.logoutCurrentUser,
 	registerWithPassword: authApiMocks.registerWithPassword,
+	resetPasswordWithEmail: authApiMocks.resetPasswordWithEmail,
 }));
 
 vi.mock("./lib/dashboardApi", () => ({

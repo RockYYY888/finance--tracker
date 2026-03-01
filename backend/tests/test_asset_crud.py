@@ -11,9 +11,11 @@ from sqlmodel import SQLModel, Session, create_engine, select
 import app.main as main
 from app.main import (
 	_authenticate_user_account,
+	_create_user_account,
 	create_fixed_asset,
 	_persist_hour_snapshot,
 	_persist_holdings_return_snapshot,
+	_reset_user_password_with_email,
 	_summarize_holdings_return_state,
 	create_liability,
 	create_other_asset,
@@ -36,15 +38,18 @@ from app.models import (
 )
 from app.schemas import (
 	AuthLoginCredentials,
+	AuthRegisterCredentials,
 	CashAccountCreate,
 	CashAccountUpdate,
 	DashboardResponse,
 	FixedAssetCreate,
 	LiabilityEntryCreate,
 	OtherAssetCreate,
+	PasswordResetRequest,
 	SecurityHoldingCreate,
 	SecurityHoldingUpdate,
 )
+from app.security import verify_password
 from app.services.market_data import Quote
 
 
@@ -204,6 +209,42 @@ def test_authenticate_user_account_rejects_short_wrong_password_with_401(
 
 	assert error.value.status_code == 401
 	assert error.value.detail == "账号或密码错误。"
+
+
+def test_create_user_account_persists_email_digest(session: Session) -> None:
+	user = _create_user_account(
+		session,
+		AuthRegisterCredentials(
+			user_id="email_tester",
+			email="email@example.com",
+			password="qwer1234",
+		),
+	)
+
+	assert user.email_digest is not None
+	assert verify_password("qwer1234", user.password_digest) is True
+
+
+def test_reset_user_password_with_matching_email(session: Session) -> None:
+	_create_user_account(
+		session,
+		AuthRegisterCredentials(
+			user_id="recover_me",
+			email="recover@example.com",
+			password="qwer1234",
+		),
+	)
+
+	user = _reset_user_password_with_email(
+		session,
+		PasswordResetRequest(
+			user_id="recover_me",
+			email="recover@example.com",
+			new_password="asdf5678",
+		),
+	)
+
+	assert verify_password("asdf5678", user.password_digest) is True
 
 
 def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Session) -> None:

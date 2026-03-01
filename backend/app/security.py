@@ -11,6 +11,7 @@ from fastapi import Header, HTTPException, Request
 from app.settings import get_settings
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9_]{3,32}$")
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 128
 PASSWORD_SCHEME = "scrypt"
@@ -34,6 +35,35 @@ def validate_password_strength(value: str) -> str:
 			f"密码长度需在 {PASSWORD_MIN_LENGTH}-{PASSWORD_MAX_LENGTH} 位之间。",
 		)
 	return password
+
+
+def normalize_email(value: str) -> str:
+	email = value.strip().lower()
+	if not EMAIL_PATTERN.fullmatch(email):
+		raise ValueError("请输入有效的邮箱地址。")
+	return email
+
+
+def hash_email(email: str) -> str:
+	normalized_email = normalize_email(email)
+	pepper = get_settings().email_pepper_value().encode("utf-8")
+	return hmac.new(
+		pepper,
+		normalized_email.encode("utf-8"),
+		hashlib.sha256,
+	).hexdigest()
+
+
+def verify_email(email: str, email_digest: str | None) -> bool:
+	if not email_digest:
+		return False
+
+	try:
+		expected_digest = hash_email(email)
+	except ValueError:
+		return False
+
+	return hmac.compare_digest(expected_digest, email_digest)
 
 
 def hash_password(password: str) -> str:

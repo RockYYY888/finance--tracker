@@ -10,10 +10,15 @@ import {
 	loginWithPassword,
 	logoutCurrentUser,
 	registerWithPassword,
+	resetPasswordWithEmail,
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
 import { submitUserFeedback } from "./lib/feedbackApi";
-import type { AuthCredentials } from "./types/auth";
+import type {
+	AuthLoginCredentials,
+	AuthRegisterCredentials,
+	PasswordResetPayload,
+} from "./types/auth";
 import type {
 	AssetManagerController,
 	CashAccountRecord,
@@ -340,6 +345,7 @@ function App() {
 		readRememberedSessionUserId()
 	);
 	const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+	const [authNoticeMessage, setAuthNoticeMessage] = useState<string | null>(null);
 	const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
@@ -370,6 +376,7 @@ function App() {
 		setCurrentUserId(userId);
 		setAuthStatus("authenticated");
 		setAuthErrorMessage(null);
+		setAuthNoticeMessage(null);
 		setFeedbackNoticeMessage(null);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
@@ -381,6 +388,7 @@ function App() {
 		clearRememberedSessionUserId();
 		setCurrentUserId(null);
 		setAuthStatus("anonymous");
+		setAuthNoticeMessage(null);
 		setFeedbackNoticeMessage(null);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
@@ -438,6 +446,7 @@ function App() {
 	async function hydrateSession(): Promise<void> {
 		setAuthStatus("checking");
 		setAuthErrorMessage(null);
+		setAuthNoticeMessage(null);
 
 		try {
 			const session = await withTimeout(
@@ -453,17 +462,18 @@ function App() {
 
 	async function submitAuth(
 		mode: "login" | "register",
-		payload: AuthCredentials,
+		payload: AuthLoginCredentials | AuthRegisterCredentials,
 	): Promise<void> {
 		setIsSubmittingAuth(true);
 		setAuthErrorMessage(null);
+		setAuthNoticeMessage(null);
 		setAuthStatus("anonymous");
 
 		try {
 			const session = await withTimeout(
 				mode === "login"
-					? loginWithPassword(payload)
-					: registerWithPassword(payload),
+					? loginWithPassword(payload as AuthLoginCredentials)
+					: registerWithPassword(payload as AuthRegisterCredentials),
 				AUTH_SUBMISSION_TIMEOUT_MS,
 				"请求超时，请检查后端服务或网络后重试。",
 			);
@@ -473,6 +483,28 @@ function App() {
 				error instanceof Error ? error.message : "登录失败，请稍后再试。",
 			);
 			setAuthStatus("anonymous");
+		} finally {
+			setIsSubmittingAuth(false);
+		}
+	}
+
+	async function submitPasswordReset(payload: PasswordResetPayload): Promise<void> {
+		setIsSubmittingAuth(true);
+		setAuthErrorMessage(null);
+		setAuthNoticeMessage(null);
+		setAuthStatus("anonymous");
+
+		try {
+			const result = await withTimeout(
+				resetPasswordWithEmail(payload),
+				AUTH_SUBMISSION_TIMEOUT_MS,
+				"请求超时，请检查后端服务或网络后重试。",
+			);
+			setAuthNoticeMessage(result.message);
+		} catch (error) {
+			setAuthErrorMessage(
+				error instanceof Error ? error.message : "密码重置失败，请稍后再试。",
+			);
 		} finally {
 			setIsSubmittingAuth(false);
 		}
@@ -585,8 +617,10 @@ function App() {
 				loading={isSubmittingAuth}
 				checkingSession={authStatus === "checking"}
 				errorMessage={authErrorMessage}
+				noticeMessage={authNoticeMessage}
 				onLogin={(payload) => submitAuth("login", payload)}
 				onRegister={(payload) => submitAuth("register", payload)}
+				onResetPassword={submitPasswordReset}
 			/>
 		);
 	}

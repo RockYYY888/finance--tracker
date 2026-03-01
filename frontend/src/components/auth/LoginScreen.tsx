@@ -1,48 +1,72 @@
 import { useState } from "react";
 
-import type { AuthCredentials } from "../../types/auth";
+import type {
+	AuthLoginCredentials,
+	AuthRegisterCredentials,
+	PasswordResetPayload,
+} from "../../types/auth";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "reset";
 
 type LoginScreenProps = {
 	loading?: boolean;
 	checkingSession?: boolean;
 	errorMessage?: string | null;
-	onLogin: (payload: AuthCredentials) => Promise<void>;
-	onRegister: (payload: AuthCredentials) => Promise<void>;
+	noticeMessage?: string | null;
+	onLogin: (payload: AuthLoginCredentials) => Promise<void>;
+	onRegister: (payload: AuthRegisterCredentials) => Promise<void>;
+	onResetPassword: (payload: PasswordResetPayload) => Promise<void>;
 };
 
 export function LoginScreen({
 	loading = false,
 	checkingSession = false,
 	errorMessage,
+	noticeMessage,
 	onLogin,
 	onRegister,
+	onResetPassword,
 }: LoginScreenProps) {
 	const [mode, setMode] = useState<AuthMode>("login");
 	const [userId, setUserId] = useState("");
+	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 
 	const isLoginMode = mode === "login";
-	const submitLabel = isLoginMode ? "登录" : "创建账号";
-	const panelTitle = isLoginMode ? "欢迎回来" : "创建你的账号";
+	const isRegisterMode = mode === "register";
+	const isResetMode = mode === "reset";
+	const submitLabel = isLoginMode ? "登录" : isRegisterMode ? "创建账号" : "重设密码";
+	const panelTitle = isLoginMode ? "欢迎回来" : isRegisterMode ? "创建你的账号" : "找回密码";
 	const panelCopy = isLoginMode
 		? "登录后即可查看持仓、账户资产与最近记录。"
-		: "创建一个新账号，用于保存你的资产数据与使用偏好。";
+		: isRegisterMode
+			? "创建一个新账号，用于保存你的资产数据与使用偏好。"
+			: "输入注册时填写的邮箱，并设置一个新密码。";
 
 	async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
 		event.preventDefault();
-		const payload = {
-			user_id: userId,
-			password,
-		};
-
 		if (mode === "login") {
-			await onLogin(payload);
+			await onLogin({
+				user_id: userId,
+				password,
+			});
 			return;
 		}
 
-		await onRegister(payload);
+		if (mode === "register") {
+			await onRegister({
+				user_id: userId,
+				email,
+				password,
+			});
+			return;
+		}
+
+		await onResetPassword({
+			user_id: userId,
+			email,
+			new_password: password,
+		});
 	}
 
 	return (
@@ -91,19 +115,34 @@ export function LoginScreen({
 								required
 							/>
 						</label>
+						{!isLoginMode ? (
+							<label className="field">
+								<span>邮箱</span>
+								<input
+									type="email"
+									value={email}
+									onChange={(event) => setEmail(event.target.value)}
+									autoComplete={isRegisterMode ? "email" : "username"}
+									placeholder={isRegisterMode ? "输入注册邮箱" : "输入注册时填写的邮箱"}
+									spellCheck={false}
+									required
+								/>
+							</label>
+						) : null}
 						<label className="field">
-							<span>密码</span>
+							<span>{isResetMode ? "新密码" : "密码"}</span>
 							<input
 								type="password"
 								value={password}
 								onChange={(event) => setPassword(event.target.value)}
 								autoComplete={isLoginMode ? "current-password" : "new-password"}
-								placeholder={isLoginMode ? "输入密码" : "设置密码"}
+								placeholder={isLoginMode ? "输入密码" : isRegisterMode ? "设置密码" : "设置新密码"}
 								required
 							/>
 						</label>
 
 						{errorMessage ? <div className="banner error">{errorMessage}</div> : null}
+						{noticeMessage ? <div className="banner info">{noticeMessage}</div> : null}
 
 						<button type="submit" className="auth-submit" disabled={loading}>
 							{loading ? "处理中..." : submitLabel}
@@ -111,14 +150,36 @@ export function LoginScreen({
 					</form>
 
 					<div className="auth-switch">
-						<span>{isLoginMode ? "还没有账号？" : "已经有账号？"}</span>
-						<button
-							type="button"
-							className="auth-switch__button"
-							onClick={() => setMode(isLoginMode ? "register" : "login")}
-						>
-							{isLoginMode ? "创建账号" : "返回登录"}
-						</button>
+						{isLoginMode ? (
+							<>
+								<span>还没有账号？</span>
+								<button
+									type="button"
+									className="auth-switch__button"
+									onClick={() => setMode("register")}
+								>
+									创建账号
+								</button>
+								<button
+									type="button"
+									className="auth-switch__button"
+									onClick={() => setMode("reset")}
+								>
+									忘记密码
+								</button>
+							</>
+						) : (
+							<>
+								<span>{isRegisterMode ? "已经有账号？" : "想起密码了？"}</span>
+								<button
+									type="button"
+									className="auth-switch__button"
+									onClick={() => setMode("login")}
+								>
+									返回登录
+								</button>
+							</>
+						)}
 					</div>
 				</div>
 			</section>
