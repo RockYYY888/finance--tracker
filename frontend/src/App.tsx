@@ -17,6 +17,7 @@ import type {
 	CashAccountRecord,
 	FixedAssetRecord,
 	HoldingRecord,
+	LiabilityCurrency,
 	LiabilityRecord,
 	OtherAssetRecord,
 } from "./types/assets";
@@ -98,8 +99,11 @@ function toFixedAssetRecord(
 function toLiabilityRecord(
 	record: DashboardResponse["liabilities"][number],
 ): LiabilityRecord {
+	const normalizedCurrency: LiabilityCurrency = record.currency === "USD" ? "USD" : "CNY";
+
 	return {
 		...record,
+		currency: normalizedCurrency,
 		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 	};

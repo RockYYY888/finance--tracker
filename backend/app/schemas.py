@@ -9,6 +9,7 @@ from app.models import (
 	CASH_ACCOUNT_TYPES,
 	FIXED_ASSET_CATEGORIES,
 	LIABILITY_CATEGORIES,
+	LIABILITY_CURRENCIES,
 	OTHER_ASSET_CATEGORIES,
 	SECURITY_MARKETS,
 )
@@ -142,6 +143,11 @@ class LiabilityEntryCreate(BaseModel):
 	def validate_category(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, LIABILITY_CATEGORIES, "category")
 
+	@field_validator("currency", mode="before")
+	@classmethod
+	def validate_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, LIABILITY_CURRENCIES, "currency")
+
 	@field_validator("note", mode="before")
 	@classmethod
 	def normalize_note(cls, value: str | None) -> str | None:
@@ -160,6 +166,11 @@ class LiabilityEntryUpdate(BaseModel):
 	@classmethod
 	def validate_category(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, LIABILITY_CATEGORIES, "category")
+
+	@field_validator("currency", mode="before")
+	@classmethod
+	def validate_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, LIABILITY_CURRENCIES, "currency")
 
 	@field_validator("note", mode="before")
 	@classmethod

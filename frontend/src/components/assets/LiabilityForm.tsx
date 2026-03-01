@@ -11,6 +11,7 @@ import type {
 import {
 	DEFAULT_LIABILITY_FORM_DRAFT,
 	LIABILITY_CATEGORY_OPTIONS,
+	LIABILITY_CURRENCY_OPTIONS,
 } from "../../types/assets";
 
 export interface LiabilityFormProps {
@@ -29,9 +30,14 @@ export interface LiabilityFormProps {
 }
 
 function toLiabilityDraft(value?: Partial<LiabilityFormDraft> | null): LiabilityFormDraft {
-	return {
+	const nextDraft = {
 		...DEFAULT_LIABILITY_FORM_DRAFT,
 		...value,
+	};
+
+	return {
+		...nextDraft,
+		currency: nextDraft.currency === "USD" ? "USD" : "CNY",
 	};
 }
 
@@ -40,7 +46,7 @@ function toLiabilityInput(draft: LiabilityFormDraft): LiabilityInput {
 	return {
 		name: draft.name.trim(),
 		category: draft.category,
-		currency: draft.currency.trim().toUpperCase(),
+		currency: draft.currency,
 		balance: Number(draft.balance),
 		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
@@ -178,13 +184,19 @@ export function LiabilityForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>币种</span>
-						<input
-							required
+						<span>计价币种</span>
+						<select
 							value={draft.currency}
-							onChange={(event) => updateDraft("currency", event.target.value)}
-							placeholder="CNY"
-						/>
+							onChange={(event) =>
+								updateDraft("currency", event.target.value as LiabilityFormDraft["currency"])
+							}
+						>
+							{LIABILITY_CURRENCY_OPTIONS.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
 					</label>
 
 					<label className="asset-manager__field">

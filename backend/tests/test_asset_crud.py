@@ -623,6 +623,16 @@ def test_create_new_asset_categories_persists_records(session: Session) -> None:
 	assert session.exec(select(OtherAsset)).one().user_id == current_user.username
 
 
+def test_liability_schema_restricts_currency_to_cny_or_usd() -> None:
+	with pytest.raises(ValidationError, match="currency must be one of: CNY, USD."):
+		LiabilityEntryCreate(
+			name="Mortgage",
+			category="mortgage",
+			currency="hkd",
+			balance=500_000,
+		)
+
+
 def test_build_dashboard_subtracts_liabilities_from_total(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,
@@ -677,3 +687,38 @@ def test_build_dashboard_subtracts_liabilities_from_total(
 	assert dashboard.liabilities_value_cny == 120_000.0
 	assert dashboard.total_value_cny == 401_000.0
 	assert [slice.label for slice in dashboard.allocation] == ["现金", "固定资产", "其他"]
+
+
+def test_build_dashboard_converts_usd_liabilities_to_cny(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	create_account(
+		CashAccountCreate(
+			name="Checking",
+			platform="Bank",
+			currency="cny",
+			balance=1_000,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	create_liability(
+		LiabilityEntryCreate(
+			name="USD Credit",
+			category="credit_card",
+			currency="usd",
+			balance=100,
+		),
+		current_user,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	dashboard = asyncio.run(main._build_dashboard(session, current_user))
+
+	assert dashboard.cash_value_cny == 1_000.0
+	assert dashboard.liabilities_value_cny == 700.0
+	assert dashboard.total_value_cny == 300.0

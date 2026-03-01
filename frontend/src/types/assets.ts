@@ -64,6 +64,8 @@ export type LiabilityCategory =
 	| "PERSONAL_LOAN"
 	| "OTHER";
 
+export type LiabilityCurrency = "CNY" | "USD";
+
 export const LIABILITY_CATEGORY_OPTIONS: Array<{
 	value: LiabilityCategory;
 	label: string;
@@ -78,6 +80,14 @@ export const LIABILITY_CATEGORY_OPTIONS: Array<{
 export function getLiabilityCategoryLabel(value: LiabilityCategory): string {
 	return LIABILITY_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? "其他";
 }
+
+export const LIABILITY_CURRENCY_OPTIONS: Array<{
+	value: LiabilityCurrency;
+	label: string;
+}> = [
+	{ value: "CNY", label: "人民币 (CNY)" },
+	{ value: "USD", label: "美元 (USD)" },
+];
 
 export type OtherAssetCategory = "RECEIVABLE" | "OTHER";
 
@@ -196,7 +206,7 @@ export const DEFAULT_FIXED_ASSET_FORM_DRAFT: FixedAssetFormDraft = {
 export interface LiabilityInput {
 	name: string;
 	category: LiabilityCategory;
-	currency: string;
+	currency: LiabilityCurrency;
 	balance: number;
 	started_on?: string;
 	note?: string;
@@ -205,7 +215,7 @@ export interface LiabilityInput {
 export interface LiabilityFormDraft {
 	name: string;
 	category: LiabilityCategory;
-	currency: string;
+	currency: LiabilityCurrency;
 	balance: string;
 	started_on: string;
 	note: string;
