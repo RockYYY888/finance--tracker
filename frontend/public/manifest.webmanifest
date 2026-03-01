@@ -1,6 +1,6 @@
 {
-	"name": "个人资产仪表盘",
-	"short_name": "资产仪表盘",
+	"name": "衡仓",
+	"short_name": "衡仓",
 	"description": "统一记录现金与证券资产，并按人民币展示总价值。",
 	"start_url": "/",
 	"display": "standalone",
