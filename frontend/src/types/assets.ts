@@ -15,6 +15,10 @@ export const CASH_ACCOUNT_TYPE_OPTIONS: Array<{
 	{ value: "OTHER", label: "其他" },
 ];
 
+export function getCashAccountTypeLabel(value: CashAccountType): string {
+	return CASH_ACCOUNT_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? "其他";
+}
+
 export type SecurityMarket = "CN" | "HK" | "US" | "FUND" | "OTHER";
 
 export const SECURITY_MARKET_OPTIONS: Array<{
@@ -39,7 +43,6 @@ export interface CashAccountInput {
 
 export interface CashAccountFormDraft {
 	name: string;
-	platform: string;
 	currency: string;
 	balance: string;
 	account_type: CashAccountType;
@@ -54,7 +57,6 @@ export interface CashAccountRecord extends CashAccountInput {
 
 export const DEFAULT_CASH_ACCOUNT_FORM_DRAFT: CashAccountFormDraft = {
 	name: "",
-	platform: "支付宝",
 	currency: "CNY",
 	balance: "",
 	account_type: "ALIPAY",

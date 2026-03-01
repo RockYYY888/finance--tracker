@@ -11,6 +11,7 @@ import type {
 import {
 	CASH_ACCOUNT_TYPE_OPTIONS,
 	DEFAULT_CASH_ACCOUNT_FORM_DRAFT,
+	getCashAccountTypeLabel,
 } from "../../types/assets";
 
 export interface CashAccountFormProps {
@@ -39,10 +40,11 @@ function toCashAccountDraft(
 
 function toCashAccountInput(draft: CashAccountFormDraft): CashAccountInput {
 	const normalizedNote = draft.note.trim();
+	const platformLabel = getCashAccountTypeLabel(draft.account_type);
 
 	return {
 		name: draft.name.trim(),
-		platform: draft.platform.trim(),
+		platform: platformLabel,
 		currency: draft.currency.trim().toUpperCase(),
 		balance: Number(draft.balance),
 		account_type: draft.account_type,
@@ -98,7 +100,7 @@ export function CashAccountForm({
 
 		try {
 			const payload = toCashAccountInput(draft);
-			if (!payload.name || !payload.platform || !payload.currency) {
+			if (!payload.name || !payload.currency) {
 				throw new Error("请完整填写账户名称、平台和币种。");
 			}
 			if (!Number.isFinite(payload.balance) || payload.balance < 0) {
@@ -162,19 +164,9 @@ export function CashAccountForm({
 					/>
 				</label>
 
-				<label className="asset-manager__field">
-					<span>平台</span>
-					<input
-						required
-						value={draft.platform}
-						onChange={(event) => updateDraft("platform", event.target.value)}
-						placeholder="支付宝 / 微信 / 银行卡"
-					/>
-				</label>
-
 				<div className="asset-manager__field-grid">
 					<label className="asset-manager__field">
-						<span>账户类型</span>
+						<span>平台</span>
 						<select
 							value={draft.account_type}
 							onChange={(event) =>
@@ -206,9 +198,8 @@ export function CashAccountForm({
 						<span>余额</span>
 						<input
 							required
-							type="number"
-							min="0"
-							step="0.01"
+							type="text"
+							inputMode="decimal"
 							value={draft.balance}
 							onChange={(event) => updateDraft("balance", event.target.value)}
 							placeholder="10000"

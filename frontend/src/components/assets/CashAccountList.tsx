@@ -95,8 +95,7 @@ export function CashAccountList({
 							<div className="asset-manager__card-top">
 								<div className="asset-manager__card-title">
 									<div className="asset-manager__badge-row">
-										<span className="asset-manager__badge">{account.platform}</span>
-										<span className="asset-manager__badge asset-manager__badge--muted">
+										<span className="asset-manager__badge">
 											{formatCashAccountType(account.account_type)}
 										</span>
 									</div>

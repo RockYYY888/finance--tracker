@@ -177,6 +177,17 @@
 	font-size: 1rem;
 }
 
+.asset-manager__field input[type="number"] {
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+
+.asset-manager__field input[type="number"]::-webkit-outer-spin-button,
+.asset-manager__field input[type="number"]::-webkit-inner-spin-button {
+	margin: 0;
+	-webkit-appearance: none;
+}
+
 .asset-manager__field input:focus,
 .asset-manager__field select:focus,
 .asset-manager__field textarea:focus {

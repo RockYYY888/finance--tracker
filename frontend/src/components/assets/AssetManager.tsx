@@ -33,7 +33,6 @@ export interface AssetManagerProps {
 function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
 	return {
 		name: record.name,
-		platform: record.platform,
 		currency: record.currency,
 		balance: String(record.balance),
 		account_type: record.account_type,
