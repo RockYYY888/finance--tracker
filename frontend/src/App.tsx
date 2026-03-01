@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AssetManager } from "./components/assets";
 import { PortfolioAnalytics } from "./components/analytics";
 import { defaultAssetApiClient } from "./lib/assetApi";
@@ -54,8 +54,10 @@ function toHoldingRecord(record: DashboardResponse["holdings"][number]): Holding
 function App() {
 	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
+	const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+	const dashboardRequestInFlightRef = useRef(false);
 
 	useEffect(() => {
 		void loadDashboard();
@@ -90,6 +92,12 @@ function App() {
 	}, []);
 
 	async function loadDashboard(): Promise<void> {
+		if (dashboardRequestInFlightRef.current) {
+			return;
+		}
+
+		dashboardRequestInFlightRef.current = true;
+		setIsRefreshingDashboard(true);
 		setErrorMessage(null);
 
 		try {
@@ -103,12 +111,15 @@ function App() {
 					: "无法加载资产总览，请确认后端服务是否启动。",
 			);
 		} finally {
+			dashboardRequestInFlightRef.current = false;
+			setIsRefreshingDashboard(false);
 			setIsLoadingDashboard(false);
 		}
 	}
 
 	const hasAnyAsset =
 		dashboard.cash_accounts.length > 0 || dashboard.holdings.length > 0;
+	const isDashboardBusy = isLoadingDashboard || isRefreshingDashboard;
 	const cashAccountRecords = dashboard.cash_accounts.map(toCashAccountRecord);
 	const holdingRecords = dashboard.holdings.map(toHoldingRecord);
 
@@ -158,7 +169,22 @@ function App() {
 					<p className="eyebrow">CNY CONTROL PANEL</p>
 					<h1>资产控制台</h1>
 					<p className="hero-copy">全部资产统一按人民币计价。</p>
-					<p className="hero-note">最近更新：{formatLastUpdated(lastUpdatedAt)}</p>
+					<button
+						type="button"
+						className="hero-note hero-note--action"
+						onClick={() => void loadDashboard()}
+						disabled={isDashboardBusy}
+					>
+						<span
+							className={`hero-note__status ${isDashboardBusy ? "is-active" : ""}`}
+							aria-hidden="true"
+						/>
+						<span>
+							{isDashboardBusy
+								? "同步中..."
+								: `最近更新：${formatLastUpdated(lastUpdatedAt)}`}
+						</span>
+					</button>
 				</div>
 
 				<div className="summary-grid">

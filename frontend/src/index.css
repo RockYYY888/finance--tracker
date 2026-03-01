@@ -149,7 +149,7 @@ h3 {
 }
 
 h1 {
-	font-size: clamp(2.2rem, 3vw, 4rem);
+	font-size: 3.2rem;
 	line-height: 0.95;
 }
 
@@ -178,6 +178,7 @@ h3 {
 	margin: 0;
 	display: inline-flex;
 	align-items: center;
+	gap: 0.5rem;
 	width: fit-content;
 	padding: 0.45rem 0.75rem;
 	border-radius: 999px;
@@ -186,6 +187,42 @@ h3 {
 	color: var(--text-muted);
 	font-size: 0.82rem;
 	font-family: "JetBrains Mono", "Noto Sans SC", monospace;
+}
+
+.hero-note--action {
+	padding: 0.5rem 0.8rem;
+	border: 1px solid var(--line-soft);
+	background: rgba(99, 232, 255, 0.06);
+	color: var(--text-muted);
+	box-shadow: none;
+	cursor: pointer;
+}
+
+.hero-note--action:hover:not(:disabled) {
+	transform: translateY(-1px);
+	border-color: var(--line-strong);
+	background: rgba(99, 232, 255, 0.1);
+}
+
+.hero-note--action:disabled {
+	opacity: 1;
+	cursor: default;
+	transform: none;
+}
+
+.hero-note__status {
+	width: 0.55rem;
+	height: 0.55rem;
+	border-radius: 999px;
+	background: rgba(99, 232, 255, 0.5);
+	box-shadow: 0 0 0 4px rgba(99, 232, 255, 0.08);
+}
+
+.hero-note__status.is-active {
+	background: var(--accent-mint);
+	box-shadow:
+		0 0 0 4px rgba(55, 240, 200, 0.08),
+		0 0 12px rgba(55, 240, 200, 0.26);
 }
 
 .summary-grid {
@@ -214,7 +251,7 @@ h3 {
 }
 
 .stat-card strong {
-	font-size: clamp(1.4rem, 2vw, 2.2rem);
+	font-size: 2rem;
 	line-height: 1.05;
 }
 
@@ -472,6 +509,14 @@ th {
 }
 
 @media (max-width: 1100px) {
+	h1 {
+		font-size: 2.8rem;
+	}
+
+	.stat-card strong {
+		font-size: 1.85rem;
+	}
+
 	.hero-panel,
 	.form-panel,
 	.chart-layout,
@@ -485,6 +530,14 @@ th {
 }
 
 @media (max-width: 720px) {
+	h1 {
+		font-size: 2.2rem;
+	}
+
+	.stat-card strong {
+		font-size: 1.6rem;
+	}
+
 	.app-shell {
 		padding: 18px 14px 48px;
 	}
