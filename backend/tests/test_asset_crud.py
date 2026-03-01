@@ -10,6 +10,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 import app.main as main
 from app.main import (
+	_authenticate_user_account,
 	create_fixed_asset,
 	_persist_hour_snapshot,
 	_persist_holdings_return_snapshot,
@@ -34,6 +35,7 @@ from app.models import (
 	UserAccount,
 )
 from app.schemas import (
+	AuthLoginCredentials,
 	CashAccountCreate,
 	CashAccountUpdate,
 	DashboardResponse,
@@ -187,6 +189,21 @@ def test_delete_account_returns_404_when_missing(session: Session) -> None:
 
 	assert error.value.status_code == 404
 	assert error.value.detail == "Account not found."
+
+
+def test_authenticate_user_account_rejects_short_wrong_password_with_401(
+	session: Session,
+) -> None:
+	make_user(session)
+
+	with pytest.raises(HTTPException) as error:
+		_authenticate_user_account(
+			session,
+			AuthLoginCredentials(user_id="tester", password="short"),
+		)
+
+	assert error.value.status_code == 401
+	assert error.value.detail == "账号或密码错误。"
 
 
 def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Session) -> None:

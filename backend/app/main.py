@@ -33,6 +33,7 @@ from app.models import (
 from app.schemas import (
 	AllocationSlice,
 	AuthCredentials,
+	AuthLoginCredentials,
 	AuthSessionRead,
 	CashAccountCreate,
 	CashAccountRead,
@@ -1398,7 +1399,10 @@ def _create_user_account(session: Session, credentials: AuthCredentials) -> User
 	return user
 
 
-def _authenticate_user_account(session: Session, credentials: AuthCredentials) -> UserAccount:
+def _authenticate_user_account(
+	session: Session,
+	credentials: AuthLoginCredentials,
+) -> UserAccount:
 	user = _get_user(session, credentials.user_id)
 	if user is None or not verify_password(credentials.password, user.password_digest):
 		raise HTTPException(status_code=401, detail="账号或密码错误。")
@@ -1438,7 +1442,7 @@ def register_user(
 @app.post("/api/auth/login", response_model=AuthSessionRead)
 def login_user(
 	request: Request,
-	payload: AuthCredentials,
+	payload: AuthLoginCredentials,
 	_: TokenDependency,
 	session: SessionDependency,
 ) -> AuthSessionRead:

@@ -251,6 +251,16 @@ class AuthCredentials(BaseModel):
 		return validate_password_strength(value)
 
 
+class AuthLoginCredentials(BaseModel):
+	user_id: str = Field(min_length=3, max_length=32)
+	password: str = Field(min_length=1, max_length=128)
+
+	@field_validator("user_id", mode="before")
+	@classmethod
+	def validate_user_id(cls, value: str) -> str:
+		return normalize_user_id(value)
+
+
 class AuthSessionRead(BaseModel):
 	user_id: str
 
