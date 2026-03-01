@@ -102,7 +102,7 @@ class SecurityHoldingCreate(BaseModel):
 
 	@model_validator(mode="after")
 	def validate_quantity_for_market(self) -> SecurityHoldingCreate:
-		if self.market != "FUND" and not float(self.quantity).is_integer():
+		if self.market not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
 			raise ValueError("股票请使用整数数量，基金可使用份额。")
 		return self
 
@@ -128,7 +128,7 @@ class SecurityHoldingUpdate(BaseModel):
 
 	@model_validator(mode="after")
 	def validate_quantity_for_market(self) -> SecurityHoldingUpdate:
-		if (self.market or "OTHER") != "FUND" and not float(self.quantity).is_integer():
+		if (self.market or "OTHER") not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
 			raise ValueError("股票请使用整数数量，基金可使用份额。")
 		return self
 

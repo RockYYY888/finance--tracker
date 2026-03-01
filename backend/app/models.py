@@ -6,7 +6,7 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
-SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "OTHER")
+SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "CRYPTO", "OTHER")
 
 
 def utc_now() -> datetime:

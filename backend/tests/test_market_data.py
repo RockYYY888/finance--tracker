@@ -7,6 +7,7 @@ import app.main as main
 from app.models import SecurityHolding
 from app.services.cache import TTLCache
 from app.services.market_data import (
+	EastMoneySecuritySearchProvider,
 	MarketDataClient,
 	Quote,
 	QuoteLookupError,
@@ -14,7 +15,9 @@ from app.services.market_data import (
 	build_local_search_results,
 	build_fx_symbol,
 	infer_security_market,
+	normalize_symbol_for_market,
 	normalize_symbol,
+	parse_eastmoney_search_item,
 )
 
 
@@ -113,6 +116,12 @@ def test_infer_security_market_uses_symbol_and_exchange_hints() -> None:
 	assert infer_security_market("0700.HK") == "HK"
 	assert infer_security_market("600519.SS") == "CN"
 	assert infer_security_market("AAPL", "NMS") == "US"
+	assert infer_security_market("BTC-USD") == "CRYPTO"
+
+
+def test_normalize_symbol_for_market_maps_crypto_aliases_to_usd_pairs() -> None:
+	assert normalize_symbol_for_market("btc", "CRYPTO") == "BTC-USD"
+	assert normalize_symbol_for_market("eth/usdt", "CRYPTO") == "ETH-USD"
 
 
 def test_fetch_quote_uses_fresh_cache_before_calling_provider() -> None:
@@ -187,7 +196,10 @@ def test_search_securities_uses_cache_before_calling_provider() -> None:
 		),
 	]
 	provider = SequenceSearchProvider([results])
-	client = MarketDataClient(search_provider=provider)
+	client = MarketDataClient(
+		china_search_provider=SequenceSearchProvider([[]]),
+		search_provider=provider,
+	)
 
 	first_results = asyncio.run(client.search_securities("bad symbol!"))
 	second_results = asyncio.run(client.search_securities("Bad Symbol!"))
@@ -200,6 +212,7 @@ def test_search_securities_uses_cache_before_calling_provider() -> None:
 
 def test_search_securities_returns_local_alias_when_provider_fails() -> None:
 	client = MarketDataClient(
+		china_search_provider=SequenceSearchProvider([[]]),
 		search_provider=SequenceSearchProvider([QuoteLookupError("rate limited")]),
 	)
 
@@ -211,6 +224,7 @@ def test_search_securities_returns_local_alias_when_provider_fails() -> None:
 
 def test_search_securities_returns_empty_list_when_provider_fails_without_local_match() -> None:
 	client = MarketDataClient(
+		china_search_provider=SequenceSearchProvider([QuoteLookupError("rate limited")]),
 		search_provider=SequenceSearchProvider([QuoteLookupError("rate limited")]),
 	)
 
@@ -223,6 +237,39 @@ def test_build_local_search_results_supports_symbol_fallback() -> None:
 	results = build_local_search_results("700")
 
 	assert results[0].symbol == "0700.HK"
+
+
+def test_build_local_search_results_supports_crypto_aliases() -> None:
+	results = build_local_search_results("比特币")
+
+	assert results[0].symbol == "BTC-USD"
+
+
+def test_parse_eastmoney_search_item_maps_a_share_codes() -> None:
+	result = parse_eastmoney_search_item({
+		"Code": "688256",
+		"Name": "寒武纪-U",
+		"QuoteID": "1.688256",
+		"JYS": "23",
+	})
+
+	assert result is not None
+	assert result.symbol == "688256.SS"
+	assert result.market == "CN"
+
+
+def test_parse_eastmoney_search_item_maps_hk_codes() -> None:
+	result = parse_eastmoney_search_item({
+		"Code": "02015",
+		"Name": "理想汽车-W",
+		"QuoteID": "116.02015",
+		"JYS": "HK",
+		"Classify": "HK",
+	})
+
+	assert result is not None
+	assert result.symbol == "02015.HK"
+	assert result.market == "HK"
 
 
 def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:

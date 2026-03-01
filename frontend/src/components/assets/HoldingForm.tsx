@@ -61,8 +61,8 @@ function getSearchLabel(selection: { name: string; symbol: string }): string {
 	return `${selection.name} (${selection.symbol})`;
 }
 
-function isFundMarket(market: HoldingFormDraft["market"]): boolean {
-	return market === "FUND";
+function allowsFractionalQuantity(market: HoldingFormDraft["market"]): boolean {
+	return market === "FUND" || market === "CRYPTO";
 }
 
 function shouldStartSearch(query: string): boolean {
@@ -176,11 +176,15 @@ export function HoldingForm({
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
-	const resolvedTitle = title ?? (mode === "edit" ? "编辑证券持仓" : "新增证券持仓");
+	const resolvedTitle = title ?? (mode === "edit" ? "编辑持仓" : "新增持仓");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
-	const quantityLabel = isFundMarket(draft.market) ? "份额" : "数量（股/支）";
-	const quantityStep = isFundMarket(draft.market) ? "0.0001" : "1";
-	const quantityMin = isFundMarket(draft.market) ? "0.0001" : "1";
+	const quantityLabel = draft.market === "FUND"
+		? "份额"
+		: draft.market === "CRYPTO"
+			? "数量"
+			: "数量（股/支）";
+	const quantityStep = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
+	const quantityMin = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
 
 	function updateDraft<K extends keyof HoldingFormDraft>(
 		field: K,
@@ -236,8 +240,8 @@ export function HoldingForm({
 			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
 				throw new Error("请输入有效的持仓数量。");
 			}
-			if (!isFundMarket(draft.market) && !Number.isInteger(payload.quantity)) {
-				throw new Error("股票请使用整数数量；基金可使用份额。");
+			if (!allowsFractionalQuantity(draft.market) && !Number.isInteger(payload.quantity)) {
+				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
 			}
 
 			if (mode === "edit" && recordId !== null) {
@@ -298,7 +302,7 @@ export function HoldingForm({
 							onChange={(event) => handleSearchInput(event.target.value)}
 							onFocus={() => setIsSearchOpen(searchResults.length > 0)}
 							onBlur={() => window.setTimeout(() => setIsSearchOpen(false), 120)}
-							placeholder="输入名称或代码，例如：腾讯 / AAPL"
+							placeholder="输入名称或代码，例如：寒武纪 / 理想 / BTC"
 							autoComplete="off"
 						/>
 
@@ -400,7 +404,7 @@ export function HoldingForm({
 							step={quantityStep}
 							value={draft.quantity}
 							onChange={(event) => updateDraft("quantity", event.target.value)}
-							placeholder={isFundMarket(draft.market) ? "1.0000" : "100"}
+							placeholder={allowsFractionalQuantity(draft.market) ? "1.0000" : "100"}
 						/>
 					</label>
 

@@ -33,6 +33,7 @@ from app.services.market_data import (
 	MarketDataClient,
 	QuoteLookupError,
 	normalize_symbol as normalize_market_symbol,
+	normalize_symbol_for_market as normalize_market_symbol_for_market,
 )
 
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -89,8 +90,10 @@ def _normalize_currency(code: str) -> str:
 	return code.strip().upper()
 
 
-def _normalize_symbol(symbol: str) -> str:
+def _normalize_symbol(symbol: str, market: str | None = None) -> str:
 	try:
+		if market:
+			return normalize_market_symbol_for_market(symbol, market)
 		return normalize_market_symbol(symbol)
 	except ValueError as exc:
 		raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -434,7 +437,7 @@ def create_holding(
 	session: SessionDependency,
 ) -> SecurityHolding:
 	holding = SecurityHolding(
-		symbol=_normalize_symbol(payload.symbol),
+		symbol=_normalize_symbol(payload.symbol, payload.market),
 		name=payload.name.strip(),
 		quantity=payload.quantity,
 		fallback_currency=_normalize_currency(payload.fallback_currency),
@@ -459,7 +462,7 @@ def update_holding(
 	if holding is None:
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
-	holding.symbol = _normalize_symbol(payload.symbol)
+	holding.symbol = _normalize_symbol(payload.symbol, payload.market or holding.market)
 	holding.name = payload.name.strip()
 	holding.quantity = payload.quantity
 	holding.fallback_currency = _normalize_currency(payload.fallback_currency)

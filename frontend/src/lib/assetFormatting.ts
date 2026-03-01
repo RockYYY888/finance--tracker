@@ -21,6 +21,7 @@ const securityMarketLabels: Record<string, string> = {
 	HK: "港股",
 	US: "美股",
 	FUND: "基金",
+	CRYPTO: "加密货币",
 	OTHER: "其他",
 };
 

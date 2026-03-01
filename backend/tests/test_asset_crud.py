@@ -327,3 +327,15 @@ def test_holding_schema_allows_fractional_fund_units() -> None:
 	)
 
 	assert holding.quantity == 1.5
+
+
+def test_holding_schema_allows_fractional_crypto_units() -> None:
+	holding = SecurityHoldingCreate(
+		symbol="BTC-USD",
+		name="Bitcoin",
+		quantity=0.25,
+		fallback_currency="USD",
+		market="CRYPTO",
+	)
+
+	assert holding.quantity == 0.25

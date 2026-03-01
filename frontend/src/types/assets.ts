@@ -19,7 +19,7 @@ export function getCashAccountTypeLabel(value: CashAccountType): string {
 	return CASH_ACCOUNT_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? "其他";
 }
 
-export type SecurityMarket = "CN" | "HK" | "US" | "FUND" | "OTHER";
+export type SecurityMarket = "CN" | "HK" | "US" | "FUND" | "CRYPTO" | "OTHER";
 
 export const SECURITY_MARKET_OPTIONS: Array<{
 	value: SecurityMarket;
@@ -29,6 +29,7 @@ export const SECURITY_MARKET_OPTIONS: Array<{
 	{ value: "HK", label: "港股" },
 	{ value: "US", label: "美股" },
 	{ value: "FUND", label: "基金" },
+	{ value: "CRYPTO", label: "加密货币" },
 	{ value: "OTHER", label: "其他" },
 ];
 

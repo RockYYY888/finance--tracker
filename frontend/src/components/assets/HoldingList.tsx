@@ -30,7 +30,7 @@ export function HoldingList({
 	loading = false,
 	busy = false,
 	errorMessage = null,
-	emptyMessage = "暂无证券持仓，可先录入港股、美股或 A 股。",
+	emptyMessage = "暂无持仓，可先录入 A 股、港股、美股或加密货币。",
 	onCreate,
 	onEdit,
 	onDelete,
@@ -135,7 +135,13 @@ export function HoldingList({
 
 							<div className="asset-manager__metric-grid">
 								<div className="asset-manager__metric">
-									<span>{holding.market === "FUND" ? "份额" : "数量（股/支）"}</span>
+									<span>
+										{holding.market === "FUND"
+											? "份额"
+											: holding.market === "CRYPTO"
+												? "数量"
+												: "数量（股/支）"}
+									</span>
 									<strong>{formatQuantity(holding.quantity)}</strong>
 								</div>
 								<div className="asset-manager__metric">

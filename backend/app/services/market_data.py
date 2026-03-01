@@ -12,8 +12,10 @@ INVALID_SYMBOL_MESSAGE = (
 	"Invalid symbol format. Use A-share (600519, 600519.SS, SH600519), "
 	"HK (00700, 00700.HK, HK00700), or US (AAPL, BRK-B)."
 )
-SEARCHABLE_QUOTE_TYPES = {"EQUITY", "ETF", "MUTUALFUND"}
+SEARCHABLE_QUOTE_TYPES = {"EQUITY", "ETF", "MUTUALFUND", "CRYPTOCURRENCY"}
 US_EXCHANGES = {"NMS", "NGM", "NYQ", "ASE", "PCX", "BTS", "NCM", "NSQ", "OOTC", "PNK"}
+CRYPTO_EXCHANGES = {"CCC", "CCY", "CRY", "COIN"}
+EASTMONEY_SEARCH_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
 
 
 class QuoteLookupError(RuntimeError):
@@ -150,10 +152,52 @@ LOCAL_SEARCH_CATALOG = (
 			exchange="SHH",
 		),
 	),
+	(
+		("理想", "理想汽车", "li auto", "li"),
+		SecuritySearchResult(
+			symbol="2015.HK",
+			name="理想汽车-W",
+			market="HK",
+			currency="HKD",
+			exchange="HKG",
+		),
+	),
+	(
+		("寒武纪", "cambricon"),
+		SecuritySearchResult(
+			symbol="688256.SS",
+			name="寒武纪-U",
+			market="CN",
+			currency="CNY",
+			exchange="SHH",
+		),
+	),
+	(
+		("比特币", "btc", "bitcoin"),
+		SecuritySearchResult(
+			symbol="BTC-USD",
+			name="Bitcoin",
+			market="CRYPTO",
+			currency="USD",
+			exchange="CCC",
+		),
+	),
+	(
+		("以太坊", "eth", "ethereum"),
+		SecuritySearchResult(
+			symbol="ETH-USD",
+			name="Ethereum",
+			market="CRYPTO",
+			currency="USD",
+			exchange="CCC",
+		),
+	),
 )
 
 
 def _default_currency_for_market(market: str) -> str:
+	if market == "CRYPTO":
+		return "USD"
 	if market == "HK":
 		return "HKD"
 	if market == "US":
@@ -161,10 +205,36 @@ def _default_currency_for_market(market: str) -> str:
 	return "CNY"
 
 
-def infer_security_market(symbol: str, exchange: str | None = None) -> str:
+def normalize_symbol_for_market(symbol: str, market: str | None = None) -> str:
+	"""Normalize symbols with market-specific handling for crypto pairs."""
+	normalized_market = (market or "").strip().upper()
+	candidate = symbol.strip().upper()
+
+	if normalized_market == "CRYPTO":
+		if re.fullmatch(r"^[A-Z0-9]{2,15}$", candidate):
+			return f"{candidate}-USD"
+
+		if re.fullmatch(r"^[A-Z0-9]{2,15}[-/](USD|USDT|USDC)$", candidate):
+			base = re.split(r"[-/]", candidate, maxsplit=1)[0]
+			return f"{base}-USD"
+
+	return normalize_symbol(candidate)
+
+
+def infer_security_market(
+	symbol: str,
+	exchange: str | None = None,
+	quote_type: str | None = None,
+) -> str:
 	"""Infer a frontend-friendly market code from quote metadata."""
 	normalized_symbol = symbol.strip().upper()
 	normalized_exchange = (exchange or "").strip().upper()
+	normalized_quote_type = (quote_type or "").strip().upper()
+
+	if normalized_quote_type == "CRYPTOCURRENCY" or normalized_exchange in CRYPTO_EXCHANGES:
+		return "CRYPTO"
+	if re.fullmatch(r"^[A-Z0-9]{2,15}-(USD|USDT|USDC)$", normalized_symbol):
+		return "CRYPTO"
 
 	if normalized_symbol.endswith(".HK") or normalized_exchange.startswith("HKG"):
 		return "HK"
@@ -184,6 +254,60 @@ def infer_security_market(symbol: str, exchange: str | None = None) -> str:
 	if not normalized_exchange and re.fullmatch(r"^[A-Z][A-Z0-9]*(?:[.-][A-Z0-9]+)?$", normalized_symbol):
 		return "US"
 	return "OTHER"
+
+
+def parse_eastmoney_search_item(item: dict[str, str]) -> SecuritySearchResult | None:
+	"""Convert Eastmoney's search payload into the app's normalized search result."""
+	code = str(item.get("Code") or "").strip().upper()
+	name = str(item.get("Name") or "").strip()
+	if not code or not name:
+		return None
+
+	quote_id = str(item.get("QuoteID") or "").strip()
+	classify = str(item.get("Classify") or "").strip().upper()
+	jys = str(item.get("JYS") or "").strip().upper()
+	exchange_name = jys or None
+
+	if classify == "NEEQ":
+		return None
+
+	if quote_id.startswith("1."):
+		return SecuritySearchResult(
+			symbol=f"{code}.SS",
+			name=name,
+			market="CN",
+			currency="CNY",
+			exchange=exchange_name or "SHH",
+		)
+
+	if quote_id.startswith("0."):
+		return SecuritySearchResult(
+			symbol=f"{code}.SZ",
+			name=name,
+			market="CN",
+			currency="CNY",
+			exchange=exchange_name or "SHE",
+		)
+
+	if classify == "HK" or jys == "HK" or quote_id.startswith("116."):
+		return SecuritySearchResult(
+			symbol=normalize_symbol(f"{code}.HK"),
+			name=name,
+			market="HK",
+			currency="HKD",
+			exchange=exchange_name or "HKG",
+		)
+
+	if classify == "USSTOCK" or jys in US_EXCHANGES or quote_id.startswith("105."):
+		return SecuritySearchResult(
+			symbol=normalize_symbol(code),
+			name=name,
+			market="US",
+			currency="USD",
+			exchange=exchange_name,
+		)
+
+	return None
 
 
 def _merge_search_results(
@@ -209,27 +333,27 @@ def build_local_search_results(query: str) -> list[SecuritySearchResult]:
 		return []
 
 	results: list[SecuritySearchResult] = []
-
-	try:
-		symbol = normalize_symbol(query)
-	except ValueError:
-		pass
-	else:
-		market = infer_security_market(symbol)
-		if market != "OTHER":
-			results.append(
-				SecuritySearchResult(
-					symbol=symbol,
-					name=symbol,
-					market=market,
-					currency=_default_currency_for_market(market),
-					exchange=None,
-				),
-			)
-
 	for keywords, result in LOCAL_SEARCH_CATALOG:
 		if any(normalized_query in keyword or keyword in normalized_query for keyword in keywords):
 			results.append(result)
+
+	if not any(result.market == "CRYPTO" for result in results):
+		try:
+			symbol = normalize_symbol(query)
+		except ValueError:
+			pass
+		else:
+			market = infer_security_market(symbol)
+			if market != "OTHER":
+				results.append(
+					SecuritySearchResult(
+						symbol=symbol,
+						name=symbol,
+						market=market,
+						currency=_default_currency_for_market(market),
+						exchange=None,
+					),
+				)
 
 	return _merge_search_results(results, [])
 
@@ -316,7 +440,7 @@ class YahooSecuritySearchProvider:
 				continue
 
 			try:
-				symbol = normalize_symbol(raw_symbol)
+				symbol = normalize_symbol_for_market(raw_symbol, "CRYPTO" if quote_type == "CRYPTOCURRENCY" else None)
 			except ValueError:
 				continue
 
@@ -325,7 +449,7 @@ class YahooSecuritySearchProvider:
 
 			name = str(item.get("shortname") or item.get("longname") or symbol).strip()
 			exchange = str(item.get("exchange") or "").strip() or None
-			market = infer_security_market(symbol, exchange)
+			market = infer_security_market(symbol, exchange, quote_type)
 			if market == "OTHER":
 				continue
 			currency = str(item.get("currency") or "").strip().upper() or _default_currency_for_market(
@@ -341,6 +465,50 @@ class YahooSecuritySearchProvider:
 				),
 			)
 			seen_symbols.add(symbol)
+
+		return results
+
+
+class EastMoneySecuritySearchProvider:
+	EASTMONEY_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
+
+	def __init__(self, timeout: float = 10.0) -> None:
+		self.timeout = timeout
+
+	async def search(self, query: str) -> list[SecuritySearchResult]:
+		"""Search A-share/HK/US symbols via Eastmoney's public suggestion endpoint."""
+		if not query.strip():
+			return []
+
+		try:
+			async with httpx.AsyncClient(timeout=self.timeout) as client:
+				response = await client.get(
+					self.EASTMONEY_SEARCH_URL,
+					params={
+						"input": query,
+						"type": "14",
+						"count": "10",
+						"token": EASTMONEY_SEARCH_TOKEN,
+					},
+					headers={
+						"User-Agent": "Mozilla/5.0",
+						"Referer": "https://quote.eastmoney.com/",
+					},
+				)
+				response.raise_for_status()
+				payload = response.json()
+		except httpx.HTTPError as exc:
+			raise QuoteLookupError(f"Eastmoney search request failed for {query}.") from exc
+
+		results: list[SecuritySearchResult] = []
+		seen_symbols: set[str] = set()
+
+		for item in payload.get("QuotationCodeTable", {}).get("Data", []):
+			parsed_result = parse_eastmoney_search_item(item)
+			if parsed_result is None or parsed_result.symbol in seen_symbols:
+				continue
+			results.append(parsed_result)
+			seen_symbols.add(parsed_result.symbol)
 
 		return results
 
@@ -377,6 +545,7 @@ class MarketDataClient:
 	def __init__(
 		self,
 		quote_provider: YahooQuoteProvider | None = None,
+		china_search_provider: EastMoneySecuritySearchProvider | None = None,
 		search_provider: YahooSecuritySearchProvider | None = None,
 		fx_provider: FrankfurterRateProvider | None = None,
 		quote_cache: TTLCache[Quote] | None = None,
@@ -387,6 +556,7 @@ class MarketDataClient:
 		fx_ttl_seconds: int = 600,
 	) -> None:
 		self.quote_provider = quote_provider or YahooQuoteProvider()
+		self.china_search_provider = china_search_provider or EastMoneySecuritySearchProvider()
 		self.search_provider = search_provider or YahooSecuritySearchProvider()
 		self.fx_provider = fx_provider or FrankfurterRateProvider()
 		self.quote_cache = quote_cache or TTLCache[Quote]()
@@ -398,7 +568,7 @@ class MarketDataClient:
 
 	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
 		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
-		normalized_symbol = normalize_symbol(symbol)
+		normalized_symbol = normalize_symbol_for_market(symbol)
 		cached_quote = self.quote_cache.get(normalized_symbol)
 		if cached_quote is not None:
 			return cached_quote, []
@@ -428,18 +598,20 @@ class MarketDataClient:
 			return cached_results
 
 		local_results = build_local_search_results(normalized_query)
+		china_results: list[SecuritySearchResult] = []
+		global_results: list[SecuritySearchResult] = []
 
 		try:
-			provider_results = await self.search_provider.search(normalized_query)
+			china_results = await self.china_search_provider.search(normalized_query)
 		except QuoteLookupError:
-			self.search_cache.set(
-				cache_key,
-				local_results,
-				ttl_seconds=self.search_ttl_seconds,
-			)
-			return local_results
+			china_results = []
 
-		results = _merge_search_results(local_results, provider_results)
+		try:
+			global_results = await self.search_provider.search(normalized_query)
+		except QuoteLookupError:
+			global_results = []
+
+		results = _merge_search_results(local_results, _merge_search_results(china_results, global_results))
 		self.search_cache.set(cache_key, results, ttl_seconds=self.search_ttl_seconds)
 		return results
 
