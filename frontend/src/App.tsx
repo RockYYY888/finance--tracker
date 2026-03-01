@@ -628,6 +628,36 @@ function App() {
 				}));
 				void loadDashboard();
 			},
+			onMergeDuplicate: async ({ targetRecordId, sourceRecordId, mergedPayload }) => {
+				const updatedRecord = await defaultAssetApiClient.updateHolding(
+					targetRecordId,
+					mergedPayload,
+				);
+
+				if (sourceRecordId != null && sourceRecordId !== targetRecordId) {
+					await defaultAssetApiClient.deleteHolding(sourceRecordId);
+				}
+
+				patchDashboard((currentDashboard) => {
+					let nextHoldings = currentDashboard.holdings;
+
+					if (sourceRecordId != null && sourceRecordId !== targetRecordId) {
+						nextHoldings = removeRecordById(nextHoldings, sourceRecordId);
+					}
+
+					nextHoldings = upsertRecordById(
+						nextHoldings,
+						toDashboardHolding(updatedRecord),
+					);
+
+					return {
+						...currentDashboard,
+						holdings: nextHoldings,
+					};
+				});
+				void loadDashboard();
+				return updatedRecord;
+			},
 			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
 		},
 		fixedAssets: {

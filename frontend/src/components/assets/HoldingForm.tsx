@@ -8,6 +8,8 @@ import type {
 	AssetEditorMode,
 	HoldingFormDraft,
 	HoldingInput,
+	HoldingMergeRequest,
+	HoldingRecord,
 	MaybePromise,
 	SecuritySearchResult,
 } from "../../types/assets";
@@ -19,6 +21,7 @@ import {
 export interface HoldingFormProps {
 	mode?: AssetEditorMode;
 	value?: Partial<HoldingFormDraft> | null;
+	existingHoldings?: HoldingRecord[];
 	recordId?: number | null;
 	title?: string;
 	subtitle?: string;
@@ -29,8 +32,23 @@ export interface HoldingFormProps {
 	onEdit?: (recordId: number, payload: HoldingInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
 	onSearch?: (query: string) => MaybePromise<SecuritySearchResult[]>;
+	onMergeDuplicate?: (request: HoldingMergeRequest) => MaybePromise<unknown>;
 	onCancel?: () => void;
 }
+
+type HoldingMergePreview = {
+	targetRecord: HoldingRecord;
+	sourceRecordId: number | null;
+	mergedPayload: HoldingInput;
+	existingQuantity: number;
+	incomingQuantity: number;
+	mergedQuantity: number;
+	existingCostBasis: number | null;
+	incomingCostBasis: number | null;
+	mergedCostBasis: number | null;
+	knownCostTotal: number | null;
+	estimatedReturnPct: number | null;
+};
 
 function toHoldingDraft(value?: Partial<HoldingFormDraft> | null): HoldingFormDraft {
 	return {
@@ -82,9 +100,121 @@ function shouldPrefillBroker(source?: string | null): boolean {
 	return Boolean(source && !isImplicitSearchSourceLabel(source));
 }
 
+function roundHoldingMetric(value: number, digits = 4): number {
+	return Number(value.toFixed(digits));
+}
+
+function resolveMergedCostBasis(
+	targetRecord: HoldingRecord,
+	nextPayload: HoldingInput,
+	mergedQuantity: number,
+): {
+	mergedCostBasis: number | null;
+	knownCostTotal: number | null;
+} {
+	const existingCostTotal = targetRecord.cost_basis_price != null
+		? targetRecord.quantity * targetRecord.cost_basis_price
+		: null;
+	const incomingCostTotal = nextPayload.cost_basis_price != null
+		? nextPayload.quantity * nextPayload.cost_basis_price
+		: null;
+
+	if (existingCostTotal != null && incomingCostTotal != null && mergedQuantity > 0) {
+		const totalCost = existingCostTotal + incomingCostTotal;
+		return {
+			mergedCostBasis: roundHoldingMetric(totalCost / mergedQuantity),
+			knownCostTotal: roundHoldingMetric(totalCost, 2),
+		};
+	}
+
+	if (nextPayload.cost_basis_price != null) {
+		return {
+			mergedCostBasis: roundHoldingMetric(nextPayload.cost_basis_price),
+			knownCostTotal: roundHoldingMetric(incomingCostTotal ?? 0, 2),
+		};
+	}
+
+	if (targetRecord.cost_basis_price != null) {
+		return {
+			mergedCostBasis: roundHoldingMetric(targetRecord.cost_basis_price),
+			knownCostTotal: roundHoldingMetric(existingCostTotal ?? 0, 2),
+		};
+	}
+
+	return {
+		mergedCostBasis: null,
+		knownCostTotal: null,
+	};
+}
+
+function buildHoldingMergePreview(
+	targetRecord: HoldingRecord,
+	nextPayload: HoldingInput,
+	sourceRecordId: number | null,
+): HoldingMergePreview {
+	const mergedQuantity = roundHoldingMetric(targetRecord.quantity + nextPayload.quantity);
+	const { mergedCostBasis, knownCostTotal } = resolveMergedCostBasis(
+		targetRecord,
+		nextPayload,
+		mergedQuantity,
+	);
+	const estimatedReturnPct =
+		targetRecord.price != null && targetRecord.price > 0 && mergedCostBasis != null && mergedCostBasis > 0
+			? roundHoldingMetric(
+				((targetRecord.price - mergedCostBasis) / mergedCostBasis) * 100,
+				2,
+			)
+			: null;
+
+	return {
+		targetRecord,
+		sourceRecordId,
+		mergedPayload: {
+			...nextPayload,
+			quantity: mergedQuantity,
+			cost_basis_price: mergedCostBasis ?? undefined,
+			broker: nextPayload.broker ?? targetRecord.broker ?? undefined,
+			started_on: nextPayload.started_on ?? targetRecord.started_on ?? undefined,
+			note: nextPayload.note ?? targetRecord.note ?? undefined,
+		},
+		existingQuantity: targetRecord.quantity,
+		incomingQuantity: nextPayload.quantity,
+		mergedQuantity,
+		existingCostBasis: targetRecord.cost_basis_price ?? null,
+		incomingCostBasis: nextPayload.cost_basis_price ?? null,
+		mergedCostBasis,
+		knownCostTotal,
+		estimatedReturnPct,
+	};
+}
+
+function findDuplicateHolding(
+	existingHoldings: HoldingRecord[],
+	symbol: string,
+	currentRecordId: number | null,
+): HoldingRecord | null {
+	const normalizedSymbol = symbol.trim().toUpperCase();
+	return existingHoldings.find((holding) => {
+		if (holding.id === currentRecordId) {
+			return false;
+		}
+
+		return holding.symbol.trim().toUpperCase() === normalizedSymbol;
+	}) ?? null;
+}
+
+function formatPreviewPrice(value: number | null | undefined, currency: string): string {
+	if (value == null || !Number.isFinite(value)) {
+		return "待补充";
+	}
+
+	return `${value.toFixed(2)} ${currency}`;
+}
+
 export function HoldingForm({
 	mode = "create",
 	value,
+	existingHoldings = [],
 	recordId = null,
 	title,
 	subtitle,
@@ -95,11 +225,13 @@ export function HoldingForm({
 	onEdit,
 	onDelete,
 	onSearch,
+	onMergeDuplicate,
 	onCancel,
 }: HoldingFormProps) {
 	const [draft, setDraft] = useState<HoldingFormDraft>(() => toHoldingDraft(value));
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [searchError, setSearchError] = useState<string | null>(null);
+	const [pendingMergePreview, setPendingMergePreview] = useState<HoldingMergePreview | null>(null);
 	const [isWorking, setIsWorking] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [searchResults, setSearchResults] = useState<SecuritySearchResult[]>([]);
@@ -116,6 +248,7 @@ export function HoldingForm({
 		setIsSearchOpen(false);
 		setSearchError(null);
 		setLocalError(null);
+		setPendingMergePreview(null);
 	}, [mode, value]);
 
 	useEffect(() => {
@@ -249,7 +382,6 @@ export function HoldingForm({
 	async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
 		event.preventDefault();
 		setLocalError(null);
-		setIsWorking(true);
 
 		try {
 			const payload = toHoldingInput(draft);
@@ -269,6 +401,20 @@ export function HoldingForm({
 				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
 			}
 
+			const duplicateHolding = findDuplicateHolding(existingHoldings, payload.symbol, recordId);
+			if (duplicateHolding && onMergeDuplicate) {
+				setPendingMergePreview(
+					buildHoldingMergePreview(
+						duplicateHolding,
+						payload,
+						mode === "edit" ? recordId : null,
+					),
+				);
+				return;
+			}
+
+			setIsWorking(true);
+
 			if (mode === "edit" && recordId !== null) {
 				await onEdit?.(recordId, payload);
 			} else {
@@ -283,6 +429,43 @@ export function HoldingForm({
 		} finally {
 			setIsWorking(false);
 		}
+	}
+
+	async function handleConfirmMerge(): Promise<void> {
+		if (!pendingMergePreview || !onMergeDuplicate) {
+			return;
+		}
+
+		setLocalError(null);
+		setIsWorking(true);
+
+		try {
+			await onMergeDuplicate({
+				targetRecordId: pendingMergePreview.targetRecord.id,
+				sourceRecordId: pendingMergePreview.sourceRecordId,
+				mergedPayload: pendingMergePreview.mergedPayload,
+			});
+			setPendingMergePreview(null);
+			if (mode === "create") {
+				setDraft(DEFAULT_HOLDING_FORM_DRAFT);
+				setSearchQuery("");
+				setSearchResults([]);
+				setIsSearchOpen(false);
+			}
+			onCancel?.();
+		} catch (error) {
+			setLocalError(toErrorMessage(error, "追加持仓失败，请稍后重试。"));
+		} finally {
+			setIsWorking(false);
+		}
+	}
+
+	function handleDismissMergePreview(): void {
+		if (isSubmitting) {
+			return;
+		}
+
+		setPendingMergePreview(null);
 	}
 
 	async function handleDelete(): Promise<void> {
@@ -518,6 +701,96 @@ export function HoldingForm({
 					) : null}
 				</div>
 			</form>
+
+			{pendingMergePreview ? (
+				<div className="asset-manager__modal" role="dialog" aria-modal="true" aria-labelledby="holding-merge-title">
+					<button
+						type="button"
+						className="asset-manager__modal-backdrop"
+						onClick={handleDismissMergePreview}
+						aria-label="关闭重复持仓提示"
+					/>
+					<div className="asset-manager__modal-panel">
+						<div className="asset-manager__modal-head">
+							<div>
+								<p className="asset-manager__eyebrow">DUPLICATE HOLDING</p>
+								<h3 id="holding-merge-title">已存在相同投资标的</h3>
+								<p>
+									{pendingMergePreview.targetRecord.name}（{pendingMergePreview.targetRecord.symbol}）
+									已经在持仓列表中，确认后会按追加买入合并到原条目。
+								</p>
+							</div>
+						</div>
+
+						<div className="asset-manager__preview-grid">
+							<div className="asset-manager__preview-item">
+								<span>原持仓数量</span>
+								<strong>{pendingMergePreview.existingQuantity}</strong>
+							</div>
+							<div className="asset-manager__preview-item">
+								<span>本次追加数量</span>
+								<strong>{pendingMergePreview.incomingQuantity}</strong>
+							</div>
+							<div className="asset-manager__preview-item">
+								<span>合并后数量</span>
+								<strong>{pendingMergePreview.mergedQuantity}</strong>
+							</div>
+							<div className="asset-manager__preview-item">
+								<span>合并后持仓均价</span>
+								<strong>
+									{formatPreviewPrice(
+										pendingMergePreview.mergedCostBasis,
+										pendingMergePreview.mergedPayload.fallback_currency,
+									)}
+								</strong>
+							</div>
+							<div className="asset-manager__preview-item">
+								<span>已知成本总额</span>
+								<strong>
+									{formatPreviewPrice(
+										pendingMergePreview.knownCostTotal,
+										pendingMergePreview.mergedPayload.fallback_currency,
+									)}
+								</strong>
+							</div>
+							<div className="asset-manager__preview-item">
+								<span>预估收益率</span>
+								<strong>
+									{pendingMergePreview.estimatedReturnPct != null
+										? `${pendingMergePreview.estimatedReturnPct.toFixed(2)}%`
+										: "待计算"}
+								</strong>
+							</div>
+						</div>
+
+						<div className="asset-manager__helper-block">
+							<p>
+								系统会用原持仓数量 x 原持仓价，加上本次数量 x 本次持仓价，计算新的加权均价，
+								然后直接覆盖原条目。
+							</p>
+						</div>
+
+						<div className="asset-manager__form-actions">
+							<button
+								type="button"
+								className="asset-manager__button"
+								onClick={() => void handleConfirmMerge()}
+								disabled={isSubmitting}
+							>
+								{isSubmitting ? "处理中..." : "确认追加"}
+							</button>
+							<button
+								type="button"
+								className="asset-manager__button asset-manager__button--secondary"
+								onClick={handleDismissMergePreview}
+								disabled={isSubmitting}
+							>
+								返回修改
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</section>
 	);
 }

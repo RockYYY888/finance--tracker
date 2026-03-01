@@ -468,6 +468,7 @@ export function AssetManager({
 										? toHoldingDraft(holdingCollection.editingRecord)
 										: null
 								}
+								existingHoldings={holdingCollection.items}
 								recordId={holdingCollection.editingRecord?.id ?? null}
 								busy={holdingCollection.isSubmitting}
 								errorMessage={holdingCollection.errorMessage}
@@ -475,6 +476,7 @@ export function AssetManager({
 								onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
 								onDelete={(recordId) => removeHoldingRecord(recordId)}
 								onSearch={holdingActions?.onSearch}
+								onMergeDuplicate={holdingActions?.onMergeDuplicate}
 								onCancel={holdingCollection.closeEditor}
 							/>
 						) : null}

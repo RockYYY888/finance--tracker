@@ -303,6 +303,14 @@ export type RefreshAssetAction<TRecord> = () => MaybePromise<TRecord[]>;
 export type SearchSecurityAction = (
 	query: string,
 ) => MaybePromise<SecuritySearchResult[]>;
+export interface HoldingMergeRequest {
+	targetRecordId: number;
+	sourceRecordId?: number | null;
+	mergedPayload: HoldingInput;
+}
+export type MergeHoldingAction = (
+	request: HoldingMergeRequest,
+) => MaybePromise<HoldingRecord>;
 
 export interface AssetCollectionActions<TInput, TRecord> {
 	onCreate?: CreateAssetAction<TInput, TRecord>;
@@ -314,6 +322,7 @@ export interface AssetCollectionActions<TInput, TRecord> {
 export interface HoldingCollectionActions
 	extends AssetCollectionActions<HoldingInput, HoldingRecord> {
 	onSearch?: SearchSecurityAction;
+	onMergeDuplicate?: MergeHoldingAction;
 }
 
 export interface AssetManagerController {
