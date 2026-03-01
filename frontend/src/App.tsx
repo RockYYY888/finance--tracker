@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+
+import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
 import { PortfolioAnalytics } from "./components/analytics";
 import { defaultAssetApiClient } from "./lib/assetApi";
+import {
+	getAuthSession,
+	loginWithPassword,
+	logoutCurrentUser,
+	registerWithPassword,
+} from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
+import type { AuthCredentials } from "./types/auth";
 import type {
 	AssetManagerController,
 	CashAccountRecord,
@@ -10,6 +19,8 @@ import type {
 } from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import { formatCny } from "./utils/portfolioAnalytics";
+
+type AuthStatus = "checking" | "anonymous" | "authenticated";
 
 function getMillisecondsUntilNextMinute(): number {
 	const now = new Date();
@@ -68,18 +79,57 @@ function toHoldingRecord(record: DashboardResponse["holdings"][number]): Holding
 }
 
 function App() {
+	const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
+	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+	const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+	const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
-	const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
+	const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
 	const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 	const dashboardRequestInFlightRef = useRef(false);
 
+	function resetDashboardState(): void {
+		setDashboard(EMPTY_DASHBOARD);
+		setIsLoadingDashboard(false);
+		setIsRefreshingDashboard(false);
+		setErrorMessage(null);
+		setLastUpdatedAt(null);
+		dashboardRequestInFlightRef.current = false;
+	}
+
+	function markSignedIn(userId: string): void {
+		setCurrentUserId(userId);
+		setAuthStatus("authenticated");
+		setAuthErrorMessage(null);
+		setDashboard(EMPTY_DASHBOARD);
+		setIsLoadingDashboard(true);
+	}
+
+	function markSignedOut(): void {
+		setCurrentUserId(null);
+		setAuthStatus("anonymous");
+		resetDashboardState();
+	}
+
 	useEffect(() => {
-		void loadDashboard();
+		void hydrateSession();
 	}, []);
 
 	useEffect(() => {
+		if (authStatus !== "authenticated" || !currentUserId) {
+			return;
+		}
+
+		void loadDashboard({ initial: true });
+	}, [authStatus, currentUserId]);
+
+	useEffect(() => {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
 		let refreshTimer = 0;
 		const initialDelay = window.setTimeout(() => {
 			void loadDashboard();
@@ -94,9 +144,13 @@ function App() {
 				window.clearInterval(refreshTimer);
 			}
 		};
-	}, []);
+	}, [authStatus]);
 
 	useEffect(() => {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
 		function handleVisibilityChange(): void {
 			if (document.visibilityState === "visible") {
 				void loadDashboard();
@@ -105,11 +159,57 @@ function App() {
 
 		document.addEventListener("visibilitychange", handleVisibilityChange);
 		return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-	}, []);
+	}, [authStatus]);
 
-	async function loadDashboard(): Promise<void> {
-		if (dashboardRequestInFlightRef.current) {
+	async function hydrateSession(): Promise<void> {
+		setAuthStatus("checking");
+		setAuthErrorMessage(null);
+
+		try {
+			const session = await getAuthSession();
+			markSignedIn(session.user_id);
+		} catch {
+			markSignedOut();
+		}
+	}
+
+	async function submitAuth(
+		mode: "login" | "register",
+		payload: AuthCredentials,
+	): Promise<void> {
+		setIsSubmittingAuth(true);
+		setAuthErrorMessage(null);
+
+		try {
+			const session = mode === "login"
+				? await loginWithPassword(payload)
+				: await registerWithPassword(payload);
+			markSignedIn(session.user_id);
+		} catch (error) {
+			setAuthErrorMessage(
+				error instanceof Error ? error.message : "登录失败，请稍后再试。",
+			);
+			setAuthStatus("anonymous");
+		} finally {
+			setIsSubmittingAuth(false);
+		}
+	}
+
+	async function handleLogout(): Promise<void> {
+		try {
+			await logoutCurrentUser();
+		} finally {
+			markSignedOut();
+		}
+	}
+
+	async function loadDashboard(options: { initial?: boolean } = {}): Promise<void> {
+		if (authStatus !== "authenticated" || dashboardRequestInFlightRef.current) {
 			return;
+		}
+
+		if (options.initial) {
+			setIsLoadingDashboard(true);
 		}
 
 		dashboardRequestInFlightRef.current = true;
@@ -121,16 +221,31 @@ function App() {
 			setDashboard(nextDashboard);
 			setLastUpdatedAt(new Date().toISOString());
 		} catch (error) {
-			setErrorMessage(
-				error instanceof Error
-					? error.message
-					: "无法加载资产总览，请确认后端服务是否启动。",
-			);
+			const nextErrorMessage = error instanceof Error
+				? error.message
+				: "无法加载资产总览，请确认后端服务是否启动。";
+			if (nextErrorMessage.includes("请先登录") || nextErrorMessage.includes("请重新登录")) {
+				markSignedOut();
+				return;
+			}
+
+			setErrorMessage(nextErrorMessage);
 		} finally {
 			dashboardRequestInFlightRef.current = false;
 			setIsRefreshingDashboard(false);
 			setIsLoadingDashboard(false);
 		}
+	}
+
+	if (authStatus !== "authenticated" || !currentUserId) {
+		return (
+			<LoginScreen
+				loading={authStatus === "checking" || isSubmittingAuth}
+				errorMessage={authErrorMessage}
+				onLogin={(payload) => submitAuth("login", payload)}
+				onRegister={(payload) => submitAuth("register", payload)}
+			/>
+		);
 	}
 
 	const hasAnyAsset =
@@ -183,24 +298,33 @@ function App() {
 			<header className="hero-panel">
 				<div className="hero-copy-block">
 					<p className="eyebrow">CNY CONTROL PANEL</p>
-					<h1>资产控制台</h1>
-					<p className="hero-copy">全部资产统一按人民币计价。</p>
-					<button
-						type="button"
-						className="hero-note hero-note--action"
-						onClick={() => void loadDashboard()}
-						disabled={isDashboardBusy}
-					>
-						<span
-							className={`hero-note__status ${isDashboardBusy ? "is-active" : ""}`}
-							aria-hidden="true"
-						/>
-						<span>
-							{isDashboardBusy
-								? "同步中..."
-								: `最近更新：${formatLastUpdated(lastUpdatedAt)}`}
-						</span>
-					</button>
+					<h1>你好，{currentUserId}</h1>
+					<p className="hero-copy">你的资产与会话已隔离保存。</p>
+					<div className="hero-actions">
+						<button
+							type="button"
+							className="hero-note hero-note--action"
+							onClick={() => void loadDashboard()}
+							disabled={isDashboardBusy}
+						>
+							<span
+								className={`hero-note__status ${isDashboardBusy ? "is-active" : ""}`}
+								aria-hidden="true"
+							/>
+							<span>
+								{isDashboardBusy
+									? "同步中..."
+									: `最近更新：${formatLastUpdated(lastUpdatedAt)}`}
+							</span>
+						</button>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
+							onClick={() => void handleLogout()}
+						>
+							退出登录
+						</button>
+					</div>
 				</div>
 
 				<div className="summary-grid">
@@ -248,23 +372,23 @@ function App() {
 					</div>
 				</div>
 
-					<PortfolioAnalytics
-						total_value_cny={dashboard.total_value_cny}
-						cash_accounts={dashboard.cash_accounts}
-						holdings={dashboard.holdings}
-						allocation={dashboard.allocation}
-						hour_series={dashboard.hour_series}
-						day_series={dashboard.day_series}
-						month_series={dashboard.month_series}
-						year_series={dashboard.year_series}
-						holdings_return_hour_series={dashboard.holdings_return_hour_series}
-						holdings_return_day_series={dashboard.holdings_return_day_series}
-						holdings_return_month_series={dashboard.holdings_return_month_series}
-						holdings_return_year_series={dashboard.holdings_return_year_series}
-						holding_return_series={dashboard.holding_return_series}
-						loading={isLoadingDashboard}
-					/>
-				</section>
+				<PortfolioAnalytics
+					total_value_cny={dashboard.total_value_cny}
+					cash_accounts={dashboard.cash_accounts}
+					holdings={dashboard.holdings}
+					allocation={dashboard.allocation}
+					hour_series={dashboard.hour_series}
+					day_series={dashboard.day_series}
+					month_series={dashboard.month_series}
+					year_series={dashboard.year_series}
+					holdings_return_hour_series={dashboard.holdings_return_hour_series}
+					holdings_return_day_series={dashboard.holdings_return_day_series}
+					holdings_return_month_series={dashboard.holdings_return_month_series}
+					holdings_return_year_series={dashboard.holdings_return_year_series}
+					holding_return_series={dashboard.holding_return_series}
+					loading={isLoadingDashboard}
+				/>
+			</section>
 
 			<div className="integrated-stack">
 				<AssetManager

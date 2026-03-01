@@ -60,6 +60,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 
 			const response = await fetcher(`${baseUrl}${path}`, {
 				...init,
+				credentials: init?.credentials ?? "include",
 				headers: requestHeaders,
 			});
 			const responseText = await response.text();

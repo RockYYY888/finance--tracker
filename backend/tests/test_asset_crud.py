@@ -20,7 +20,13 @@ from app.main import (
 	update_account,
 	update_holding,
 )
-from app.models import CashAccount, HoldingPerformanceSnapshot, PortfolioSnapshot, SecurityHolding
+from app.models import (
+	CashAccount,
+	HoldingPerformanceSnapshot,
+	PortfolioSnapshot,
+	SecurityHolding,
+	UserAccount,
+)
 from app.schemas import (
 	CashAccountCreate,
 	CashAccountUpdate,
@@ -61,7 +67,20 @@ def session(tmp_path: Path) -> Iterator[Session]:
 		yield db_session
 
 
+def make_user(session: Session, username: str = "tester") -> UserAccount:
+	user = UserAccount(
+		username=username,
+		password_digest="scrypt$16384$8$1$bc13ea73dad1a1d781e1bf06e769ccda$"
+		"de4af04355be41e4ec61f7dc8b3c19fcc4fc940ba47784324063d4169d57e80a"
+		"14cc1588be5fea70338075226ff4b32aafe37ab0a114d05b70e0a2364a0d2bf7",
+	)
+	session.add(user)
+	session.commit()
+	return user
+
+
 def test_create_account_persists_account_type_and_note(session: Session) -> None:
+	current_user = make_user(session)
 	account = create_account(
 		CashAccountCreate(
 			name="Emergency Fund",
@@ -71,11 +90,12 @@ def test_create_account_persists_account_type_and_note(session: Session) -> None
 			account_type="alipay",
 			note="  spare cash  ",
 		),
-		None,
+		current_user,
 		session,
 	)
 
 	assert account.id is not None
+	assert account.user_id == current_user.username
 	assert account.currency == "CNY"
 	assert account.account_type == "ALIPAY"
 	assert account.note == "spare cash"
@@ -87,6 +107,7 @@ def test_create_account_persists_account_type_and_note(session: Session) -> None
 
 
 def test_update_account_keeps_new_fields_when_omitted_from_payload(session: Session) -> None:
+	current_user = make_user(session)
 	account = create_account(
 		CashAccountCreate(
 			name="Wallet",
@@ -96,7 +117,7 @@ def test_update_account_keeps_new_fields_when_omitted_from_payload(session: Sess
 			account_type="cash",
 			note="Daily spending",
 		),
-		None,
+		current_user,
 		session,
 	)
 
@@ -108,7 +129,7 @@ def test_update_account_keeps_new_fields_when_omitted_from_payload(session: Sess
 			currency="usd",
 			balance=66.5,
 		),
-		None,
+		current_user,
 		session,
 	)
 
@@ -120,6 +141,7 @@ def test_update_account_keeps_new_fields_when_omitted_from_payload(session: Sess
 
 
 def test_delete_account_removes_record(session: Session) -> None:
+	current_user = make_user(session)
 	account = create_account(
 		CashAccountCreate(
 			name="Checking",
@@ -128,19 +150,20 @@ def test_delete_account_removes_record(session: Session) -> None:
 			balance=800,
 			account_type="bank",
 		),
-		None,
+		current_user,
 		session,
 	)
 
-	response = delete_account(account.id or 0, None, session)
+	response = delete_account(account.id or 0, current_user, session)
 
 	assert response.status_code == 204
 	assert session.exec(select(CashAccount)).all() == []
 
 
 def test_delete_account_returns_404_when_missing(session: Session) -> None:
+	current_user = make_user(session)
 	with pytest.raises(HTTPException) as error:
-		delete_account(9999, None, session)
+		delete_account(9999, current_user, session)
 
 	assert error.value.status_code == 404
 	assert error.value.detail == "Account not found."
@@ -149,12 +172,14 @@ def test_delete_account_returns_404_when_missing(session: Session) -> None:
 def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Session) -> None:
 	session.add(
 		PortfolioSnapshot(
+			user_id="tester",
 			total_value_cny=1000,
 			created_at=datetime(2026, 3, 1, 3, 12, tzinfo=timezone.utc),
 		),
 	)
 	session.add(
 		PortfolioSnapshot(
+			user_id="tester",
 			total_value_cny=1200,
 			created_at=datetime(2026, 3, 1, 3, 41, tzinfo=timezone.utc),
 		),
@@ -163,6 +188,7 @@ def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Sessi
 
 	_persist_hour_snapshot(
 		session,
+		"tester",
 		datetime(2026, 3, 1, 3, 0, tzinfo=timezone.utc),
 		1500,
 	)
@@ -188,6 +214,7 @@ def test_persist_holdings_return_snapshot_compacts_rows_within_the_same_hour(
 ) -> None:
 	session.add(
 		HoldingPerformanceSnapshot(
+			user_id="tester",
 			scope="TOTAL",
 			symbol=None,
 			name="非现金资产",
@@ -197,6 +224,7 @@ def test_persist_holdings_return_snapshot_compacts_rows_within_the_same_hour(
 	)
 	session.add(
 		HoldingPerformanceSnapshot(
+			user_id="tester",
 			scope="HOLDING",
 			symbol="0700.HK",
 			name="腾讯控股",
@@ -208,6 +236,7 @@ def test_persist_holdings_return_snapshot_compacts_rows_within_the_same_hour(
 
 	_persist_holdings_return_snapshot(
 		session,
+		"tester",
 		datetime(2026, 3, 1, 3, 0, tzinfo=timezone.utc),
 		3.5,
 		(main.LiveHoldingReturnPoint(symbol="0700.HK", name="腾讯控股", return_pct=4.25),),
@@ -266,6 +295,7 @@ def test_list_accounts_returns_valued_balances(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+	current_user = make_user(session)
 	create_account(
 		CashAccountCreate(
 			name="Checking",
@@ -274,16 +304,40 @@ def test_list_accounts_returns_valued_balances(
 			balance=100,
 			account_type="bank",
 		),
-		None,
+		current_user,
 		session,
 	)
 	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
 
-	accounts = asyncio.run(main.list_accounts(None, session))
+	accounts = asyncio.run(main.list_accounts(current_user, session))
 
 	assert len(accounts) == 1
 	assert accounts[0].fx_to_cny == 7.0
 	assert accounts[0].value_cny == 700.0
+
+
+def test_list_accounts_scopes_results_to_current_user(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	first_user = make_user(session, "first_user")
+	second_user = make_user(session, "second_user")
+	create_account(
+		CashAccountCreate(
+			name="Checking",
+			platform="Bank",
+			currency="cny",
+			balance=50,
+			account_type="bank",
+		),
+		first_user,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	accounts = asyncio.run(main.list_accounts(second_user, session))
+
+	assert accounts == []
 
 
 def test_cash_account_schema_rejects_invalid_account_type() -> None:
@@ -298,6 +352,7 @@ def test_cash_account_schema_rejects_invalid_account_type() -> None:
 
 
 def test_create_holding_persists_market_broker_and_note(session: Session) -> None:
+	current_user = make_user(session)
 	holding = create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -309,11 +364,12 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 			broker="  IBKR  ",
 			note="  long term  ",
 		),
-		None,
+		current_user,
 		session,
 	)
 
 	assert holding.id is not None
+	assert holding.user_id == current_user.username
 	assert holding.symbol == "AAPL"
 	assert holding.fallback_currency == "USD"
 	assert holding.cost_basis_price == 92.5
@@ -330,6 +386,7 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 
 
 def test_update_holding_updates_new_fields(session: Session) -> None:
+	current_user = make_user(session)
 	holding = create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -337,7 +394,7 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 			quantity=2,
 			fallback_currency="usd",
 		),
-		None,
+		current_user,
 		session,
 	)
 
@@ -353,7 +410,7 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 			broker="  Futu  ",
 			note="  core position  ",
 		),
-		None,
+		current_user,
 		session,
 	)
 
@@ -368,6 +425,7 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 
 
 def test_delete_holding_removes_record(session: Session) -> None:
+	current_user = make_user(session)
 	holding = create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -376,19 +434,20 @@ def test_delete_holding_removes_record(session: Session) -> None:
 			fallback_currency="usd",
 			market="us",
 		),
-		None,
+		current_user,
 		session,
 	)
 
-	response = delete_holding(holding.id or 0, None, session)
+	response = delete_holding(holding.id or 0, current_user, session)
 
 	assert response.status_code == 204
 	assert session.exec(select(SecurityHolding)).all() == []
 
 
 def test_delete_holding_returns_404_when_missing(session: Session) -> None:
+	current_user = make_user(session)
 	with pytest.raises(HTTPException) as error:
-		delete_holding(9999, None, session)
+		delete_holding(9999, current_user, session)
 
 	assert error.value.status_code == 404
 	assert error.value.detail == "Holding not found."
@@ -398,6 +457,7 @@ def test_list_holdings_returns_enriched_quote_fields(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+	current_user = make_user(session)
 	create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -407,12 +467,12 @@ def test_list_holdings_returns_enriched_quote_fields(
 			cost_basis_price=80,
 			market="us",
 		),
-		None,
+		current_user,
 		session,
 	)
 	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
 
-	holdings = asyncio.run(main.list_holdings(None, session))
+	holdings = asyncio.run(main.list_holdings(current_user, session))
 
 	assert len(holdings) == 1
 	assert holdings[0].price == 100.0

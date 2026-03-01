@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models import CASH_ACCOUNT_TYPES, SECURITY_MARKETS
+from app.security import normalize_user_id, validate_password_strength
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -79,6 +80,25 @@ class CashAccountRead(BaseModel):
 	note: Optional[str] = None
 	fx_to_cny: Optional[float] = None
 	value_cny: Optional[float] = None
+
+
+class AuthCredentials(BaseModel):
+	user_id: str = Field(min_length=3, max_length=32)
+	password: str = Field(min_length=8, max_length=128)
+
+	@field_validator("user_id", mode="before")
+	@classmethod
+	def validate_user_id(cls, value: str) -> str:
+		return normalize_user_id(value)
+
+	@field_validator("password", mode="before")
+	@classmethod
+	def validate_password(cls, value: str) -> str:
+		return validate_password_strength(value)
+
+
+class AuthSessionRead(BaseModel):
+	user_id: str
 
 
 class SecurityHoldingCreate(BaseModel):

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
 	app_env: str = "development"
 	api_token: SecretStr | None = None
+	session_secret: SecretStr | None = None
 	public_origin: str | None = None
 	allowed_origins: str | None = None
 	allowed_hosts: str | None = None
@@ -52,7 +53,7 @@ class Settings(BaseSettings):
 
 	@property
 	def require_api_token(self) -> bool:
-		return self.is_production
+		return self.api_token_value() is not None
 
 	def api_token_value(self) -> str | None:
 		if self.api_token is None:
@@ -60,6 +61,17 @@ class Settings(BaseSettings):
 
 		token = self.api_token.get_secret_value().strip()
 		return token or None
+
+	def session_secret_value(self) -> str | None:
+		if self.session_secret is not None:
+			secret = self.session_secret.get_secret_value().strip()
+			if secret:
+				return secret
+
+		if not self.is_production:
+			return "asset-tracker-development-session-secret"
+
+		return None
 
 	def cors_origins(self) -> list[str]:
 		configured_origins = [_normalize_origin(item) for item in _split_csv(self.allowed_origins)]
@@ -100,8 +112,8 @@ class Settings(BaseSettings):
 				"ASSET_TRACKER_ALLOWED_ORIGINS, or ASSET_TRACKER_ALLOWED_HOSTS.",
 			)
 
-		if self.require_api_token and not self.api_token_value():
-			raise ValueError("Production mode requires ASSET_TRACKER_API_TOKEN.")
+		if self.is_production and not self.session_secret_value():
+			raise ValueError("Production mode requires ASSET_TRACKER_SESSION_SECRET.")
 
 
 @lru_cache

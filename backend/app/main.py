@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlmodel import Session, select
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.analytics import build_return_timeline, build_timeline
@@ -21,10 +22,13 @@ from app.models import (
 	HoldingPerformanceSnapshot,
 	PortfolioSnapshot,
 	SecurityHolding,
+	UserAccount,
 	utc_now,
 )
 from app.schemas import (
 	AllocationSlice,
+	AuthCredentials,
+	AuthSessionRead,
 	CashAccountCreate,
 	CashAccountRead,
 	CashAccountUpdate,
@@ -37,7 +41,14 @@ from app.schemas import (
 	ValuedCashAccount,
 	ValuedHolding,
 )
-from app.security import verify_api_token
+from app.security import (
+	get_session_user_id,
+	hash_password,
+	normalize_user_id,
+	require_session_user_id,
+	verify_api_token,
+	verify_password,
+)
 from app.settings import get_settings
 from app.services.market_data import (
 	MarketDataClient,
@@ -51,6 +62,12 @@ TokenDependency = Annotated[None, Depends(verify_api_token)]
 market_data_client = MarketDataClient()
 settings = get_settings()
 logger = logging.getLogger(__name__)
+DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_ADMIN_PASSWORD_DIGEST = (
+	"scrypt$16384$8$1$bc13ea73dad1a1d781e1bf06e769ccda"
+	"$de4af04355be41e4ec61f7dc8b3c19fcc4fc940ba47784324063d4169d57e80a"
+	"14cc1588be5fea70338075226ff4b32aafe37ab0a114d05b70e0a2364a0d2bf7"
+)
 
 
 @dataclass(slots=True)
@@ -83,9 +100,9 @@ class LiveHoldingsReturnState:
 	has_tracked_holdings_in_bucket: bool
 
 
-dashboard_cache: DashboardCacheEntry | None = None
-live_portfolio_state: LivePortfolioState | None = None
-live_holdings_return_state: LiveHoldingsReturnState | None = None
+dashboard_cache: dict[str, DashboardCacheEntry] = {}
+live_portfolio_states: dict[str, LivePortfolioState] = {}
+live_holdings_return_states: dict[str, LiveHoldingsReturnState] = {}
 dashboard_cache_lock = asyncio.Lock()
 background_refresh_task: asyncio.Task[None] | None = None
 
@@ -96,10 +113,12 @@ async def lifespan(_: FastAPI):
 	settings.validate_runtime()
 	init_db()
 	_ensure_legacy_schema()
+	_ensure_seed_user_and_legacy_ownership()
 
 	try:
 		with Session(engine) as session:
-			await _get_cached_dashboard(session, force_refresh=True)
+			for user in session.exec(select(UserAccount)).all():
+				await _get_cached_dashboard(session, user, force_refresh=True)
 	except Exception:
 		logger.exception("Initial dashboard refresh failed during startup.")
 
@@ -129,9 +148,18 @@ app.add_middleware(
 app.add_middleware(
 	CORSMiddleware,
 	allow_origins=settings.cors_origins(),
-	allow_credentials=False,
+	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 	allow_headers=["Content-Type", "X-API-Key"],
+)
+
+app.add_middleware(
+	SessionMiddleware,
+	secret_key=settings.session_secret_value() or "asset-tracker-session-fallback",
+	session_cookie="asset_tracker_session",
+	max_age=60 * 60 * 24 * 30,
+	same_site="lax",
+	https_only=settings.is_production,
 )
 
 
@@ -172,7 +200,7 @@ def _normalize_optional_text(value: str | None) -> str | None:
 	return stripped or None
 
 
-def _touch_model(model: CashAccount | SecurityHolding) -> None:
+def _touch_model(model: CashAccount | SecurityHolding | UserAccount) -> None:
 	model.updated_at = utc_now()
 
 
@@ -208,9 +236,56 @@ def _is_same_hour(value: datetime | None, now: datetime | None = None) -> bool:
 	return _current_hour_bucket(value) == _current_hour_bucket(now)
 
 
-def _invalidate_dashboard_cache() -> None:
+def _invalidate_dashboard_cache(user_id: str | None = None) -> None:
 	global dashboard_cache
-	dashboard_cache = None
+	if user_id is None:
+		dashboard_cache = {}
+		return
+
+	dashboard_cache.pop(user_id, None)
+
+
+def _get_user(session: Session, user_id: str) -> UserAccount | None:
+	return session.get(UserAccount, normalize_user_id(user_id))
+
+
+def _ensure_seed_user_and_legacy_ownership() -> None:
+	with Session(engine) as session:
+		admin_user = session.get(UserAccount, DEFAULT_ADMIN_USERNAME)
+		if admin_user is None:
+			session.add(
+				UserAccount(
+					username=DEFAULT_ADMIN_USERNAME,
+					password_digest=DEFAULT_ADMIN_PASSWORD_DIGEST,
+				),
+			)
+
+		for table_name in (
+			CashAccount.__table__.name,
+			SecurityHolding.__table__.name,
+			PortfolioSnapshot.__table__.name,
+			HoldingPerformanceSnapshot.__table__.name,
+		):
+			session.exec(
+				text(
+					f"UPDATE {table_name} SET user_id = '{DEFAULT_ADMIN_USERNAME}' "
+					"WHERE user_id IS NULL OR TRIM(user_id) = ''",
+				),
+			)
+
+		session.commit()
+
+
+def get_current_user(request: Request, session: SessionDependency, _: TokenDependency) -> UserAccount:
+	user_id = require_session_user_id(request)
+	user = _get_user(session, user_id)
+	if user is None:
+		request.session.clear()
+		raise HTTPException(status_code=401, detail="请重新登录。")
+	return user
+
+
+CurrentUserDependency = Annotated[UserAccount, Depends(get_current_user)]
 
 
 async def _sleep_until_next_minute() -> None:
@@ -224,7 +299,8 @@ async def _background_refresh_loop() -> None:
 		await _sleep_until_next_minute()
 		try:
 			with Session(engine) as session:
-				await _get_cached_dashboard(session, force_refresh=True)
+				for user in session.exec(select(UserAccount)).all():
+					await _get_cached_dashboard(session, user, force_refresh=True)
 		except Exception:
 			logger.exception("Scheduled dashboard refresh failed.")
 
@@ -240,6 +316,7 @@ def _ensure_legacy_schema() -> None:
 		(
 			CashAccount.__table__.name,
 			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
 				"account_type": "TEXT NOT NULL DEFAULT 'OTHER'",
 				"note": "TEXT",
 			},
@@ -247,10 +324,23 @@ def _ensure_legacy_schema() -> None:
 		(
 			SecurityHolding.__table__.name,
 			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
 				"cost_basis_price": "REAL",
 				"market": "TEXT NOT NULL DEFAULT 'OTHER'",
 				"broker": "TEXT",
 				"note": "TEXT",
+			},
+		),
+		(
+			PortfolioSnapshot.__table__.name,
+			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+			},
+		),
+		(
+			HoldingPerformanceSnapshot.__table__.name,
+			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
 			},
 		),
 	)
@@ -405,6 +495,7 @@ def _summarize_holdings_return_state(
 
 def _persist_holdings_return_snapshot(
 	session: Session,
+	user_id: str,
 	hour_bucket: datetime,
 	aggregate_return_pct: float | None,
 	holding_points: tuple[LiveHoldingReturnPoint, ...],
@@ -414,6 +505,7 @@ def _persist_holdings_return_snapshot(
 	existing_snapshots = list(
 		session.exec(
 			select(HoldingPerformanceSnapshot)
+			.where(HoldingPerformanceSnapshot.user_id == user_id)
 			.where(HoldingPerformanceSnapshot.created_at >= hour_start)
 			.where(HoldingPerformanceSnapshot.created_at < hour_end)
 			.order_by(HoldingPerformanceSnapshot.created_at.desc()),
@@ -431,6 +523,7 @@ def _persist_holdings_return_snapshot(
 		if snapshot is None:
 			session.add(
 				HoldingPerformanceSnapshot(
+					user_id=user_id,
 					scope="TOTAL",
 					symbol=None,
 					name="非现金资产",
@@ -451,6 +544,7 @@ def _persist_holdings_return_snapshot(
 		if snapshot is None:
 			session.add(
 				HoldingPerformanceSnapshot(
+					user_id=user_id,
 					scope="HOLDING",
 					symbol=point.symbol,
 					name=point.name,
@@ -474,6 +568,7 @@ def _persist_holdings_return_snapshot(
 
 def _persist_hour_snapshot(
 	session: Session,
+	user_id: str,
 	hour_bucket: datetime,
 	total_value_cny: float,
 ) -> None:
@@ -482,6 +577,7 @@ def _persist_hour_snapshot(
 	existing_snapshots = list(
 		session.exec(
 			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == user_id)
 			.where(PortfolioSnapshot.created_at >= hour_start)
 			.where(PortfolioSnapshot.created_at < hour_end)
 			.order_by(PortfolioSnapshot.created_at.desc()),
@@ -491,10 +587,11 @@ def _persist_hour_snapshot(
 
 	if primary_snapshot is None:
 		session.add(
-			PortfolioSnapshot(
-				total_value_cny=total_value_cny,
-				created_at=hour_start,
-			),
+				PortfolioSnapshot(
+					user_id=user_id,
+					total_value_cny=total_value_cny,
+					created_at=hour_start,
+				),
 		)
 	else:
 		primary_snapshot.total_value_cny = total_value_cny
@@ -507,9 +604,8 @@ def _persist_hour_snapshot(
 	session.commit()
 
 
-def _roll_live_portfolio_state_if_needed(session: Session, now: datetime) -> None:
-	global live_portfolio_state
-
+def _roll_live_portfolio_state_if_needed(session: Session, user_id: str, now: datetime) -> None:
+	live_portfolio_state = live_portfolio_states.get(user_id)
 	if live_portfolio_state is None:
 		return
 
@@ -520,16 +616,20 @@ def _roll_live_portfolio_state_if_needed(session: Session, now: datetime) -> Non
 	if live_portfolio_state.has_assets_in_bucket or live_portfolio_state.latest_value_cny > 0:
 		_persist_hour_snapshot(
 			session,
+			user_id,
 			live_portfolio_state.hour_bucket,
 			live_portfolio_state.latest_value_cny,
 		)
 
-	live_portfolio_state = None
+	live_portfolio_states.pop(user_id, None)
 
 
-def _roll_live_holdings_return_state_if_needed(session: Session, now: datetime) -> None:
-	global live_holdings_return_state
-
+def _roll_live_holdings_return_state_if_needed(
+	session: Session,
+	user_id: str,
+	now: datetime,
+) -> None:
+	live_holdings_return_state = live_holdings_return_states.get(user_id)
 	if live_holdings_return_state is None:
 		return
 
@@ -543,27 +643,28 @@ def _roll_live_holdings_return_state_if_needed(session: Session, now: datetime) 
 	):
 		_persist_holdings_return_snapshot(
 			session,
+			user_id,
 			live_holdings_return_state.hour_bucket,
 			live_holdings_return_state.aggregate_return_pct,
 			live_holdings_return_state.holding_points,
 		)
 
-	live_holdings_return_state = None
+	live_holdings_return_states.pop(user_id, None)
 
 
 def _update_live_portfolio_state(
+	user_id: str,
 	now: datetime,
 	total_value_cny: float,
 	has_assets: bool,
 ) -> None:
-	global live_portfolio_state
-
+	live_portfolio_state = live_portfolio_states.get(user_id)
 	current_hour = _current_hour_bucket(now)
 	if live_portfolio_state is None:
 		if not has_assets:
 			return
 
-		live_portfolio_state = LivePortfolioState(
+		live_portfolio_states[user_id] = LivePortfolioState(
 			hour_bucket=current_hour,
 			latest_value_cny=total_value_cny,
 			latest_generated_at=now,
@@ -573,10 +674,10 @@ def _update_live_portfolio_state(
 
 	if live_portfolio_state.hour_bucket != current_hour:
 		if not has_assets:
-			live_portfolio_state = None
+			live_portfolio_states.pop(user_id, None)
 			return
 
-		live_portfolio_state = LivePortfolioState(
+		live_portfolio_states[user_id] = LivePortfolioState(
 			hour_bucket=current_hour,
 			latest_value_cny=total_value_cny,
 			latest_generated_at=now,
@@ -589,15 +690,16 @@ def _update_live_portfolio_state(
 	live_portfolio_state.has_assets_in_bucket = (
 		live_portfolio_state.has_assets_in_bucket or has_assets
 	)
+	live_portfolio_states[user_id] = live_portfolio_state
 
 
 def _update_live_holdings_return_state(
+	user_id: str,
 	now: datetime,
 	aggregate_return_pct: float | None,
 	holding_points: tuple[LiveHoldingReturnPoint, ...],
 ) -> None:
-	global live_holdings_return_state
-
+	live_holdings_return_state = live_holdings_return_states.get(user_id)
 	current_hour = _current_hour_bucket(now)
 	has_tracked_holdings = bool(holding_points)
 	has_return_data = has_tracked_holdings or aggregate_return_pct is not None
@@ -606,7 +708,7 @@ def _update_live_holdings_return_state(
 		if not has_return_data:
 			return
 
-		live_holdings_return_state = LiveHoldingsReturnState(
+		live_holdings_return_states[user_id] = LiveHoldingsReturnState(
 			hour_bucket=current_hour,
 			latest_generated_at=now,
 			aggregate_return_pct=aggregate_return_pct,
@@ -617,10 +719,10 @@ def _update_live_holdings_return_state(
 
 	if live_holdings_return_state.hour_bucket != current_hour:
 		if not has_return_data:
-			live_holdings_return_state = None
+			live_holdings_return_states.pop(user_id, None)
 			return
 
-		live_holdings_return_state = LiveHoldingsReturnState(
+		live_holdings_return_states[user_id] = LiveHoldingsReturnState(
 			hour_bucket=current_hour,
 			latest_generated_at=now,
 			aggregate_return_pct=aggregate_return_pct,
@@ -635,26 +737,34 @@ def _update_live_holdings_return_state(
 	live_holdings_return_state.has_tracked_holdings_in_bucket = (
 		live_holdings_return_state.has_tracked_holdings_in_bucket or has_tracked_holdings
 	)
+	live_holdings_return_states[user_id] = live_holdings_return_state
 
 
-def _load_series(session: Session, since: datetime) -> list[PortfolioSnapshot]:
+def _load_series(session: Session, user_id: str, since: datetime) -> list[PortfolioSnapshot]:
 	return list(
 		session.exec(
 			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == user_id)
 			.where(PortfolioSnapshot.created_at >= since)
 			.order_by(PortfolioSnapshot.created_at.asc()),
 		),
 	)
 
 
-def _load_series_with_live_snapshot(session: Session, since: datetime) -> list[PortfolioSnapshot]:
-	snapshots = _load_series(session, since)
+def _load_series_with_live_snapshot(
+	session: Session,
+	user_id: str,
+	since: datetime,
+) -> list[PortfolioSnapshot]:
+	snapshots = _load_series(session, user_id, since)
+	live_portfolio_state = live_portfolio_states.get(user_id)
 	if (
 		live_portfolio_state is not None
 		and live_portfolio_state.latest_generated_at >= _coerce_utc_datetime(since)
 	):
 		snapshots.append(
 			PortfolioSnapshot(
+				user_id=user_id,
 				total_value_cny=live_portfolio_state.latest_value_cny,
 				created_at=live_portfolio_state.latest_generated_at,
 			),
@@ -665,12 +775,14 @@ def _load_series_with_live_snapshot(session: Session, since: datetime) -> list[P
 
 def _load_holdings_return_series(
 	session: Session,
+	user_id: str,
 	since: datetime,
 	scope: str,
 	symbol: str | None = None,
 ) -> list[HoldingPerformanceSnapshot]:
 	statement = (
 		select(HoldingPerformanceSnapshot)
+		.where(HoldingPerformanceSnapshot.user_id == user_id)
 		.where(HoldingPerformanceSnapshot.created_at >= since)
 		.where(HoldingPerformanceSnapshot.scope == scope)
 		.order_by(HoldingPerformanceSnapshot.created_at.asc())
@@ -685,12 +797,14 @@ def _load_holdings_return_series(
 
 def _load_holdings_return_series_with_live_snapshot(
 	session: Session,
+	user_id: str,
 	since: datetime,
 	scope: str,
 	symbol: str | None = None,
 	default_name: str | None = None,
 ) -> list[HoldingPerformanceSnapshot]:
-	snapshots = _load_holdings_return_series(session, since, scope, symbol)
+	snapshots = _load_holdings_return_series(session, user_id, since, scope, symbol)
+	live_holdings_return_state = live_holdings_return_states.get(user_id)
 	if live_holdings_return_state is None:
 		return snapshots
 
@@ -702,6 +816,7 @@ def _load_holdings_return_series_with_live_snapshot(
 			return snapshots
 		snapshots.append(
 			HoldingPerformanceSnapshot(
+				user_id=user_id,
 				scope="TOTAL",
 				symbol=None,
 				name=default_name or "非现金资产",
@@ -716,6 +831,7 @@ def _load_holdings_return_series_with_live_snapshot(
 			continue
 		snapshots.append(
 			HoldingPerformanceSnapshot(
+				user_id=user_id,
 				scope="HOLDING",
 				symbol=point.symbol,
 				name=point.name,
@@ -728,14 +844,25 @@ def _load_holdings_return_series_with_live_snapshot(
 	return snapshots
 
 
-async def _build_dashboard(session: Session) -> DashboardResponse:
+async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResponse:
+	user_id = user.username
 	now = utc_now()
-	_roll_live_portfolio_state_if_needed(session, now)
-	_roll_live_holdings_return_state_if_needed(session, now)
+	_roll_live_portfolio_state_if_needed(session, user_id, now)
+	_roll_live_holdings_return_state_if_needed(session, user_id, now)
 
-	accounts = list(session.exec(select(CashAccount).order_by(CashAccount.platform, CashAccount.name)))
+	accounts = list(
+		session.exec(
+			select(CashAccount)
+			.where(CashAccount.user_id == user_id)
+			.order_by(CashAccount.platform, CashAccount.name),
+		),
+	)
 	holdings = list(
-		session.exec(select(SecurityHolding).order_by(SecurityHolding.symbol, SecurityHolding.name)),
+		session.exec(
+			select(SecurityHolding)
+			.where(SecurityHolding.user_id == user_id)
+			.order_by(SecurityHolding.symbol, SecurityHolding.name),
+		),
 	)
 
 	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(accounts)
@@ -745,28 +872,34 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	aggregate_holdings_return_pct, holding_return_points = _summarize_holdings_return_state(
 		valued_holdings,
 	)
-	_update_live_portfolio_state(now, total_value_cny, has_assets)
-	_update_live_holdings_return_state(now, aggregate_holdings_return_pct, holding_return_points)
+	_update_live_portfolio_state(user_id, now, total_value_cny, has_assets)
+	_update_live_holdings_return_state(
+		user_id,
+		now,
+		aggregate_holdings_return_pct,
+		holding_return_points,
+	)
 
 	hour_series = build_timeline(
-		_load_series_with_live_snapshot(session, now - timedelta(hours=24)),
+		_load_series_with_live_snapshot(session, user_id, now - timedelta(hours=24)),
 		"hour",
 	)
 	day_series = build_timeline(
-		_load_series_with_live_snapshot(session, now - timedelta(days=30)),
+		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=30)),
 		"day",
 	)
 	month_series = build_timeline(
-		_load_series_with_live_snapshot(session, now - timedelta(days=366)),
+		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=366)),
 		"month",
 	)
 	year_series = build_timeline(
-		_load_series_with_live_snapshot(session, now - timedelta(days=366 * 5)),
+		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=366 * 5)),
 		"year",
 	)
 	holdings_return_hour_series = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
+			user_id,
 			now - timedelta(hours=24),
 			"TOTAL",
 			default_name="非现金资产",
@@ -776,6 +909,7 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	holdings_return_day_series = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
+			user_id,
 			now - timedelta(days=30),
 			"TOTAL",
 			default_name="非现金资产",
@@ -785,6 +919,7 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	holdings_return_month_series = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
+			user_id,
 			now - timedelta(days=366),
 			"TOTAL",
 			default_name="非现金资产",
@@ -794,6 +929,7 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	holdings_return_year_series = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
+			user_id,
 			now - timedelta(days=366 * 5),
 			"TOTAL",
 			default_name="非现金资产",
@@ -810,41 +946,45 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 				symbol=holding.symbol,
 				name=holding.name,
 				hour_series=build_return_timeline(
-					_load_holdings_return_series_with_live_snapshot(
-						session,
-						now - timedelta(hours=24),
-						"HOLDING",
-						symbol=holding.symbol,
+						_load_holdings_return_series_with_live_snapshot(
+							session,
+							user_id,
+							now - timedelta(hours=24),
+							"HOLDING",
+							symbol=holding.symbol,
 						default_name=holding.name,
 					),
 					"hour",
 				),
 				day_series=build_return_timeline(
-					_load_holdings_return_series_with_live_snapshot(
-						session,
-						now - timedelta(days=30),
-						"HOLDING",
-						symbol=holding.symbol,
+						_load_holdings_return_series_with_live_snapshot(
+							session,
+							user_id,
+							now - timedelta(days=30),
+							"HOLDING",
+							symbol=holding.symbol,
 						default_name=holding.name,
 					),
 					"day",
 				),
 				month_series=build_return_timeline(
-					_load_holdings_return_series_with_live_snapshot(
-						session,
-						now - timedelta(days=366),
-						"HOLDING",
-						symbol=holding.symbol,
+						_load_holdings_return_series_with_live_snapshot(
+							session,
+							user_id,
+							now - timedelta(days=366),
+							"HOLDING",
+							symbol=holding.symbol,
 						default_name=holding.name,
 					),
 					"month",
 				),
 				year_series=build_return_timeline(
-					_load_holdings_return_series_with_live_snapshot(
-						session,
-						now - timedelta(days=366 * 5),
-						"HOLDING",
-						symbol=holding.symbol,
+						_load_holdings_return_series_with_live_snapshot(
+							session,
+							user_id,
+							now - timedelta(days=366 * 5),
+							"HOLDING",
+							symbol=holding.symbol,
 						default_name=holding.name,
 					),
 					"year",
@@ -877,27 +1017,29 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 
 async def _get_cached_dashboard(
 	session: Session,
+	user: UserAccount,
 	force_refresh: bool = False,
 ) -> DashboardResponse:
-	global dashboard_cache
+	cache_entry = dashboard_cache.get(user.username)
 
 	if (
 		not force_refresh
-		and dashboard_cache is not None
-		and _is_current_minute(dashboard_cache.generated_at)
+		and cache_entry is not None
+		and _is_current_minute(cache_entry.generated_at)
 	):
-		return dashboard_cache.dashboard
+		return cache_entry.dashboard
 
 	async with dashboard_cache_lock:
+		cache_entry = dashboard_cache.get(user.username)
 		if (
 			not force_refresh
-			and dashboard_cache is not None
-			and _is_current_minute(dashboard_cache.generated_at)
+			and cache_entry is not None
+			and _is_current_minute(cache_entry.generated_at)
 		):
-			return dashboard_cache.dashboard
+			return cache_entry.dashboard
 
-		dashboard = await _build_dashboard(session)
-		dashboard_cache = DashboardCacheEntry(
+		dashboard = await _build_dashboard(session, user)
+		dashboard_cache[user.username] = DashboardCacheEntry(
 			dashboard=dashboard,
 			generated_at=utc_now(),
 		)
@@ -909,10 +1051,88 @@ def healthcheck() -> dict[str, str]:
 	return {"status": "ok"}
 
 
+def _create_user_account(session: Session, credentials: AuthCredentials) -> UserAccount:
+	if _get_user(session, credentials.user_id) is not None:
+		raise HTTPException(status_code=409, detail="用户名已存在。")
+
+	user = UserAccount(
+		username=credentials.user_id,
+		password_digest=hash_password(credentials.password),
+	)
+	session.add(user)
+	session.commit()
+	session.refresh(user)
+	return user
+
+
+def _authenticate_user_account(session: Session, credentials: AuthCredentials) -> UserAccount:
+	user = _get_user(session, credentials.user_id)
+	if user is None or not verify_password(credentials.password, user.password_digest):
+		raise HTTPException(status_code=401, detail="账号或密码错误。")
+	return user
+
+
+@app.get("/api/auth/session", response_model=AuthSessionRead)
+def get_auth_session(
+	request: Request,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> AuthSessionRead:
+	user_id = get_session_user_id(request)
+	if user_id is None:
+		raise HTTPException(status_code=401, detail="请先登录。")
+
+	user = _get_user(session, user_id)
+	if user is None:
+		request.session.clear()
+		raise HTTPException(status_code=401, detail="请重新登录。")
+
+	return AuthSessionRead(user_id=user.username)
+
+
+@app.post("/api/auth/register", response_model=AuthSessionRead, status_code=201)
+def register_user(
+	request: Request,
+	payload: AuthCredentials,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> AuthSessionRead:
+	user = _create_user_account(session, payload)
+	request.session["user_id"] = user.username
+	return AuthSessionRead(user_id=user.username)
+
+
+@app.post("/api/auth/login", response_model=AuthSessionRead)
+def login_user(
+	request: Request,
+	payload: AuthCredentials,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> AuthSessionRead:
+	user = _authenticate_user_account(session, payload)
+	request.session["user_id"] = user.username
+	return AuthSessionRead(user_id=user.username)
+
+
+@app.post("/api/auth/logout", status_code=204)
+def logout_user(request: Request, _: TokenDependency) -> Response:
+	request.session.clear()
+	return Response(status_code=204)
+
+
 @app.get("/api/accounts", response_model=list[CashAccountRead])
-async def list_accounts(_: TokenDependency, session: SessionDependency) -> list[CashAccountRead]:
-	dashboard = await _get_cached_dashboard(session)
-	accounts = list(session.exec(select(CashAccount).order_by(CashAccount.platform, CashAccount.name)))
+async def list_accounts(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> list[CashAccountRead]:
+	dashboard = await _get_cached_dashboard(session, current_user)
+	accounts = list(
+		session.exec(
+			select(CashAccount)
+			.where(CashAccount.user_id == current_user.username)
+			.order_by(CashAccount.platform, CashAccount.name),
+		),
+	)
 	valued_account_map = {account.id: account for account in dashboard.cash_accounts}
 	items: list[CashAccountRead] = []
 
@@ -938,10 +1158,11 @@ async def list_accounts(_: TokenDependency, session: SessionDependency) -> list[
 @app.post("/api/accounts", response_model=CashAccountRead, status_code=201)
 def create_account(
 	payload: CashAccountCreate,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> CashAccount:
 	account = CashAccount(
+		user_id=current_user.username,
 		name=payload.name.strip(),
 		platform=payload.platform.strip(),
 		currency=_normalize_currency(payload.currency),
@@ -952,7 +1173,7 @@ def create_account(
 	session.add(account)
 	session.commit()
 	session.refresh(account)
-	_invalidate_dashboard_cache()
+	_invalidate_dashboard_cache(current_user.username)
 	return account
 
 
@@ -960,11 +1181,11 @@ def create_account(
 def update_account(
 	account_id: int,
 	payload: CashAccountUpdate,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> CashAccount:
 	account = session.get(CashAccount, account_id)
-	if account is None:
+	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
 
 	account.name = payload.name.strip()
@@ -979,34 +1200,38 @@ def update_account(
 	session.add(account)
 	session.commit()
 	session.refresh(account)
-	_invalidate_dashboard_cache()
+	_invalidate_dashboard_cache(current_user.username)
 	return account
 
 
 @app.delete("/api/accounts/{account_id}", status_code=204)
 def delete_account(
 	account_id: int,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> Response:
 	account = session.get(CashAccount, account_id)
-	if account is None:
+	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
 
 	session.delete(account)
 	session.commit()
-	_invalidate_dashboard_cache()
+	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
 
 
 @app.get("/api/holdings", response_model=list[SecurityHoldingRead])
 async def list_holdings(
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> list[SecurityHoldingRead]:
-	dashboard = await _get_cached_dashboard(session)
+	dashboard = await _get_cached_dashboard(session, current_user)
 	holdings = list(
-		session.exec(select(SecurityHolding).order_by(SecurityHolding.symbol, SecurityHolding.name)),
+		session.exec(
+			select(SecurityHolding)
+			.where(SecurityHolding.user_id == current_user.username)
+			.order_by(SecurityHolding.symbol, SecurityHolding.name),
+		),
 	)
 	valued_holding_map = {holding.id: holding for holding in dashboard.holdings}
 	items: list[SecurityHoldingRead] = []
@@ -1038,10 +1263,11 @@ async def list_holdings(
 @app.post("/api/holdings", response_model=SecurityHoldingRead, status_code=201)
 def create_holding(
 	payload: SecurityHoldingCreate,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> SecurityHolding:
 	holding = SecurityHolding(
+		user_id=current_user.username,
 		symbol=_normalize_symbol(payload.symbol, payload.market),
 		name=payload.name.strip(),
 		quantity=payload.quantity,
@@ -1054,7 +1280,7 @@ def create_holding(
 	session.add(holding)
 	session.commit()
 	session.refresh(holding)
-	_invalidate_dashboard_cache()
+	_invalidate_dashboard_cache(current_user.username)
 	return holding
 
 
@@ -1062,11 +1288,11 @@ def create_holding(
 def update_holding(
 	holding_id: int,
 	payload: SecurityHoldingUpdate,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> SecurityHolding:
 	holding = session.get(SecurityHolding, holding_id)
-	if holding is None:
+	if holding is None or holding.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
 	holding.symbol = _normalize_symbol(payload.symbol, payload.market or holding.market)
@@ -1085,30 +1311,30 @@ def update_holding(
 	session.add(holding)
 	session.commit()
 	session.refresh(holding)
-	_invalidate_dashboard_cache()
+	_invalidate_dashboard_cache(current_user.username)
 	return holding
 
 
 @app.delete("/api/holdings/{holding_id}", status_code=204)
 def delete_holding(
 	holding_id: int,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> Response:
 	holding = session.get(SecurityHolding, holding_id)
-	if holding is None:
+	if holding is None or holding.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
 	session.delete(holding)
 	session.commit()
-	_invalidate_dashboard_cache()
+	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
 
 
 @app.get("/api/securities/search", response_model=list[SecuritySearchRead])
 async def search_securities(
 	q: str,
-	_: TokenDependency,
+	__: CurrentUserDependency,
 ) -> list[SecuritySearchRead]:
 	query = q.strip()
 	if not query:
@@ -1118,5 +1344,8 @@ async def search_securities(
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
-async def get_dashboard(_: TokenDependency, session: SessionDependency) -> DashboardResponse:
-	return await _get_cached_dashboard(session)
+async def get_dashboard(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> DashboardResponse:
+	return await _get_cached_dashboard(session, current_user)

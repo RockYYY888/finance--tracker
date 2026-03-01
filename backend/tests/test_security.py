@@ -5,7 +5,12 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app.security import verify_api_token
+from app.security import (
+	hash_password,
+	normalize_user_id,
+	verify_api_token,
+	verify_password,
+)
 from app.settings import get_settings
 
 
@@ -17,6 +22,7 @@ def reset_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 		"ASSET_TRACKER_API_TOKEN",
 		"ASSET_TRACKER_APP_ENV",
 		"ASSET_TRACKER_PUBLIC_ORIGIN",
+		"ASSET_TRACKER_SESSION_SECRET",
 	):
 		monkeypatch.delenv(env_name, raising=False)
 
@@ -46,11 +52,11 @@ def test_settings_default_to_local_development() -> None:
 def test_settings_lock_down_same_origin_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")
-	monkeypatch.setenv("ASSET_TRACKER_API_TOKEN", "secret-token")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
 	settings = get_settings()
 
 	assert settings.is_production is True
-	assert settings.require_api_token is True
+	assert settings.require_api_token is False
 	assert settings.cors_origins() == ["https://finance.example.com"]
 	assert settings.trusted_hosts() == ["finance.example.com"]
 
@@ -61,7 +67,7 @@ def test_settings_validate_runtime_rejects_incomplete_production_config(
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com")
 
-	with pytest.raises(ValueError, match="ASSET_TRACKER_API_TOKEN"):
+	with pytest.raises(ValueError, match="ASSET_TRACKER_SESSION_SECRET"):
 		get_settings().validate_runtime()
 
 
@@ -110,28 +116,41 @@ def test_verify_api_token_allows_same_origin_requests_in_production(
 ) -> None:
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com")
-	monkeypatch.setenv("ASSET_TRACKER_API_TOKEN", "secret-token")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
 	client = _build_client()
 	response = client.get(
 		"/protected",
 		headers={
 			"Origin": "https://finance.example.com",
-			"X-API-Key": "secret-token",
 		},
 	)
 
 	assert response.status_code == 200
 
 
-def test_verify_api_token_rejects_production_without_server_token(
+def test_verify_api_token_allows_production_without_server_token(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
 	client = _build_client()
 	response = client.get("/protected", headers={"Origin": "https://finance.example.com"})
 
-	assert response.status_code == 503
-	assert response.json() == {
-		"detail": "API token is required by the current server configuration.",
-	}
+	assert response.status_code == 200
+
+
+def test_normalize_user_id_accepts_lowercase_slug() -> None:
+	assert normalize_user_id(" admin_01 ") == "admin_01"
+
+
+def test_normalize_user_id_rejects_invalid_identifier() -> None:
+	with pytest.raises(ValueError):
+		normalize_user_id("Admin-01")
+
+
+def test_password_hash_round_trip() -> None:
+	password_digest = hash_password("qwer1234")
+
+	assert verify_password("qwer1234", password_digest) is True
+	assert verify_password("wrong-pass", password_digest) is False

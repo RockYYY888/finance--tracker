@@ -174,6 +174,12 @@ h3 {
 	gap: 12px;
 }
 
+.hero-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.7rem;
+}
+
 .hero-note {
 	margin: 0;
 	display: inline-flex;
@@ -274,6 +280,66 @@ h3 {
 	background:
 		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 30%),
 		linear-gradient(145deg, rgba(55, 240, 200, 0.18), rgba(55, 240, 200, 0.05));
+}
+
+.auth-shell {
+	position: relative;
+	min-height: 100vh;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+
+.auth-card {
+	width: min(100%, 480px);
+	display: grid;
+	gap: 1rem;
+	padding: 1.6rem;
+	border-radius: 28px;
+	border: 1px solid var(--line-soft);
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%),
+		radial-gradient(circle at top right, rgba(99, 232, 255, 0.1), transparent 36%),
+		linear-gradient(145deg, rgba(9, 18, 34, 0.98), rgba(7, 13, 25, 0.96));
+	backdrop-filter: blur(24px);
+	box-shadow:
+		0 24px 64px rgba(0, 0, 0, 0.22),
+		inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.auth-card__copy {
+	display: grid;
+	gap: 0.4rem;
+}
+
+.auth-form {
+	display: grid;
+	gap: 0.9rem;
+}
+
+.auth-segmented {
+	display: inline-flex;
+	padding: 0.22rem;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.03);
+	border: 1px solid rgba(122, 214, 255, 0.08);
+}
+
+.auth-segmented button {
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-muted);
+	padding: 0.45rem 0.8rem;
+	font: inherit;
+	font-size: 0.88rem;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.auth-segmented button.active {
+	background: linear-gradient(135deg, rgba(99, 232, 255, 0.16), rgba(122, 140, 255, 0.18));
+	color: var(--text-main);
 }
 
 .banner {
