@@ -24,6 +24,14 @@ def _normalize_optional_text(value: str | None) -> str | None:
 	return stripped or None
 
 
+def _normalize_required_text(value: str, field_name: str) -> str:
+	stripped = value.strip()
+	if not stripped:
+		raise ValueError(f"{field_name} cannot be empty.")
+
+	return stripped
+
+
 def _normalize_choice(
 	value: str | None,
 	allowed_values: tuple[str, ...],
@@ -245,6 +253,21 @@ class AuthCredentials(BaseModel):
 
 class AuthSessionRead(BaseModel):
 	user_id: str
+
+
+class UserFeedbackCreate(BaseModel):
+	message: str = Field(min_length=5, max_length=1000)
+
+	@field_validator("message", mode="before")
+	@classmethod
+	def normalize_message(cls, value: str) -> str:
+		return _normalize_required_text(value, "message")
+
+
+class UserFeedbackRead(BaseModel):
+	id: int
+	message: str
+	created_at: datetime
 
 
 class SecurityHoldingCreate(BaseModel):

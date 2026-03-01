@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
 import { PortfolioAnalytics } from "./components/analytics";
+import { FeedbackDialog } from "./components/feedback/FeedbackDialog";
 import { defaultAssetApiClient } from "./lib/assetApi";
 import {
 	getAuthSession,
@@ -11,6 +12,7 @@ import {
 	registerWithPassword,
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
+import { submitUserFeedback } from "./lib/feedbackApi";
 import type { AuthCredentials } from "./types/auth";
 import type {
 	AssetManagerController,
@@ -139,6 +141,10 @@ function App() {
 	const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+	const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+	const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
+	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
 	const dashboardRequestInFlightRef = useRef(false);
 	const pendingDashboardRefreshRef = useRef(false);
 	const pendingForceRefreshRef = useRef(false);
@@ -158,6 +164,9 @@ function App() {
 		setCurrentUserId(userId);
 		setAuthStatus("authenticated");
 		setAuthErrorMessage(null);
+		setFeedbackNoticeMessage(null);
+		setFeedbackErrorMessage(null);
+		setIsFeedbackOpen(false);
 		setDashboard(EMPTY_DASHBOARD);
 		setIsLoadingDashboard(true);
 	}
@@ -165,6 +174,9 @@ function App() {
 	function markSignedOut(): void {
 		setCurrentUserId(null);
 		setAuthStatus("anonymous");
+		setFeedbackNoticeMessage(null);
+		setFeedbackErrorMessage(null);
+		setIsFeedbackOpen(false);
 		resetDashboardState();
 	}
 
@@ -255,6 +267,38 @@ function App() {
 			await logoutCurrentUser();
 		} finally {
 			markSignedOut();
+		}
+	}
+
+	function openFeedbackDialog(): void {
+		setFeedbackErrorMessage(null);
+		setFeedbackNoticeMessage(null);
+		setIsFeedbackOpen(true);
+	}
+
+	function closeFeedbackDialog(): void {
+		if (isSubmittingFeedback) {
+			return;
+		}
+
+		setFeedbackErrorMessage(null);
+		setIsFeedbackOpen(false);
+	}
+
+	async function handleSubmitFeedback(message: string): Promise<void> {
+		setIsSubmittingFeedback(true);
+		setFeedbackErrorMessage(null);
+
+		try {
+			await submitUserFeedback({ message });
+			setFeedbackNoticeMessage("问题反馈已记录。");
+			setIsFeedbackOpen(false);
+		} catch (error) {
+			setFeedbackErrorMessage(
+				error instanceof Error ? error.message : "反馈提交失败，请稍后再试。",
+			);
+		} finally {
+			setIsSubmittingFeedback(false);
 		}
 	}
 
@@ -445,6 +489,13 @@ function App() {
 						<button
 							type="button"
 							className="hero-note hero-note--action"
+							onClick={openFeedbackDialog}
+						>
+							反馈问题
+						</button>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
 							onClick={() => void handleLogout()}
 						>
 							退出登录
@@ -501,6 +552,12 @@ function App() {
 					</div>
 				</div>
 			</header>
+
+			{feedbackNoticeMessage ? (
+				<div className="banner info">
+					<p>{feedbackNoticeMessage}</p>
+				</div>
+			) : null}
 
 			{errorMessage ? <div className="banner error">{errorMessage}</div> : null}
 
@@ -573,6 +630,14 @@ function App() {
 					}
 				/>
 			</div>
+
+			<FeedbackDialog
+				open={isFeedbackOpen}
+				busy={isSubmittingFeedback}
+				errorMessage={feedbackErrorMessage}
+				onClose={closeFeedbackDialog}
+				onSubmit={handleSubmitFeedback}
+			/>
 		</div>
 	);
 }

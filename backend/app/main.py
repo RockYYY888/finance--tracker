@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -25,6 +26,7 @@ from app.models import (
 	OtherAsset,
 	PortfolioSnapshot,
 	SecurityHolding,
+	UserFeedback,
 	UserAccount,
 	utc_now,
 )
@@ -50,6 +52,8 @@ from app.schemas import (
 	SecurityHoldingCreate,
 	SecurityHoldingRead,
 	SecurityHoldingUpdate,
+	UserFeedbackCreate,
+	UserFeedbackRead,
 	ValuedCashAccount,
 	ValuedFixedAsset,
 	ValuedHolding,
@@ -83,6 +87,8 @@ DEFAULT_ADMIN_PASSWORD_DIGEST = (
 	"$de4af04355be41e4ec61f7dc8b3c19fcc4fc940ba47784324063d4169d57e80a"
 	"14cc1588be5fea70338075226ff4b32aafe37ab0a114d05b70e0a2364a0d2bf7"
 )
+FEEDBACK_TIMEZONE = ZoneInfo("Asia/Shanghai")
+MAX_DAILY_FEEDBACK_SUBMISSIONS = 3
 
 
 @dataclass(slots=True)
@@ -252,6 +258,13 @@ def _current_minute_bucket(value: datetime | None = None) -> datetime:
 def _current_hour_bucket(value: datetime | None = None) -> datetime:
 	timestamp = _coerce_utc_datetime(value or utc_now())
 	return timestamp.replace(minute=0, second=0, microsecond=0)
+
+
+def _feedback_day_window(value: datetime | None = None) -> tuple[datetime, datetime]:
+	timestamp = _coerce_utc_datetime(value or utc_now()).astimezone(FEEDBACK_TIMEZONE)
+	day_start_local = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+	day_end_local = day_start_local + timedelta(days=1)
+	return day_start_local.astimezone(timezone.utc), day_end_local.astimezone(timezone.utc)
 
 
 def _is_current_minute(value: datetime | None, now: datetime | None = None) -> bool:
@@ -1427,6 +1440,41 @@ def login_user(
 def logout_user(request: Request, _: TokenDependency) -> Response:
 	request.session.clear()
 	return Response(status_code=204)
+
+
+@app.post("/api/feedback", response_model=UserFeedbackRead, status_code=201)
+def submit_feedback(
+	payload: UserFeedbackCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> UserFeedbackRead:
+	day_start, day_end = _feedback_day_window()
+	submission_count = len(
+		list(
+			session.exec(
+				select(UserFeedback.id).where(
+					UserFeedback.user_id == current_user.username,
+					UserFeedback.created_at >= day_start,
+					UserFeedback.created_at < day_end,
+				),
+			),
+		),
+	)
+	if submission_count >= MAX_DAILY_FEEDBACK_SUBMISSIONS:
+		raise HTTPException(status_code=429, detail="今日反馈次数已达上限，请明天再试。")
+
+	feedback = UserFeedback(
+		user_id=current_user.username,
+		message=payload.message,
+	)
+	session.add(feedback)
+	session.commit()
+	session.refresh(feedback)
+	return UserFeedbackRead(
+		id=feedback.id or 0,
+		message=feedback.message,
+		created_at=feedback.created_at,
+	)
 
 
 @app.get("/api/accounts", response_model=list[CashAccountRead])

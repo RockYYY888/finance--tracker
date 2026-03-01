@@ -45,7 +45,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
 	font: inherit;
 }
 
@@ -530,6 +531,84 @@ h3 {
 	gap: 24px;
 }
 
+.feedback-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	display: grid;
+	place-items: center;
+	padding: 20px;
+}
+
+.feedback-modal__backdrop {
+	position: absolute;
+	inset: 0;
+	border: 0;
+	border-radius: 0;
+	padding: 0;
+	background: rgba(4, 10, 19, 0.78);
+	backdrop-filter: blur(10px);
+	box-shadow: none;
+}
+
+.feedback-modal__backdrop:hover:not(:disabled) {
+	transform: none;
+}
+
+.feedback-modal__panel {
+	position: relative;
+	width: min(100%, 580px);
+	padding: 24px;
+	border-radius: 24px;
+	border: 1px solid var(--line-soft);
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%),
+		radial-gradient(circle at top right, rgba(99, 232, 255, 0.08), transparent 34%),
+		linear-gradient(145deg, rgba(9, 18, 34, 0.98), rgba(7, 13, 25, 0.96));
+	box-shadow:
+		0 24px 64px rgba(0, 0, 0, 0.28),
+		inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.feedback-modal__head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 16px;
+}
+
+.feedback-modal__copy {
+	margin: 8px 0 0;
+	color: var(--text-muted);
+	font-size: 0.92rem;
+}
+
+.feedback-form {
+	display: grid;
+	gap: 14px;
+}
+
+.feedback-form__footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.feedback-form__counter {
+	color: var(--text-muted);
+	font-size: 0.84rem;
+	font-family: "JetBrains Mono", "Noto Sans SC", monospace;
+}
+
+.feedback-form__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 12px;
+}
+
 .form-panel {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -566,7 +645,23 @@ input {
 	color: inherit;
 }
 
+textarea {
+	width: 100%;
+	min-height: 160px;
+	padding: 12px 14px;
+	border-radius: 14px;
+	border: 1px solid var(--line-soft);
+	background: rgba(8, 18, 32, 0.62);
+	color: inherit;
+	resize: vertical;
+}
+
 input:focus {
+	outline: 2px solid rgba(99, 232, 255, 0.3);
+	border-color: transparent;
+}
+
+textarea:focus {
 	outline: 2px solid rgba(99, 232, 255, 0.3);
 	border-color: transparent;
 }
@@ -742,6 +837,16 @@ th {
 
 	.summary-grid {
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	}
+
+	.feedback-modal__head,
+	.feedback-form__footer {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.feedback-form__actions {
+		justify-content: stretch;
 	}
 }
 

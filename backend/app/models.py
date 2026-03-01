@@ -38,6 +38,13 @@ class UserAccount(SQLModel, table=True):
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class UserFeedback(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(default="admin", index=True, max_length=32)
+	message: str = Field(max_length=1000)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
 class CashAccount(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(default="admin", index=True, max_length=32)

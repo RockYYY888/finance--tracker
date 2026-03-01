@@ -1,0 +1,70 @@
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
+from sqlmodel import SQLModel, Session, create_engine, select
+
+from app.main import submit_feedback
+from app.models import UserAccount, UserFeedback
+from app.schemas import UserFeedbackCreate
+
+
+@pytest.fixture
+def session(tmp_path: Path) -> Iterator[Session]:
+	engine = create_engine(
+		f"sqlite:///{tmp_path / 'feedback-test.db'}",
+		connect_args={"check_same_thread": False},
+	)
+	SQLModel.metadata.create_all(engine)
+
+	with Session(engine) as db_session:
+		yield db_session
+
+
+def make_user(session: Session, username: str = "tester") -> UserAccount:
+	user = UserAccount(
+		username=username,
+		password_digest="scrypt$16384$8$1$bc13ea73dad1a1d781e1bf06e769ccda$"
+		"de4af04355be41e4ec61f7dc8b3c19fcc4fc940ba47784324063d4169d57e80a"
+		"14cc1588be5fea70338075226ff4b32aafe37ab0a114d05b70e0a2364a0d2bf7",
+	)
+	session.add(user)
+	session.commit()
+	session.refresh(user)
+	return user
+
+
+def test_submit_feedback_persists_feedback_for_current_user(session: Session) -> None:
+	current_user = make_user(session)
+
+	created_feedback = submit_feedback(
+		UserFeedbackCreate(message="同步后投资类价格没有及时刷新。"),
+		current_user,
+		session,
+	)
+
+	persisted_feedback = session.exec(select(UserFeedback)).one()
+
+	assert created_feedback.id == persisted_feedback.id
+	assert created_feedback.message == persisted_feedback.message
+	assert persisted_feedback.user_id == current_user.username
+
+
+def test_submit_feedback_limits_each_user_to_three_per_day(session: Session) -> None:
+	current_user = make_user(session)
+
+	for index in range(3):
+		created_feedback = submit_feedback(
+			UserFeedbackCreate(message=f"第 {index + 1} 次问题反馈，用于验证每日上限。"),
+			current_user,
+			session,
+		)
+		assert created_feedback.id > 0
+
+	with pytest.raises(HTTPException, match="今日反馈次数已达上限"):
+		submit_feedback(
+			UserFeedbackCreate(message="第 4 次提交应该被限制。"),
+			current_user,
+			session,
+		)
