@@ -86,8 +86,11 @@ export function PlatformBreakdownChart({
 									tickFormatter={(label: string) => truncateLabel(label, 8)}
 								/>
 								<Tooltip
-									formatter={(value) => formatCny(Number(value ?? 0))}
-									labelFormatter={(label) => `入口: ${String(label ?? "")}`}
+									formatter={(value) => [
+										formatCny(Number(value ?? 0)),
+										"平台资产",
+									]}
+									labelFormatter={(label) => `平台: ${String(label ?? "")}`}
 									contentStyle={ANALYTICS_TOOLTIP_STYLE}
 									itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
 									labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
