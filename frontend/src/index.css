@@ -271,6 +271,11 @@ h3 {
 	cursor: pointer;
 }
 
+.hero-actions > .hero-note--action:first-child {
+	min-width: 12.5rem;
+	justify-content: flex-start;
+}
+
 .hero-note--action:hover:not(:disabled) {
 	transform: translateY(-1px);
 	border-color: var(--line-strong);
