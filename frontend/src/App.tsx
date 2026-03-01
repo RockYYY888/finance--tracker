@@ -46,6 +46,7 @@ import type { UserFeedbackRecord } from "./types/feedback";
 import { formatCny } from "./utils/portfolioAnalytics";
 
 type AuthStatus = "checking" | "anonymous" | "authenticated";
+type WorkspaceView = "records" | "insights";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
@@ -372,6 +373,7 @@ function App() {
 	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
 	const [feedbackInboxCount, setFeedbackInboxCount] = useState(0);
+	const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>("records");
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
 	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
 	const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
@@ -410,6 +412,7 @@ function App() {
 		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
+		setActiveWorkspaceView("records");
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
 		setAdminFeedbackItems([]);
@@ -433,6 +436,7 @@ function App() {
 		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
+		setActiveWorkspaceView("records");
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
 		setAdminFeedbackItems([]);
@@ -1208,63 +1212,92 @@ function App() {
 				<div className="banner info">暂无资产数据。</div>
 			) : null}
 
-			<section className="panel section-shell">
-				<div className="section-head">
-					<div>
-						<p className="eyebrow">ANALYTICS</p>
-						<h2>变化与分布</h2>
-						<p className="section-copy">走势与结构。</p>
-					</div>
+			<section className="panel workspace-shell" aria-label="页面视图切换">
+				<div className="workspace-switch" role="tablist" aria-label="页面视图">
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeWorkspaceView === "records"}
+						className={`workspace-switch__button ${
+							activeWorkspaceView === "records" ? "is-active" : ""
+						}`}
+						onClick={() => setActiveWorkspaceView("records")}
+					>
+						记录
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeWorkspaceView === "insights"}
+						className={`workspace-switch__button ${
+							activeWorkspaceView === "insights" ? "is-active" : ""
+						}`}
+						onClick={() => setActiveWorkspaceView("insights")}
+					>
+						洞察
+					</button>
 				</div>
-
-				<PortfolioAnalytics
-					total_value_cny={dashboard.total_value_cny}
-					cash_accounts={dashboard.cash_accounts}
-					holdings={dashboard.holdings}
-					fixed_assets={dashboard.fixed_assets}
-					liabilities={dashboard.liabilities}
-					other_assets={dashboard.other_assets}
-					allocation={dashboard.allocation}
-					hour_series={dashboard.hour_series}
-					day_series={dashboard.day_series}
-					month_series={dashboard.month_series}
-					year_series={dashboard.year_series}
-					holdings_return_hour_series={dashboard.holdings_return_hour_series}
-					holdings_return_day_series={dashboard.holdings_return_day_series}
-					holdings_return_month_series={dashboard.holdings_return_month_series}
-					holdings_return_year_series={dashboard.holdings_return_year_series}
-					holding_return_series={dashboard.holding_return_series}
-					loading={isLoadingDashboard || isRecoveringSession}
-				/>
 			</section>
 
-			<div className="integrated-stack">
-				<AssetManager
-					initialCashAccounts={cashAccountRecords}
-					initialHoldings={holdingRecords}
-					initialFixedAssets={fixedAssetRecords}
-					initialLiabilities={liabilityRecords}
-					initialOtherAssets={otherAssetRecords}
-					cashActions={assetManagerController.cashAccounts}
-					holdingActions={assetManagerController.holdings}
-					fixedAssetActions={assetManagerController.fixedAssets}
-					liabilityActions={assetManagerController.liabilities}
-					otherAssetActions={assetManagerController.otherAssets}
-					title="资产管理"
-					description="自动同步。"
-					defaultSection={
-						dashboard.holdings.length > 0
-							? "investment"
-							: dashboard.fixed_assets.length > 0
-								? "fixed"
-								: dashboard.liabilities.length > 0
-									? "liability"
-									: dashboard.other_assets.length > 0
-										? "other"
-										: "cash"
-					}
-				/>
-			</div>
+			{activeWorkspaceView === "insights" ? (
+				<section className="panel section-shell">
+					<div className="section-head">
+						<div>
+							<p className="eyebrow">ANALYTICS</p>
+							<h2>变化与分布</h2>
+							<p className="section-copy">走势与结构。</p>
+						</div>
+					</div>
+
+					<PortfolioAnalytics
+						total_value_cny={dashboard.total_value_cny}
+						cash_accounts={dashboard.cash_accounts}
+						holdings={dashboard.holdings}
+						fixed_assets={dashboard.fixed_assets}
+						liabilities={dashboard.liabilities}
+						other_assets={dashboard.other_assets}
+						allocation={dashboard.allocation}
+						hour_series={dashboard.hour_series}
+						day_series={dashboard.day_series}
+						month_series={dashboard.month_series}
+						year_series={dashboard.year_series}
+						holdings_return_hour_series={dashboard.holdings_return_hour_series}
+						holdings_return_day_series={dashboard.holdings_return_day_series}
+						holdings_return_month_series={dashboard.holdings_return_month_series}
+						holdings_return_year_series={dashboard.holdings_return_year_series}
+						holding_return_series={dashboard.holding_return_series}
+						loading={isLoadingDashboard || isRecoveringSession}
+					/>
+				</section>
+			) : (
+				<div className="integrated-stack">
+					<AssetManager
+						initialCashAccounts={cashAccountRecords}
+						initialHoldings={holdingRecords}
+						initialFixedAssets={fixedAssetRecords}
+						initialLiabilities={liabilityRecords}
+						initialOtherAssets={otherAssetRecords}
+						cashActions={assetManagerController.cashAccounts}
+						holdingActions={assetManagerController.holdings}
+						fixedAssetActions={assetManagerController.fixedAssets}
+						liabilityActions={assetManagerController.liabilities}
+						otherAssetActions={assetManagerController.otherAssets}
+						title="资产管理"
+						description="自动同步。"
+						defaultSection={
+							dashboard.holdings.length > 0
+								? "investment"
+								: dashboard.fixed_assets.length > 0
+									? "fixed"
+									: dashboard.liabilities.length > 0
+										? "liability"
+										: dashboard.other_assets.length > 0
+											? "other"
+											: "cash"
+						}
+					/>
+				</div>
+			)}
 
 			<FeedbackDialog
 				open={isFeedbackOpen}

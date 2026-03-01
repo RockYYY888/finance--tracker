@@ -577,6 +577,57 @@ h3 {
 	gap: 24px;
 }
 
+.workspace-shell {
+	padding: 12px;
+	margin-bottom: 24px;
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 28%),
+		linear-gradient(145deg, rgba(9, 18, 34, 0.95), rgba(7, 14, 27, 0.94));
+}
+
+.workspace-switch {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+
+.workspace-switch__button {
+	border: 1px solid transparent;
+	padding: 0.9rem 1rem;
+	border-radius: 18px;
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 42%),
+		linear-gradient(145deg, rgba(11, 24, 42, 0.88), rgba(7, 14, 26, 0.92));
+	color: var(--text-muted);
+	font-weight: 700;
+	font-size: 0.98rem;
+	letter-spacing: 0.02em;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+	transition:
+		transform 0.18s ease,
+		border-color 0.18s ease,
+		background 0.18s ease,
+		color 0.18s ease,
+		box-shadow 0.18s ease;
+}
+
+.workspace-switch__button:hover {
+	transform: translateY(-1px);
+	border-color: var(--line-soft);
+	color: var(--text-soft);
+}
+
+.workspace-switch__button.is-active {
+	border-color: rgba(99, 232, 255, 0.34);
+	color: #08121f;
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.04)),
+		linear-gradient(135deg, rgba(99, 232, 255, 0.96), rgba(124, 245, 218, 0.94));
+	box-shadow:
+		0 14px 28px rgba(24, 130, 165, 0.18),
+		0 0 0 1px rgba(99, 232, 255, 0.08);
+}
+
 .feedback-modal {
 	position: fixed;
 	inset: 0;
