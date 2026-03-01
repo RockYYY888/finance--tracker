@@ -62,6 +62,18 @@ def test_build_timeline_uses_latest_snapshot_per_year_bucket() -> None:
 	assert [point.value for point in series] == [1100, 1200]
 
 
+def test_build_timeline_handles_naive_and_aware_snapshot_timestamps() -> None:
+	snapshots = [
+		make_snapshot(datetime(2026, 3, 1, 3, 15), 1000),
+		make_snapshot(datetime(2026, 3, 1, 3, 45, tzinfo=timezone.utc), 1250),
+	]
+
+	series = build_timeline(snapshots, "hour")
+
+	assert [point.label for point in series] == ["03-01 03:00"]
+	assert [point.value for point in series] == [1250]
+
+
 def test_is_current_minute_matches_same_bucket() -> None:
 	now = datetime(2026, 3, 1, 3, 15, 42, tzinfo=timezone.utc)
 	cached_at = datetime(2026, 3, 1, 3, 15, 1, tzinfo=timezone.utc)

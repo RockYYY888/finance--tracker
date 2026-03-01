@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./asset-components.css";
 import {
 	formatCnyAmount,
+	formatPercentValue,
 	formatPriceAmount,
 	formatQuantity,
 	formatSecurityMarket,
@@ -155,6 +156,25 @@ export function HoldingList({
 											holding.price ?? 0,
 											holding.price_currency ?? holding.fallback_currency,
 										)}
+									</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>持仓价</span>
+									<strong>
+										{holding.cost_basis_price != null
+											? formatPriceAmount(
+												holding.cost_basis_price,
+												holding.fallback_currency,
+											)
+											: "待填写"}
+									</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>收益率</span>
+									<strong>
+										{holding.return_pct != null
+											? formatPercentValue(holding.return_pct)
+											: "待计算"}
 									</strong>
 								</div>
 								<div className="asset-manager__metric">

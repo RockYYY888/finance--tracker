@@ -223,6 +223,7 @@ def _ensure_legacy_schema() -> None:
 		(
 			SecurityHolding.__table__.name,
 			{
+				"cost_basis_price": "REAL",
 				"market": "TEXT NOT NULL DEFAULT 'OTHER'",
 				"broker": "TEXT",
 				"note": "TEXT",
@@ -317,6 +318,9 @@ async def _value_holdings(
 				name=holding.name,
 				quantity=round(holding.quantity, 4),
 				fallback_currency=holding.fallback_currency,
+				cost_basis_price=round(holding.cost_basis_price, 4)
+				if holding.cost_basis_price is not None
+				else None,
 				market=holding.market,
 				broker=holding.broker,
 				note=holding.note,
@@ -324,6 +328,9 @@ async def _value_holdings(
 				price_currency=price_currency,
 				fx_to_cny=round(fx_rate, 6),
 				value_cny=value_cny,
+				return_pct=round(((price - holding.cost_basis_price) / holding.cost_basis_price) * 100, 2)
+				if holding.cost_basis_price and price > 0
+				else None,
 				last_updated=last_updated,
 			),
 		)
@@ -648,12 +655,14 @@ async def list_holdings(
 				name=holding.name,
 				quantity=holding.quantity,
 				fallback_currency=holding.fallback_currency,
+				cost_basis_price=holding.cost_basis_price,
 				market=holding.market,
 				broker=holding.broker,
 				note=holding.note,
 				price=valued_holding.price if valued_holding else None,
 				price_currency=valued_holding.price_currency if valued_holding else None,
 				value_cny=valued_holding.value_cny if valued_holding else None,
+				return_pct=valued_holding.return_pct if valued_holding else None,
 				last_updated=valued_holding.last_updated if valued_holding else None,
 			),
 		)
@@ -672,6 +681,7 @@ def create_holding(
 		name=payload.name.strip(),
 		quantity=payload.quantity,
 		fallback_currency=_normalize_currency(payload.fallback_currency),
+		cost_basis_price=payload.cost_basis_price,
 		market=payload.market,
 		broker=payload.broker,
 		note=payload.note,
@@ -698,6 +708,8 @@ def update_holding(
 	holding.name = payload.name.strip()
 	holding.quantity = payload.quantity
 	holding.fallback_currency = _normalize_currency(payload.fallback_currency)
+	if "cost_basis_price" in payload.model_fields_set:
+		holding.cost_basis_price = payload.cost_basis_price
 	if payload.market is not None:
 		holding.market = payload.market
 	if "broker" in payload.model_fields_set:

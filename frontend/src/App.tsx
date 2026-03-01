@@ -58,6 +58,7 @@ function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number])
 function toHoldingRecord(record: DashboardResponse["holdings"][number]): HoldingRecord {
 	return {
 		...record,
+		cost_basis_price: record.cost_basis_price ?? undefined,
 		broker: record.broker ?? undefined,
 		note: record.note ?? undefined,
 		last_updated: record.last_updated ?? undefined,

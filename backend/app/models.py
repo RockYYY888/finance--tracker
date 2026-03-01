@@ -32,6 +32,7 @@ class SecurityHolding(SQLModel, table=True):
 	name: str
 	quantity: float = Field(default=0)
 	fallback_currency: str = Field(default="CNY", max_length=8)
+	cost_basis_price: Optional[float] = Field(default=None)
 	market: str = Field(default="OTHER", max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
 	note: Optional[str] = Field(default=None, max_length=500)

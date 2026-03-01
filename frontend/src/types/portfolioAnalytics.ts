@@ -21,6 +21,7 @@ export type ValuedHolding = {
 	name: string;
 	quantity: number;
 	fallback_currency: string;
+	cost_basis_price?: number | null;
 	market: SecurityMarket;
 	broker?: string | null;
 	note?: string | null;
@@ -28,6 +29,7 @@ export type ValuedHolding = {
 	price_currency: string;
 	fx_to_cny: number;
 	value_cny: number;
+	return_pct?: number | null;
 	last_updated: string | null;
 };
 

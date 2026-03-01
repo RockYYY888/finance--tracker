@@ -47,6 +47,9 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 		name: draft.name.trim(),
 		quantity: Number(draft.quantity),
 		fallback_currency: draft.fallback_currency.trim().toUpperCase(),
+		cost_basis_price: draft.cost_basis_price.trim()
+			? Number(draft.cost_basis_price)
+			: undefined,
 		market: draft.market,
 		broker: normalizedBroker || undefined,
 		note: normalizedNote || undefined,
@@ -240,6 +243,12 @@ export function HoldingForm({
 			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
 				throw new Error("请输入有效的持仓数量。");
 			}
+			if (
+				payload.cost_basis_price !== undefined &&
+				(!Number.isFinite(payload.cost_basis_price) || payload.cost_basis_price <= 0)
+			) {
+				throw new Error("请输入有效的持仓价。");
+			}
 			if (!allowsFractionalQuantity(draft.market) && !Number.isInteger(payload.quantity)) {
 				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
 			}
@@ -420,6 +429,18 @@ export function HoldingForm({
 						/>
 					</label>
 				</div>
+
+				<label className="asset-manager__field">
+					<span>持仓价（计价币种）</span>
+					<input
+						type="number"
+						min="0.0001"
+						step="0.0001"
+						value={draft.cost_basis_price}
+						onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
+						placeholder="可选，例如 536.89"
+					/>
+				</label>
 
 				<label className="asset-manager__field">
 					<span>券商 / 账户来源</span>

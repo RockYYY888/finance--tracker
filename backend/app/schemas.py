@@ -86,6 +86,7 @@ class SecurityHoldingCreate(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	quantity: float = Field(gt=0)
 	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
+	cost_basis_price: Optional[float] = Field(default=None, gt=0)
 	market: str = Field(default="OTHER", min_length=2, max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
 	note: Optional[str] = Field(default=None, max_length=500)
@@ -112,6 +113,7 @@ class SecurityHoldingUpdate(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	quantity: float = Field(gt=0)
 	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
+	cost_basis_price: Optional[float] = Field(default=None, gt=0)
 	market: Optional[str] = Field(default=None, min_length=2, max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
 	note: Optional[str] = Field(default=None, max_length=500)
@@ -139,12 +141,14 @@ class SecurityHoldingRead(BaseModel):
 	name: str
 	quantity: float
 	fallback_currency: str
+	cost_basis_price: Optional[float] = None
 	market: str
 	broker: Optional[str] = None
 	note: Optional[str] = None
 	price: Optional[float] = None
 	price_currency: Optional[str] = None
 	value_cny: Optional[float] = None
+	return_pct: Optional[float] = None
 	last_updated: Optional[datetime] = None
 
 
@@ -174,6 +178,7 @@ class ValuedHolding(BaseModel):
 	name: str
 	quantity: float
 	fallback_currency: str
+	cost_basis_price: Optional[float] = None
 	market: str
 	broker: Optional[str] = None
 	note: Optional[str] = None
@@ -181,6 +186,7 @@ class ValuedHolding(BaseModel):
 	price_currency: str
 	fx_to_cny: float
 	value_cny: float
+	return_pct: Optional[float] = None
 	last_updated: Optional[datetime] = None
 
 

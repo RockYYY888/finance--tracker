@@ -69,6 +69,7 @@ export interface HoldingInput {
 	name: string;
 	quantity: number;
 	fallback_currency: string;
+	cost_basis_price?: number;
 	market: SecurityMarket;
 	broker?: string;
 	note?: string;
@@ -79,6 +80,7 @@ export interface HoldingFormDraft {
 	name: string;
 	quantity: string;
 	fallback_currency: string;
+	cost_basis_price: string;
 	market: SecurityMarket;
 	broker: string;
 	note: string;
@@ -89,6 +91,7 @@ export interface HoldingRecord extends HoldingInput {
 	price?: number | null;
 	price_currency?: string | null;
 	value_cny?: number | null;
+	return_pct?: number | null;
 	last_updated?: string | null;
 }
 
@@ -105,6 +108,7 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	name: "",
 	quantity: "1",
 	fallback_currency: "HKD",
+	cost_basis_price: "",
 	market: "HK",
 	broker: "",
 	note: "",

@@ -223,6 +223,7 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 			name="Apple",
 			quantity=3,
 			fallback_currency="usd",
+			cost_basis_price=92.5,
 			market="us",
 			broker="  IBKR  ",
 			note="  long term  ",
@@ -234,12 +235,14 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 	assert holding.id is not None
 	assert holding.symbol == "AAPL"
 	assert holding.fallback_currency == "USD"
+	assert holding.cost_basis_price == 92.5
 	assert holding.market == "US"
 	assert holding.broker == "IBKR"
 	assert holding.note == "long term"
 
 	stored_holding = session.get(SecurityHolding, holding.id)
 	assert stored_holding is not None
+	assert stored_holding.cost_basis_price == 92.5
 	assert stored_holding.market == "US"
 	assert stored_holding.broker == "IBKR"
 	assert stored_holding.note == "long term"
@@ -264,6 +267,7 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 			name="Tencent",
 			quantity=4,
 			fallback_currency="hkd",
+			cost_basis_price=450,
 			market="hk",
 			broker="  Futu  ",
 			note="  core position  ",
@@ -276,6 +280,7 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 	assert updated_holding.name == "Tencent"
 	assert updated_holding.quantity == 4
 	assert updated_holding.fallback_currency == "HKD"
+	assert updated_holding.cost_basis_price == 450
 	assert updated_holding.market == "HK"
 	assert updated_holding.broker == "Futu"
 	assert updated_holding.note == "core position"
@@ -318,6 +323,7 @@ def test_list_holdings_returns_enriched_quote_fields(
 			name="Apple",
 			quantity=2,
 			fallback_currency="usd",
+			cost_basis_price=80,
 			market="us",
 		),
 		None,
@@ -331,6 +337,8 @@ def test_list_holdings_returns_enriched_quote_fields(
 	assert holdings[0].price == 100.0
 	assert holdings[0].price_currency == "USD"
 	assert holdings[0].value_cny == 1400.0
+	assert holdings[0].cost_basis_price == 80
+	assert holdings[0].return_pct == 25.0
 
 
 def test_holding_schema_rejects_invalid_market() -> None:

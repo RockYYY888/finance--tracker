@@ -46,6 +46,7 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		name: record.name,
 		quantity: String(record.quantity),
 		fallback_currency: record.fallback_currency,
+		cost_basis_price: record.cost_basis_price != null ? String(record.cost_basis_price) : "",
 		market: record.market,
 		broker: record.broker ?? "",
 		note: record.note ?? "",
@@ -84,9 +85,11 @@ function createLocalHolding(payload: HoldingInput, nextId: number): HoldingRecor
 		...payload,
 		broker: payload.broker,
 		note: payload.note,
+		cost_basis_price: payload.cost_basis_price,
 		price: null,
 		price_currency: payload.fallback_currency,
 		value_cny: 0,
+		return_pct: null,
 		last_updated: null,
 	};
 }
@@ -100,6 +103,7 @@ function updateLocalHolding(
 		...payload,
 		broker: payload.broker,
 		note: payload.note,
+		cost_basis_price: payload.cost_basis_price,
 		price_currency: currentRecord.price_currency ?? payload.fallback_currency,
 	};
 }
