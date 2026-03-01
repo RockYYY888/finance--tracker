@@ -35,6 +35,19 @@ function formatLastUpdated(timestamp: string | null): string {
 	}).format(parsedTimestamp);
 }
 
+function formatSummaryCny(value: number): string {
+	if (Math.abs(value) < 10_000) {
+		return formatCny(value);
+	}
+
+	return new Intl.NumberFormat("zh-CN", {
+		style: "currency",
+		currency: "CNY",
+		notation: "compact",
+		maximumFractionDigits: 2,
+	}).format(value);
+}
+
 function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number]): CashAccountRecord {
 	return {
 		...record,
@@ -190,15 +203,21 @@ function App() {
 				<div className="summary-grid">
 					<div className="stat-card coral">
 						<span>总资产</span>
-						<strong>{formatCny(dashboard.total_value_cny)}</strong>
+						<strong title={formatCny(dashboard.total_value_cny)}>
+							{formatSummaryCny(dashboard.total_value_cny)}
+						</strong>
 					</div>
 					<div className="stat-card blue">
 						<span>现金资产</span>
-						<strong>{formatCny(dashboard.cash_value_cny)}</strong>
+						<strong title={formatCny(dashboard.cash_value_cny)}>
+							{formatSummaryCny(dashboard.cash_value_cny)}
+						</strong>
 					</div>
 					<div className="stat-card green">
 						<span>证券资产</span>
-						<strong>{formatCny(dashboard.holdings_value_cny)}</strong>
+						<strong title={formatCny(dashboard.holdings_value_cny)}>
+							{formatSummaryCny(dashboard.holdings_value_cny)}
+						</strong>
 					</div>
 				</div>
 			</header>

@@ -253,6 +253,9 @@ h3 {
 .stat-card strong {
 	font-size: 2rem;
 	line-height: 1.05;
+	letter-spacing: -0.04em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
 }
 
 .stat-card.coral {
