@@ -2,8 +2,6 @@ services:
   backend:
     build:
       context: ./backend
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
@@ -11,12 +9,6 @@ services:
       ASSET_TRACKER_ALLOWED_ORIGINS: ${ASSET_TRACKER_ALLOWED_ORIGINS:-}
       ASSET_TRACKER_ALLOWED_HOSTS: ${ASSET_TRACKER_ALLOWED_HOSTS:-}
       ASSET_TRACKER_SESSION_SECRET: ${ASSET_TRACKER_SESSION_SECRET}
-      http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
-      https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
-      HTTP_PROXY: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
-      HTTPS_PROXY: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
-      no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,frontend,caddy}
-      NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,frontend,caddy}
     restart: unless-stopped
     volumes:
       - ./backend/data:/app/data
