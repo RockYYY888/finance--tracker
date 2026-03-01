@@ -8,8 +8,14 @@ import type {
 	ValuedCashAccount,
 	ValuedFixedAsset,
 	ValuedHolding,
+	ValuedLiability,
 	ValuedOtherAsset,
 } from "../types/portfolioAnalytics";
+import {
+	getFixedAssetCategoryLabel,
+	getLiabilityCategoryLabel,
+	getOtherAssetCategoryLabel,
+} from "../types/assets";
 
 const CHART_COLORS = [
 	"#63e8ff",
@@ -210,6 +216,7 @@ export function buildPlatformBreakdown(
 	cashAccounts: ValuedCashAccount[],
 	holdings: ValuedHolding[],
 	fixedAssets: ValuedFixedAsset[],
+	liabilities: ValuedLiability[],
 	otherAssets: ValuedOtherAsset[],
 ): BreakdownChartItem[] {
 	const platformTotals = new Map<string, number>();
@@ -231,20 +238,31 @@ export function buildPlatformBreakdown(
 		);
 	}
 
-	const fixedAssetsValue = fixedAssets.reduce((sum, asset) => sum + asset.value_cny, 0);
-	if (fixedAssetsValue > 0) {
-		platformTotals.set(
-			"固定资产",
-			(platformTotals.get("固定资产") ?? 0) + fixedAssetsValue,
-		);
+	for (const asset of fixedAssets) {
+		if (asset.value_cny <= 0) {
+			continue;
+		}
+
+		const key = `固定资产 · ${getFixedAssetCategoryLabel(asset.category)}`;
+		platformTotals.set(key, (platformTotals.get(key) ?? 0) + asset.value_cny);
 	}
 
-	const otherAssetsValue = otherAssets.reduce((sum, asset) => sum + asset.value_cny, 0);
-	if (otherAssetsValue > 0) {
-		platformTotals.set(
-			"其他资产",
-			(platformTotals.get("其他资产") ?? 0) + otherAssetsValue,
-		);
+	for (const entry of liabilities) {
+		if (entry.value_cny <= 0) {
+			continue;
+		}
+
+		const key = `负债 · ${getLiabilityCategoryLabel(entry.category)}`;
+		platformTotals.set(key, (platformTotals.get(key) ?? 0) + entry.value_cny);
+	}
+
+	for (const asset of otherAssets) {
+		if (asset.value_cny <= 0) {
+			continue;
+		}
+
+		const key = `其他 · ${getOtherAssetCategoryLabel(asset.category)}`;
+		platformTotals.set(key, (platformTotals.get(key) ?? 0) + asset.value_cny);
 	}
 
 	const sortedEntries = [...platformTotals.entries()]

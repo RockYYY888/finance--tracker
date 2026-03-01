@@ -13,6 +13,7 @@ import type {
 	ValuedCashAccount,
 	ValuedFixedAsset,
 	ValuedHolding,
+	ValuedLiability,
 	ValuedOtherAsset,
 } from "../../types/portfolioAnalytics";
 import {
@@ -32,6 +33,7 @@ type PlatformBreakdownChartProps = {
 	cash_accounts: ValuedCashAccount[];
 	holdings: ValuedHolding[];
 	fixed_assets: ValuedFixedAsset[];
+	liabilities: ValuedLiability[];
 	other_assets: ValuedOtherAsset[];
 	title?: string;
 	description?: string;
@@ -41,14 +43,16 @@ export function PlatformBreakdownChart({
 	cash_accounts,
 	holdings,
 	fixed_assets,
+	liabilities,
 	other_assets,
-	title = "平台与来源",
-	description = "按现金平台、投资来源与资产入口汇总。",
+	title = "账户、来源与类别",
+	description = "现金按平台、投资类按来源，其余按类别归口，负债按待偿金额单列。",
 }: PlatformBreakdownChartProps) {
 	const platformBreakdown = buildPlatformBreakdown(
 		cash_accounts,
 		holdings,
 		fixed_assets,
+		liabilities,
 		other_assets,
 	);
 	const chartHeight = getBarChartHeight(platformBreakdown.length);
@@ -61,11 +65,11 @@ export function PlatformBreakdownChart({
 					<h2 className="analytics-card__title">{title}</h2>
 					<p className="analytics-card__description">{description}</p>
 				</div>
-				<span className="analytics-bar-note">覆盖 {platformBreakdown.length} 个来源</span>
+				<span className="analytics-bar-note">覆盖 {platformBreakdown.length} 个入口</span>
 			</div>
 
 			{platformBreakdown.length === 0 ? (
-				<div className="analytics-empty-state">暂无平台分布数据。</div>
+				<div className="analytics-empty-state">暂无入口结构数据。</div>
 			) : (
 				<>
 					<div className="analytics-chart">
@@ -99,9 +103,9 @@ export function PlatformBreakdownChart({
 								<Tooltip
 									formatter={(value) => [
 										formatCny(Number(value ?? 0)),
-										"平台资产",
+										"归口金额",
 									]}
-									labelFormatter={(label) => `平台: ${String(label ?? "")}`}
+									labelFormatter={(label) => `入口: ${String(label ?? "")}`}
 									contentStyle={ANALYTICS_TOOLTIP_STYLE}
 									itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
 									labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}

@@ -103,6 +103,7 @@ export function PortfolioAnalytics({
 					cash_accounts={cash_accounts}
 					holdings={holdings}
 					fixed_assets={fixed_assets}
+					liabilities={_liabilities}
 					other_assets={other_assets}
 				/>
 			</div>
