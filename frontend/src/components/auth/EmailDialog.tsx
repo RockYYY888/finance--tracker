@@ -77,7 +77,7 @@ export function EmailDialog({
 					<div>
 						<p className="eyebrow">ACCOUNT EMAIL</p>
 						<h2 id="email-title">{initialEmail ? "修改邮箱" : "绑定邮箱"}</h2>
-						<p className="feedback-modal__copy">邮箱将用于找回密码，并显示在顶部账号信息里。</p>
+						<p className="feedback-modal__copy">邮箱将用于找回密码。</p>
 					</div>
 					<button
 						type="button"
