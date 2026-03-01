@@ -6,6 +6,7 @@ services:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: production
       ASSET_TRACKER_PUBLIC_ORIGIN: ${ASSET_TRACKER_PUBLIC_ORIGIN}
+      ASSET_TRACKER_SESSION_SECRET: ${ASSET_TRACKER_SESSION_SECRET}
     restart: unless-stopped
     volumes:
       - ./backend/data:/app/data
