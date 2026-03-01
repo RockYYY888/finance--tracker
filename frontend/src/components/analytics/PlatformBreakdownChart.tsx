@@ -17,6 +17,7 @@ import type {
 	ValuedOtherAsset,
 } from "../../types/portfolioAnalytics";
 import {
+	ANALYTICS_TOOLTIP_CURSOR_STYLE,
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
@@ -101,6 +102,7 @@ export function PlatformBreakdownChart({
 									tickFormatter={(label: string) => truncateLabel(label, 8)}
 								/>
 								<Tooltip
+									cursor={ANALYTICS_TOOLTIP_CURSOR_STYLE}
 									formatter={(value) => [
 										formatCny(Number(value ?? 0)),
 										"归口金额",

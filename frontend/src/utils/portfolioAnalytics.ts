@@ -45,6 +45,12 @@ export const ANALYTICS_TOOLTIP_ITEM_STYLE = {
 	fontSize: "0.92rem",
 };
 
+export const ANALYTICS_TOOLTIP_CURSOR_STYLE = {
+	fill: "rgba(99, 232, 255, 0.10)",
+	stroke: "rgba(99, 232, 255, 0.18)",
+	strokeWidth: 1,
+};
+
 /**
  * Formats numbers with the same CNY presentation used by the current dashboard.
  */
