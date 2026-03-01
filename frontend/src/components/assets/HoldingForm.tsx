@@ -544,7 +544,7 @@ export function HoldingForm({
 											{formatSecurityMarket(result.market)}
 											{result.exchange ? ` · ${result.exchange}` : ""}
 											{result.currency ? ` · ${result.currency}` : ""}
-											{result.source ? ` · ${result.source}` : ""}
+											{shouldPrefillBroker(result.source) ? ` · ${result.source}` : ""}
 										</small>
 									</button>
 								))}
