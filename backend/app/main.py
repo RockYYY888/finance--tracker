@@ -52,7 +52,16 @@ class DashboardCacheEntry:
 	generated_at: datetime
 
 
+@dataclass(slots=True)
+class LivePortfolioState:
+	hour_bucket: datetime
+	latest_value_cny: float
+	latest_generated_at: datetime
+	has_assets_in_bucket: bool
+
+
 dashboard_cache: DashboardCacheEntry | None = None
+live_portfolio_state: LivePortfolioState | None = None
 dashboard_cache_lock = asyncio.Lock()
 background_refresh_task: asyncio.Task[None] | None = None
 
@@ -156,11 +165,23 @@ def _current_minute_bucket(value: datetime | None = None) -> datetime:
 	return timestamp.replace(second=0, microsecond=0)
 
 
+def _current_hour_bucket(value: datetime | None = None) -> datetime:
+	timestamp = _coerce_utc_datetime(value or utc_now())
+	return timestamp.replace(minute=0, second=0, microsecond=0)
+
+
 def _is_current_minute(value: datetime | None, now: datetime | None = None) -> bool:
 	if value is None:
 		return False
 
 	return _current_minute_bucket(value) == _current_minute_bucket(now)
+
+
+def _is_same_hour(value: datetime | None, now: datetime | None = None) -> bool:
+	if value is None:
+		return False
+
+	return _current_hour_bucket(value) == _current_hour_bucket(now)
 
 
 def _invalidate_dashboard_cache() -> None:
@@ -311,27 +332,99 @@ async def _value_holdings(
 	return items, round(total, 2), warnings
 
 
-def _persist_snapshot(session: Session, total_value_cny: float) -> None:
-	last_snapshot = session.exec(
-		select(PortfolioSnapshot)
-		.order_by(PortfolioSnapshot.created_at.desc())
-		.limit(1),
-	).first()
-	current_bucket = _current_minute_bucket()
+def _persist_hour_snapshot(
+	session: Session,
+	hour_bucket: datetime,
+	total_value_cny: float,
+) -> None:
+	hour_start = _current_hour_bucket(hour_bucket)
+	hour_end = hour_start + timedelta(hours=1)
+	existing_snapshots = list(
+		session.exec(
+			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.created_at >= hour_start)
+			.where(PortfolioSnapshot.created_at < hour_end)
+			.order_by(PortfolioSnapshot.created_at.desc()),
+		),
+	)
+	primary_snapshot = existing_snapshots[0] if existing_snapshots else None
 
-	if last_snapshot and _is_current_minute(last_snapshot.created_at, current_bucket):
-		last_snapshot.total_value_cny = total_value_cny
-		last_snapshot.created_at = current_bucket
-		session.add(last_snapshot)
-	else:
+	if primary_snapshot is None:
 		session.add(
 			PortfolioSnapshot(
 				total_value_cny=total_value_cny,
-				created_at=current_bucket,
+				created_at=hour_start,
 			),
 		)
+	else:
+		primary_snapshot.total_value_cny = total_value_cny
+		primary_snapshot.created_at = hour_start
+		session.add(primary_snapshot)
+
+	for duplicate_snapshot in existing_snapshots[1:]:
+		session.delete(duplicate_snapshot)
 
 	session.commit()
+
+
+def _roll_live_portfolio_state_if_needed(session: Session, now: datetime) -> None:
+	global live_portfolio_state
+
+	if live_portfolio_state is None:
+		return
+
+	current_hour = _current_hour_bucket(now)
+	if live_portfolio_state.hour_bucket >= current_hour:
+		return
+
+	if live_portfolio_state.has_assets_in_bucket or live_portfolio_state.latest_value_cny > 0:
+		_persist_hour_snapshot(
+			session,
+			live_portfolio_state.hour_bucket,
+			live_portfolio_state.latest_value_cny,
+		)
+
+	live_portfolio_state = None
+
+
+def _update_live_portfolio_state(
+	now: datetime,
+	total_value_cny: float,
+	has_assets: bool,
+) -> None:
+	global live_portfolio_state
+
+	current_hour = _current_hour_bucket(now)
+	if live_portfolio_state is None:
+		if not has_assets:
+			return
+
+		live_portfolio_state = LivePortfolioState(
+			hour_bucket=current_hour,
+			latest_value_cny=total_value_cny,
+			latest_generated_at=now,
+			has_assets_in_bucket=has_assets,
+		)
+		return
+
+	if live_portfolio_state.hour_bucket != current_hour:
+		if not has_assets:
+			live_portfolio_state = None
+			return
+
+		live_portfolio_state = LivePortfolioState(
+			hour_bucket=current_hour,
+			latest_value_cny=total_value_cny,
+			latest_generated_at=now,
+			has_assets_in_bucket=has_assets,
+		)
+		return
+
+	live_portfolio_state.latest_value_cny = total_value_cny
+	live_portfolio_state.latest_generated_at = now
+	live_portfolio_state.has_assets_in_bucket = (
+		live_portfolio_state.has_assets_in_bucket or has_assets
+	)
 
 
 def _load_series(session: Session, since: datetime) -> list[PortfolioSnapshot]:
@@ -344,7 +437,26 @@ def _load_series(session: Session, since: datetime) -> list[PortfolioSnapshot]:
 	)
 
 
+def _load_series_with_live_snapshot(session: Session, since: datetime) -> list[PortfolioSnapshot]:
+	snapshots = _load_series(session, since)
+	if (
+		live_portfolio_state is not None
+		and live_portfolio_state.latest_generated_at >= _coerce_utc_datetime(since)
+	):
+		snapshots.append(
+			PortfolioSnapshot(
+				total_value_cny=live_portfolio_state.latest_value_cny,
+				created_at=live_portfolio_state.latest_generated_at,
+			),
+		)
+
+	return snapshots
+
+
 async def _build_dashboard(session: Session) -> DashboardResponse:
+	now = utc_now()
+	_roll_live_portfolio_state_if_needed(session, now)
+
 	accounts = list(session.exec(select(CashAccount).order_by(CashAccount.platform, CashAccount.name)))
 	holdings = list(
 		session.exec(select(SecurityHolding).order_by(SecurityHolding.symbol, SecurityHolding.name)),
@@ -353,15 +465,25 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(accounts)
 	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(holdings)
 	total_value_cny = round(cash_value_cny + holdings_value_cny, 2)
+	has_assets = bool(accounts or holdings)
+	_update_live_portfolio_state(now, total_value_cny, has_assets)
 
-	if accounts or holdings:
-		_persist_snapshot(session, total_value_cny)
-
-	now = datetime.now(timezone.utc)
-	hour_series = build_timeline(_load_series(session, now - timedelta(hours=24)), "hour")
-	day_series = build_timeline(_load_series(session, now - timedelta(days=30)), "day")
-	month_series = build_timeline(_load_series(session, now - timedelta(days=366)), "month")
-	year_series = build_timeline(_load_series(session, now - timedelta(days=366 * 5)), "year")
+	hour_series = build_timeline(
+		_load_series_with_live_snapshot(session, now - timedelta(hours=24)),
+		"hour",
+	)
+	day_series = build_timeline(
+		_load_series_with_live_snapshot(session, now - timedelta(days=30)),
+		"day",
+	)
+	month_series = build_timeline(
+		_load_series_with_live_snapshot(session, now - timedelta(days=366)),
+		"month",
+	)
+	year_series = build_timeline(
+		_load_series_with_live_snapshot(session, now - timedelta(days=366 * 5)),
+		"year",
+	)
 
 	return DashboardResponse(
 		total_value_cny=total_value_cny,

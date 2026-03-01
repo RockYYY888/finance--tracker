@@ -10,6 +10,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 import app.main as main
 from app.main import (
+	_persist_hour_snapshot,
 	create_account,
 	create_holding,
 	delete_account,
@@ -17,7 +18,7 @@ from app.main import (
 	update_account,
 	update_holding,
 )
-from app.models import CashAccount, SecurityHolding
+from app.models import CashAccount, PortfolioSnapshot, SecurityHolding
 from app.schemas import (
 	CashAccountCreate,
 	CashAccountUpdate,
@@ -141,6 +142,43 @@ def test_delete_account_returns_404_when_missing(session: Session) -> None:
 
 	assert error.value.status_code == 404
 	assert error.value.detail == "Account not found."
+
+
+def test_persist_hour_snapshot_compacts_rows_within_the_same_hour(session: Session) -> None:
+	session.add(
+		PortfolioSnapshot(
+			total_value_cny=1000,
+			created_at=datetime(2026, 3, 1, 3, 12, tzinfo=timezone.utc),
+		),
+	)
+	session.add(
+		PortfolioSnapshot(
+			total_value_cny=1200,
+			created_at=datetime(2026, 3, 1, 3, 41, tzinfo=timezone.utc),
+		),
+	)
+	session.commit()
+
+	_persist_hour_snapshot(
+		session,
+		datetime(2026, 3, 1, 3, 0, tzinfo=timezone.utc),
+		1500,
+	)
+
+	snapshots = session.exec(
+		select(PortfolioSnapshot).order_by(PortfolioSnapshot.created_at.asc()),
+	).all()
+
+	assert len(snapshots) == 1
+	assert snapshots[0].total_value_cny == 1500
+	assert main._coerce_utc_datetime(snapshots[0].created_at) == datetime(
+		2026,
+		3,
+		1,
+		3,
+		0,
+		tzinfo=timezone.utc,
+	)
 
 
 def test_list_accounts_returns_valued_balances(
