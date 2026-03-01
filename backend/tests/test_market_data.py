@@ -428,6 +428,7 @@ def test_value_holdings_turns_provider_failure_into_warning(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	holding = SecurityHolding(
+		user_id="tester",
 		symbol="AAPL",
 		name="Apple",
 		quantity=2,

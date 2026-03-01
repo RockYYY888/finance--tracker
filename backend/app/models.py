@@ -40,14 +40,14 @@ class UserAccount(SQLModel, table=True):
 
 class UserFeedback(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	message: str = Field(max_length=1000)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
 class CashAccount(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	name: str
 	platform: str
 	currency: str = Field(default="CNY", max_length=8)
@@ -61,7 +61,7 @@ class CashAccount(SQLModel, table=True):
 
 class SecurityHolding(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	symbol: str = Field(index=True)
 	name: str
 	quantity: float = Field(default=0)
@@ -77,7 +77,7 @@ class SecurityHolding(SQLModel, table=True):
 
 class FixedAsset(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	name: str
 	category: str = Field(default="OTHER", max_length=24)
 	current_value_cny: float = Field(default=0)
@@ -90,7 +90,7 @@ class FixedAsset(SQLModel, table=True):
 
 class LiabilityEntry(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	name: str
 	category: str = Field(default="OTHER", max_length=24)
 	currency: str = Field(default="CNY", max_length=8)
@@ -103,7 +103,7 @@ class LiabilityEntry(SQLModel, table=True):
 
 class OtherAsset(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	name: str
 	category: str = Field(default="OTHER", max_length=24)
 	current_value_cny: float = Field(default=0)
@@ -116,14 +116,14 @@ class OtherAsset(SQLModel, table=True):
 
 class PortfolioSnapshot(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	total_value_cny: float = Field(default=0)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
 class HoldingPerformanceSnapshot(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
-	user_id: str = Field(default="admin", index=True, max_length=32)
+	user_id: str = Field(index=True, max_length=32)
 	scope: str = Field(default="TOTAL", max_length=16, index=True)
 	symbol: Optional[str] = Field(default=None, index=True)
 	name: Optional[str] = Field(default=None, max_length=120)

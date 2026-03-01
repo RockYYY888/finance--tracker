@@ -4,12 +4,41 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine, select
 
 import app.main as main
-from app.main import create_account, create_holding, submit_feedback
+from app.main import (
+	create_account,
+	create_fixed_asset,
+	create_holding,
+	create_liability,
+	create_other_asset,
+	delete_holding,
+	delete_liability,
+	list_accounts,
+	list_fixed_assets,
+	list_holdings,
+	list_liabilities,
+	list_other_assets,
+	submit_feedback,
+	update_account,
+	update_fixed_asset,
+	update_other_asset,
+)
 from app.models import UserAccount, UserFeedback
-from app.schemas import CashAccountCreate, SecurityHoldingCreate, UserFeedbackCreate
+from app.schemas import (
+	CashAccountCreate,
+	CashAccountUpdate,
+	FixedAssetCreate,
+	FixedAssetUpdate,
+	LiabilityEntryCreate,
+	OtherAssetCreate,
+	OtherAssetUpdate,
+	SecurityHoldingCreate,
+	UserFeedbackCreate,
+)
 from app.services.market_data import Quote
 
 
@@ -186,3 +215,212 @@ def test_feedback_daily_limit_is_counted_per_user_not_globally(session: Session)
 	).all()
 	assert len(persisted_feedback) == 1
 	assert persisted_feedback[0].message == "B 用户今天的首次反馈。"
+
+
+def test_list_endpoints_exclude_records_owned_by_other_users(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	first_user = make_user(session, "owner_user")
+	second_user = make_user(session, "viewer_user")
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	create_account(
+		CashAccountCreate(
+			name="Owner Cash",
+			platform="Bank",
+			currency="cny",
+			balance=100,
+			account_type="bank",
+		),
+		first_user,
+		session,
+	)
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="AAPL",
+			name="Owner Holding",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+		),
+		first_user,
+		session,
+	)
+	create_fixed_asset(
+		FixedAssetCreate(
+			name="Owner Car",
+			category="vehicle",
+			current_value_cny=100000,
+		),
+		first_user,
+		session,
+	)
+	create_liability(
+		LiabilityEntryCreate(
+			name="Owner Card",
+			category="credit_card",
+			currency="cny",
+			balance=5000,
+		),
+		first_user,
+		session,
+	)
+	create_other_asset(
+		OtherAssetCreate(
+			name="Owner Receivable",
+			category="receivable",
+			current_value_cny=3000,
+		),
+		first_user,
+		session,
+	)
+
+	assert asyncio.run(list_accounts(second_user, session)) == []
+	assert asyncio.run(list_holdings(second_user, session)) == []
+	assert asyncio.run(list_fixed_assets(second_user, session)) == []
+	assert asyncio.run(list_liabilities(second_user, session)) == []
+	assert asyncio.run(list_other_assets(second_user, session)) == []
+
+
+def test_mutation_endpoints_return_404_for_foreign_owned_records(session: Session) -> None:
+	owner = make_user(session, "owner_user")
+	intruder = make_user(session, "intruder_user")
+
+	account = create_account(
+		CashAccountCreate(
+			name="Owner Cash",
+			platform="Bank",
+			currency="cny",
+			balance=100,
+			account_type="bank",
+		),
+		owner,
+		session,
+	)
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="AAPL",
+			name="Owner Holding",
+			quantity=1,
+			fallback_currency="usd",
+			market="us",
+		),
+		owner,
+		session,
+	)
+	fixed_asset = create_fixed_asset(
+		FixedAssetCreate(
+			name="Owner Car",
+			category="vehicle",
+			current_value_cny=100000,
+		),
+		owner,
+		session,
+	)
+	liability = create_liability(
+		LiabilityEntryCreate(
+			name="Owner Card",
+			category="credit_card",
+			currency="cny",
+			balance=5000,
+		),
+		owner,
+		session,
+	)
+	other_asset = create_other_asset(
+		OtherAssetCreate(
+			name="Owner Receivable",
+			category="receivable",
+			current_value_cny=3000,
+		),
+		owner,
+		session,
+	)
+
+	with pytest.raises(HTTPException, match="Account not found."):
+		update_account(
+			account.id,
+			CashAccountUpdate(
+				name="Hijacked Cash",
+				platform="Bank",
+				currency="cny",
+				balance=200,
+				account_type="bank",
+			),
+			intruder,
+			session,
+		)
+
+	with pytest.raises(HTTPException, match="Holding not found."):
+		delete_holding(holding.id, intruder, session)
+
+	with pytest.raises(HTTPException, match="Fixed asset not found."):
+		update_fixed_asset(
+			fixed_asset.id,
+			FixedAssetUpdate(
+				name="Hijacked Car",
+				category="vehicle",
+				current_value_cny=120000,
+			),
+			intruder,
+			session,
+		)
+
+	with pytest.raises(HTTPException, match="Liability not found."):
+		delete_liability(liability.id, intruder, session)
+
+	with pytest.raises(HTTPException, match="Other asset not found."):
+		update_other_asset(
+			other_asset.id,
+			OtherAssetUpdate(
+				name="Hijacked Receivable",
+				category="receivable",
+				current_value_cny=3500,
+			),
+			intruder,
+			session,
+		)
+
+
+def test_ensure_legacy_schema_adds_user_id_without_assigning_admin(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	legacy_engine = create_engine(
+		f"sqlite:///{tmp_path / 'legacy-schema-test.db'}",
+		connect_args={"check_same_thread": False},
+	)
+
+	with legacy_engine.begin() as connection:
+		connection.execute(
+			text(
+				"CREATE TABLE cashaccount ("
+				"id INTEGER PRIMARY KEY, "
+				"name TEXT NOT NULL, "
+				"platform TEXT NOT NULL, "
+				"currency TEXT NOT NULL, "
+				"balance REAL NOT NULL, "
+				"created_at TEXT NOT NULL, "
+				"updated_at TEXT NOT NULL"
+				")",
+			),
+		)
+		connection.execute(
+			text(
+				"INSERT INTO cashaccount "
+				"(name, platform, currency, balance, created_at, updated_at) "
+				"VALUES "
+				"('Legacy Cash', 'Bank', 'CNY', 100, '2026-03-01T00:00:00Z', "
+				"'2026-03-01T00:00:00Z')",
+			),
+		)
+
+	monkeypatch.setattr(main, "engine", legacy_engine)
+	main._ensure_legacy_schema()
+
+	with Session(legacy_engine) as session:
+		user_id = session.exec(text("SELECT user_id FROM cashaccount")).one()[0]
+
+	assert user_id is None

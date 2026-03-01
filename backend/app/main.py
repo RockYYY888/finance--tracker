@@ -81,12 +81,6 @@ TokenDependency = Annotated[None, Depends(verify_api_token)]
 market_data_client = MarketDataClient()
 settings = get_settings()
 logger = logging.getLogger(__name__)
-DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD_DIGEST = (
-	"scrypt$16384$8$1$bc13ea73dad1a1d781e1bf06e769ccda"
-	"$de4af04355be41e4ec61f7dc8b3c19fcc4fc940ba47784324063d4169d57e80a"
-	"14cc1588be5fea70338075226ff4b32aafe37ab0a114d05b70e0a2364a0d2bf7"
-)
 FEEDBACK_TIMEZONE = ZoneInfo("Asia/Shanghai")
 MAX_DAILY_FEEDBACK_SUBMISSIONS = 3
 
@@ -134,7 +128,7 @@ async def lifespan(_: FastAPI):
 	settings.validate_runtime()
 	init_db()
 	_ensure_legacy_schema()
-	_ensure_seed_user_and_legacy_ownership()
+	_audit_legacy_user_ownership()
 
 	try:
 		with Session(engine) as session:
@@ -297,17 +291,8 @@ def _get_user(session: Session, user_id: str) -> UserAccount | None:
 	return session.get(UserAccount, normalize_user_id(user_id))
 
 
-def _ensure_seed_user_and_legacy_ownership() -> None:
+def _audit_legacy_user_ownership() -> None:
 	with Session(engine) as session:
-		admin_user = session.get(UserAccount, DEFAULT_ADMIN_USERNAME)
-		if admin_user is None:
-			session.add(
-				UserAccount(
-					username=DEFAULT_ADMIN_USERNAME,
-					password_digest=DEFAULT_ADMIN_PASSWORD_DIGEST,
-				),
-			)
-
 		for table_name in (
 			CashAccount.__table__.name,
 			SecurityHolding.__table__.name,
@@ -317,14 +302,21 @@ def _ensure_seed_user_and_legacy_ownership() -> None:
 			PortfolioSnapshot.__table__.name,
 			HoldingPerformanceSnapshot.__table__.name,
 		):
-			session.exec(
-				text(
-					f"UPDATE {table_name} SET user_id = '{DEFAULT_ADMIN_USERNAME}' "
-					"WHERE user_id IS NULL OR TRIM(user_id) = ''",
-				),
+			legacy_row_count = int(
+				session.exec(
+					text(
+						f"SELECT COUNT(*) FROM {table_name} "
+						"WHERE user_id IS NULL OR TRIM(user_id) = ''",
+					),
+				).one()[0],
 			)
-
-		session.commit()
+			if legacy_row_count > 0:
+				logger.warning(
+					"%s contains %s rows without a user_id. "
+					"Those rows remain inaccessible until they are reassigned explicitly.",
+					table_name,
+					legacy_row_count,
+				)
 
 
 def get_current_user(request: Request, session: SessionDependency, _: TokenDependency) -> UserAccount:
@@ -370,7 +362,7 @@ def _ensure_legacy_schema() -> None:
 		(
 			CashAccount.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 				"account_type": "TEXT NOT NULL DEFAULT 'OTHER'",
 				"started_on": "TEXT",
 				"note": "TEXT",
@@ -379,7 +371,7 @@ def _ensure_legacy_schema() -> None:
 		(
 			SecurityHolding.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 				"cost_basis_price": "REAL",
 				"market": "TEXT NOT NULL DEFAULT 'OTHER'",
 				"broker": "TEXT",
@@ -390,34 +382,34 @@ def _ensure_legacy_schema() -> None:
 		(
 			FixedAsset.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 				"started_on": "TEXT",
 			},
 		),
 		(
 			LiabilityEntry.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 				"started_on": "TEXT",
 			},
 		),
 		(
 			OtherAsset.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 				"started_on": "TEXT",
 			},
 		),
 		(
 			PortfolioSnapshot.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 			},
 		),
 		(
 			HoldingPerformanceSnapshot.__table__.name,
 			{
-				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"user_id": "TEXT",
 			},
 		),
 	)

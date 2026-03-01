@@ -7,7 +7,7 @@ from app.models import HoldingPerformanceSnapshot, PortfolioSnapshot
 
 
 def make_snapshot(timestamp: datetime, total: float) -> PortfolioSnapshot:
-	return PortfolioSnapshot(created_at=timestamp, total_value_cny=total)
+	return PortfolioSnapshot(user_id="tester", created_at=timestamp, total_value_cny=total)
 
 
 def make_return_snapshot(
@@ -16,6 +16,7 @@ def make_return_snapshot(
 	symbol: str = "TOTAL",
 ) -> HoldingPerformanceSnapshot:
 	return HoldingPerformanceSnapshot(
+		user_id="tester",
 		scope="TOTAL" if symbol == "TOTAL" else "HOLDING",
 		symbol=None if symbol == "TOTAL" else symbol,
 		name=None if symbol == "TOTAL" else symbol,
