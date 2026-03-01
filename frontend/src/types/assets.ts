@@ -251,6 +251,7 @@ export interface SecuritySearchResult {
 	market: SecurityMarket;
 	currency: string;
 	exchange?: string | null;
+	source?: string | null;
 }
 
 export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {

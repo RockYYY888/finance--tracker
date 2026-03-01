@@ -227,6 +227,7 @@ export function HoldingForm({
 			name: result.name,
 			market: result.market,
 			fallback_currency: result.currency || currentDraft.fallback_currency,
+			broker: result.source || currentDraft.broker,
 		}));
 	}
 
@@ -345,6 +346,7 @@ export function HoldingForm({
 											{formatSecurityMarket(result.market)}
 											{result.exchange ? ` · ${result.exchange}` : ""}
 											{result.currency ? ` · ${result.currency}` : ""}
+											{result.source ? ` · ${result.source}` : ""}
 										</small>
 									</button>
 								))}
@@ -443,11 +445,11 @@ export function HoldingForm({
 				</label>
 
 				<label className="asset-manager__field">
-					<span>券商 / 账户来源</span>
+					<span>来源 / 账户来源</span>
 					<input
 						value={draft.broker}
 						onChange={(event) => updateDraft("broker", event.target.value)}
-						placeholder="可选"
+						placeholder="搜索后自动填入，可手动修改"
 					/>
 				</label>
 

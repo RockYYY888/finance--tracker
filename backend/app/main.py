@@ -576,6 +576,58 @@ def _value_other_assets(
 	return items, round(total, 2)
 
 
+def _to_cash_account_read(account: CashAccount) -> CashAccountRead:
+	valued_accounts, _, _warnings = asyncio.run(_value_cash_accounts([account]))
+	valued_account = valued_accounts[0] if valued_accounts else None
+	return CashAccountRead(
+		id=account.id or 0,
+		name=account.name,
+		platform=account.platform,
+		currency=account.currency,
+		balance=account.balance,
+		account_type=account.account_type,
+		note=account.note,
+		fx_to_cny=valued_account.fx_to_cny if valued_account else None,
+		value_cny=valued_account.value_cny if valued_account else None,
+	)
+
+
+def _to_holding_read(holding: SecurityHolding) -> SecurityHoldingRead:
+	valued_holdings, _, _warnings = asyncio.run(_value_holdings([holding]))
+	valued_holding = valued_holdings[0] if valued_holdings else None
+	return SecurityHoldingRead(
+		id=holding.id or 0,
+		symbol=holding.symbol,
+		name=holding.name,
+		quantity=holding.quantity,
+		fallback_currency=holding.fallback_currency,
+		cost_basis_price=holding.cost_basis_price,
+		market=holding.market,
+		broker=holding.broker,
+		note=holding.note,
+		price=valued_holding.price if valued_holding else None,
+		price_currency=valued_holding.price_currency if valued_holding else None,
+		value_cny=valued_holding.value_cny if valued_holding else None,
+		return_pct=valued_holding.return_pct if valued_holding else None,
+		last_updated=valued_holding.last_updated if valued_holding else None,
+	)
+
+
+def _to_liability_read(entry: LiabilityEntry) -> LiabilityEntryRead:
+	valued_entries, _, _warnings = asyncio.run(_value_liabilities([entry]))
+	valued_entry = valued_entries[0] if valued_entries else None
+	return LiabilityEntryRead(
+		id=entry.id or 0,
+		name=entry.name,
+		category=entry.category,
+		currency=entry.currency,
+		balance=round(entry.balance, 2),
+		note=entry.note,
+		fx_to_cny=valued_entry.fx_to_cny if valued_entry else None,
+		value_cny=valued_entry.value_cny if valued_entry else None,
+	)
+
+
 def _summarize_holdings_return_state(
 	holdings: list[ValuedHolding],
 ) -> tuple[float | None, tuple[LiveHoldingReturnPoint, ...]]:
@@ -1328,7 +1380,7 @@ def create_account(
 	payload: CashAccountCreate,
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
-) -> CashAccount:
+) -> CashAccountRead:
 	account = CashAccount(
 		user_id=current_user.username,
 		name=payload.name.strip(),
@@ -1342,7 +1394,7 @@ def create_account(
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
-	return account
+	return _to_cash_account_read(account)
 
 
 @app.put("/api/accounts/{account_id}", response_model=CashAccountRead)
@@ -1351,7 +1403,7 @@ def update_account(
 	payload: CashAccountUpdate,
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
-) -> CashAccount:
+) -> CashAccountRead:
 	account = session.get(CashAccount, account_id)
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
@@ -1369,7 +1421,7 @@ def update_account(
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
-	return account
+	return _to_cash_account_read(account)
 
 
 @app.delete("/api/accounts/{account_id}", status_code=204)
@@ -1562,14 +1614,7 @@ def create_liability(
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
-	return LiabilityEntryRead(
-		id=entry.id or 0,
-		name=entry.name,
-		category=entry.category,
-		currency=entry.currency,
-		balance=round(entry.balance, 2),
-		note=entry.note,
-	)
+	return _to_liability_read(entry)
 
 
 @app.put("/api/liabilities/{entry_id}", response_model=LiabilityEntryRead)
@@ -1595,14 +1640,7 @@ def update_liability(
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
-	return LiabilityEntryRead(
-		id=entry.id or 0,
-		name=entry.name,
-		category=entry.category,
-		currency=entry.currency,
-		balance=round(entry.balance, 2),
-		note=entry.note,
-	)
+	return _to_liability_read(entry)
 
 
 @app.delete("/api/liabilities/{entry_id}", status_code=204)
@@ -1788,7 +1826,7 @@ def create_holding(
 	payload: SecurityHoldingCreate,
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
-) -> SecurityHolding:
+) -> SecurityHoldingRead:
 	holding = SecurityHolding(
 		user_id=current_user.username,
 		symbol=_normalize_symbol(payload.symbol, payload.market),
@@ -1804,7 +1842,7 @@ def create_holding(
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
-	return holding
+	return _to_holding_read(holding)
 
 
 @app.put("/api/holdings/{holding_id}", response_model=SecurityHoldingRead)
@@ -1813,7 +1851,7 @@ def update_holding(
 	payload: SecurityHoldingUpdate,
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
-) -> SecurityHolding:
+) -> SecurityHoldingRead:
 	holding = session.get(SecurityHolding, holding_id)
 	if holding is None or holding.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Holding not found.")
@@ -1835,7 +1873,7 @@ def update_holding(
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
-	return holding
+	return _to_holding_read(holding)
 
 
 @app.delete("/api/holdings/{holding_id}", status_code=204)

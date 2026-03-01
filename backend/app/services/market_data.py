@@ -99,6 +99,7 @@ class SecuritySearchResult:
 	market: str
 	currency: str
 	exchange: str | None
+	source: str | None = None
 
 
 LOCAL_SEARCH_CATALOG = (
@@ -110,6 +111,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="HK",
 			currency="HKD",
 			exchange="HKG",
+			source="本地映射",
 		),
 	),
 	(
@@ -120,6 +122,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="HK",
 			currency="HKD",
 			exchange="HKG",
+			source="本地映射",
 		),
 	),
 	(
@@ -130,6 +133,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="US",
 			currency="USD",
 			exchange="NMS",
+			source="本地映射",
 		),
 	),
 	(
@@ -140,6 +144,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="US",
 			currency="USD",
 			exchange="NMS",
+			source="本地映射",
 		),
 	),
 	(
@@ -150,6 +155,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="US",
 			currency="USD",
 			exchange="NMS",
+			source="本地映射",
 		),
 	),
 	(
@@ -160,6 +166,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="HK",
 			currency="HKD",
 			exchange="HKG",
+			source="本地映射",
 		),
 	),
 	(
@@ -170,6 +177,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="CN",
 			currency="CNY",
 			exchange="SHH",
+			source="本地映射",
 		),
 	),
 	(
@@ -180,6 +188,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="HK",
 			currency="HKD",
 			exchange="HKG",
+			source="本地映射",
 		),
 	),
 	(
@@ -190,6 +199,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="CN",
 			currency="CNY",
 			exchange="SHH",
+			source="本地映射",
 		),
 	),
 	(
@@ -200,6 +210,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="CRYPTO",
 			currency="USD",
 			exchange="CCC",
+			source="本地映射",
 		),
 	),
 	(
@@ -210,6 +221,7 @@ LOCAL_SEARCH_CATALOG = (
 			market="CRYPTO",
 			currency="USD",
 			exchange="CCC",
+			source="本地映射",
 		),
 	),
 )
@@ -298,6 +310,7 @@ def parse_eastmoney_search_item(item: dict[str, str]) -> SecuritySearchResult | 
 			market="CN",
 			currency="CNY",
 			exchange=exchange_name or "SHH",
+			source="东方财富",
 		)
 
 	if quote_id.startswith("0."):
@@ -307,6 +320,7 @@ def parse_eastmoney_search_item(item: dict[str, str]) -> SecuritySearchResult | 
 			market="CN",
 			currency="CNY",
 			exchange=exchange_name or "SHE",
+			source="东方财富",
 		)
 
 	if classify == "HK" or jys == "HK" or quote_id.startswith("116."):
@@ -316,6 +330,7 @@ def parse_eastmoney_search_item(item: dict[str, str]) -> SecuritySearchResult | 
 			market="HK",
 			currency="HKD",
 			exchange=exchange_name or "HKG",
+			source="东方财富",
 		)
 
 	if classify == "USSTOCK" or jys in US_EXCHANGES or quote_id.startswith("105."):
@@ -325,6 +340,7 @@ def parse_eastmoney_search_item(item: dict[str, str]) -> SecuritySearchResult | 
 			market="US",
 			currency="USD",
 			exchange=exchange_name,
+			source="东方财富",
 		)
 
 	return None
@@ -372,6 +388,7 @@ def build_local_search_results(query: str) -> list[SecuritySearchResult]:
 						market=market,
 						currency=_default_currency_for_market(market),
 						exchange=None,
+						source="代码推断",
 					),
 				)
 
@@ -534,6 +551,7 @@ class YahooSecuritySearchProvider:
 					market=market,
 					currency=currency,
 					exchange=exchange,
+					source="Yahoo Finance",
 				),
 			)
 			seen_symbols.add(symbol)

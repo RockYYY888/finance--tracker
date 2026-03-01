@@ -123,6 +123,7 @@ function App() {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 	const dashboardRequestInFlightRef = useRef(false);
+	const pendingDashboardRefreshRef = useRef(false);
 
 	function resetDashboardState(): void {
 		setDashboard(EMPTY_DASHBOARD);
@@ -131,6 +132,7 @@ function App() {
 		setErrorMessage(null);
 		setLastUpdatedAt(null);
 		dashboardRequestInFlightRef.current = false;
+		pendingDashboardRefreshRef.current = false;
 	}
 
 	function markSignedIn(userId: string): void {
@@ -238,7 +240,12 @@ function App() {
 	}
 
 	async function loadDashboard(options: { initial?: boolean } = {}): Promise<void> {
-		if (authStatus !== "authenticated" || dashboardRequestInFlightRef.current) {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
+		if (dashboardRequestInFlightRef.current) {
+			pendingDashboardRefreshRef.current = true;
 			return;
 		}
 
@@ -268,6 +275,10 @@ function App() {
 			dashboardRequestInFlightRef.current = false;
 			setIsRefreshingDashboard(false);
 			setIsLoadingDashboard(false);
+			if (pendingDashboardRefreshRef.current) {
+				pendingDashboardRefreshRef.current = false;
+				void loadDashboard();
+			}
 		}
 	}
 
@@ -299,82 +310,82 @@ function App() {
 		cashAccounts: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createCashAccount(payload);
-				await loadDashboard();
+				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateCashAccount(recordId, payload);
-				await loadDashboard();
+				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteCashAccount(recordId);
-				await loadDashboard();
+				void loadDashboard();
 			},
 		},
 		holdings: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createHolding(payload);
-				await loadDashboard();
+				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateHolding(recordId, payload);
-				await loadDashboard();
+				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteHolding(recordId);
-				await loadDashboard();
+				void loadDashboard();
 			},
 			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
 		},
 		fixedAssets: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createFixedAsset(payload);
-				await loadDashboard();
+				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateFixedAsset(recordId, payload);
-				await loadDashboard();
+				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteFixedAsset(recordId);
-				await loadDashboard();
+				void loadDashboard();
 			},
 		},
 		liabilities: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createLiability(payload);
-				await loadDashboard();
+				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateLiability(recordId, payload);
-				await loadDashboard();
+				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteLiability(recordId);
-				await loadDashboard();
+				void loadDashboard();
 			},
 		},
 		otherAssets: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createOtherAsset(payload);
-				await loadDashboard();
+				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateOtherAsset(recordId, payload);
-				await loadDashboard();
+				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteOtherAsset(recordId);
-				await loadDashboard();
+				void loadDashboard();
 			},
 		},
 	};
@@ -466,7 +477,7 @@ function App() {
 				</div>
 			) : null}
 
-			{!hasAnyAsset ? (
+			{!hasAnyAsset && !isDashboardBusy && !errorMessage ? (
 				<div className="banner info">暂无资产数据。</div>
 			) : null}
 

@@ -104,13 +104,13 @@ def test_create_account_persists_account_type_and_note(session: Session) -> None
 	)
 
 	assert account.id is not None
-	assert account.user_id == current_user.username
 	assert account.currency == "CNY"
 	assert account.account_type == "ALIPAY"
 	assert account.note == "spare cash"
 
 	stored_account = session.get(CashAccount, account.id)
 	assert stored_account is not None
+	assert stored_account.user_id == current_user.username
 	assert stored_account.account_type == "ALIPAY"
 	assert stored_account.note == "spare cash"
 
@@ -378,7 +378,6 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 	)
 
 	assert holding.id is not None
-	assert holding.user_id == current_user.username
 	assert holding.symbol == "AAPL"
 	assert holding.fallback_currency == "USD"
 	assert holding.cost_basis_price == 92.5
@@ -388,6 +387,7 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 
 	stored_holding = session.get(SecurityHolding, holding.id)
 	assert stored_holding is not None
+	assert stored_holding.user_id == current_user.username
 	assert stored_holding.cost_basis_price == 92.5
 	assert stored_holding.market == "US"
 	assert stored_holding.broker == "IBKR"
@@ -489,6 +489,32 @@ def test_list_holdings_returns_enriched_quote_fields(
 	assert holdings[0].value_cny == 1400.0
 	assert holdings[0].cost_basis_price == 80
 	assert holdings[0].return_pct == 25.0
+
+
+def test_create_holding_returns_enriched_quote_fields_immediately(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+		),
+		current_user,
+		session,
+	)
+
+	assert holding.price == 100.0
+	assert holding.price_currency == "USD"
+	assert holding.value_cny == 1400.0
+	assert holding.return_pct == 25.0
 
 
 def test_holding_schema_rejects_invalid_market() -> None:

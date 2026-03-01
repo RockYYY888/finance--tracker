@@ -303,6 +303,7 @@ class SecuritySearchRead(BaseModel):
 	market: str
 	currency: str
 	exchange: Optional[str] = None
+	source: Optional[str] = None
 
 
 class ValuedCashAccount(BaseModel):
