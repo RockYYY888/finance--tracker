@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
@@ -785,6 +786,26 @@ class MarketDataClient:
 		self.search_ttl_seconds = search_ttl_seconds
 		self.fx_ttl_seconds = fx_ttl_seconds
 
+	async def _fetch_quote_with_retry(
+		self,
+		provider: YahooQuoteProvider | EastMoneyQuoteProvider | BitgetQuoteProvider,
+		symbol: str,
+		retry_attempts: int = 0,
+	) -> Quote:
+		"""Retry transient quote lookups a limited number of times before failing."""
+		last_error: QuoteLookupError | None = None
+
+		for attempt in range(retry_attempts + 1):
+			try:
+				return await provider.fetch_quote(symbol)
+			except QuoteLookupError as exc:
+				last_error = exc
+				if attempt >= retry_attempts:
+					break
+				await asyncio.sleep(0.25)
+
+		raise last_error or QuoteLookupError(f"Quote provider request failed for {symbol}.")
+
 	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
 		"""Clear short-lived runtime caches so a manual refresh can force new provider fetches."""
 		self.quote_cache.clear()
@@ -817,12 +838,22 @@ class MarketDataClient:
 			elif resolved_market == "CRYPTO":
 				secondary_provider = self.crypto_quote_provider
 
+		primary_retry_attempts = 1 if primary_provider is self.fallback_quote_provider else 0
+
 		try:
-			quote = await primary_provider.fetch_quote(normalized_symbol)
+			quote = await self._fetch_quote_with_retry(
+				primary_provider,
+				normalized_symbol,
+				retry_attempts=primary_retry_attempts,
+			)
 		except QuoteLookupError as exc:
 			if secondary_provider is self.fallback_quote_provider:
 				try:
-					quote = await self.fallback_quote_provider.fetch_quote(normalized_symbol)
+					quote = await self._fetch_quote_with_retry(
+						self.fallback_quote_provider,
+						normalized_symbol,
+						retry_attempts=1,
+					)
 				except QuoteLookupError as fallback_exc:
 					combined_error = "; ".join((str(exc), str(fallback_exc)))
 					stale_quote = self.quote_cache.get_stale(normalized_symbol)

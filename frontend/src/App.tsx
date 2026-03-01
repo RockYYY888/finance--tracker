@@ -1076,7 +1076,7 @@ function App() {
 				<div className="hero-copy-block">
 					<p className="eyebrow">CNY CONTROL PANEL</p>
 					<h1>你好，{currentUserId}</h1>
-					<p className="hero-copy">你的资产与会话已隔离保存。</p>
+					<p className="hero-copy">你的资产与会话已隔离保存，并按分钟自动刷新。</p>
 					<p className="hero-subtle">
 						{currentUserEmail ? currentUserEmail : "未绑定邮箱，可用于找回密码。"}
 					</p>

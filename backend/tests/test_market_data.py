@@ -215,6 +215,24 @@ def test_fetch_quote_prefers_china_provider_for_hk_symbols() -> None:
 	assert fallback_provider.calls == 1
 
 
+def test_fetch_quote_retries_china_provider_once_before_failing() -> None:
+	fallback_provider = SequenceQuoteProvider([
+		QuoteLookupError("temporary timeout"),
+		_make_quote(symbol="2015.HK", price=68.75, currency="HKD"),
+	])
+	client = MarketDataClient(
+		fallback_quote_provider=fallback_provider,
+	)
+
+	quote, warnings = asyncio.run(client.fetch_quote("2015.HK"))
+
+	assert quote.symbol == "2015.HK"
+	assert quote.price == 68.75
+	assert quote.currency == "HKD"
+	assert warnings == []
+	assert fallback_provider.calls == 2
+
+
 def test_clear_runtime_caches_clears_quote_and_fx_but_keeps_search_by_default() -> None:
 	client = MarketDataClient()
 	client.quote_cache.set("AAPL", _make_quote(), ttl_seconds=60)
