@@ -141,6 +141,7 @@ function App() {
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 	const dashboardRequestInFlightRef = useRef(false);
 	const pendingDashboardRefreshRef = useRef(false);
+	const pendingForceRefreshRef = useRef(false);
 
 	function resetDashboardState(): void {
 		setDashboard(EMPTY_DASHBOARD);
@@ -150,6 +151,7 @@ function App() {
 		setLastUpdatedAt(null);
 		dashboardRequestInFlightRef.current = false;
 		pendingDashboardRefreshRef.current = false;
+		pendingForceRefreshRef.current = false;
 	}
 
 	function markSignedIn(userId: string): void {
@@ -256,13 +258,17 @@ function App() {
 		}
 	}
 
-	async function loadDashboard(options: { initial?: boolean } = {}): Promise<void> {
+	async function loadDashboard(
+		options: { initial?: boolean; forceRefresh?: boolean } = {},
+	): Promise<void> {
 		if (authStatus !== "authenticated") {
 			return;
 		}
 
 		if (dashboardRequestInFlightRef.current) {
 			pendingDashboardRefreshRef.current = true;
+			pendingForceRefreshRef.current =
+				pendingForceRefreshRef.current || Boolean(options.forceRefresh);
 			return;
 		}
 
@@ -275,7 +281,7 @@ function App() {
 		setErrorMessage(null);
 
 		try {
-			const nextDashboard = await getDashboard();
+			const nextDashboard = await getDashboard(Boolean(options.forceRefresh));
 			setDashboard(nextDashboard);
 			setLastUpdatedAt(new Date().toISOString());
 		} catch (error) {
@@ -293,8 +299,10 @@ function App() {
 			setIsRefreshingDashboard(false);
 			setIsLoadingDashboard(false);
 			if (pendingDashboardRefreshRef.current) {
+				const shouldForceRefresh = pendingForceRefreshRef.current;
 				pendingDashboardRefreshRef.current = false;
-				void loadDashboard();
+				pendingForceRefreshRef.current = false;
+				void loadDashboard({ forceRefresh: shouldForceRefresh });
 			}
 		}
 	}
@@ -421,7 +429,7 @@ function App() {
 						<button
 							type="button"
 							className="hero-note hero-note--action"
-							onClick={() => void loadDashboard()}
+							onClick={() => void loadDashboard({ forceRefresh: true })}
 							disabled={isDashboardBusy}
 						>
 							<span

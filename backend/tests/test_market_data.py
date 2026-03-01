@@ -214,6 +214,19 @@ def test_fetch_quote_uses_fallback_provider_when_primary_fails() -> None:
 	assert fallback_provider.calls == 1
 
 
+def test_clear_runtime_caches_clears_quote_and_fx_but_keeps_search_by_default() -> None:
+	client = MarketDataClient()
+	client.quote_cache.set("AAPL", _make_quote(), ttl_seconds=60)
+	client.fx_cache.set("USD:CNY", 7.2, ttl_seconds=60)
+	client.search_cache.set("aapl", [], ttl_seconds=60)
+
+	client.clear_runtime_caches()
+
+	assert client.quote_cache.get("AAPL") is None
+	assert client.fx_cache.get("USD:CNY") is None
+	assert client.search_cache.get("aapl") == []
+
+
 def test_fetch_quote_uses_crypto_fallback_provider_when_primary_fails() -> None:
 	primary_provider = SequenceQuoteProvider([QuoteLookupError("rate limited")])
 	crypto_provider = SequenceQuoteProvider([

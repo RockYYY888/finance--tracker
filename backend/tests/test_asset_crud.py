@@ -36,6 +36,7 @@ from app.models import (
 from app.schemas import (
 	CashAccountCreate,
 	CashAccountUpdate,
+	DashboardResponse,
 	FixedAssetCreate,
 	LiabilityEntryCreate,
 	OtherAssetCreate,
@@ -62,6 +63,9 @@ class StaticMarketDataClient:
 			),
 			[],
 		)
+
+	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
+		return None
 
 
 @pytest.fixture
@@ -724,3 +728,59 @@ def test_build_dashboard_converts_usd_liabilities_to_cny(
 	assert dashboard.cash_value_cny == 1_000.0
 	assert dashboard.liabilities_value_cny == 700.0
 	assert dashboard.total_value_cny == 300.0
+
+
+def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	refresh_calls = {"cache_clear": 0}
+	captured_args: dict[str, bool] = {}
+
+	class RefreshAwareClient(StaticMarketDataClient):
+		def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
+			refresh_calls["cache_clear"] += 1
+
+	async def fake_get_cached_dashboard(
+		db_session: Session,
+		user: UserAccount,
+		force_refresh: bool = False,
+	) -> DashboardResponse:
+		captured_args["force_refresh"] = force_refresh
+		assert user.username == current_user.username
+		assert db_session is session
+		return DashboardResponse(
+			total_value_cny=0,
+			cash_value_cny=0,
+			holdings_value_cny=0,
+			fixed_assets_value_cny=0,
+			liabilities_value_cny=0,
+			other_assets_value_cny=0,
+			usd_cny_rate=None,
+			hkd_cny_rate=None,
+			cash_accounts=[],
+			holdings=[],
+			fixed_assets=[],
+			liabilities=[],
+			other_assets=[],
+			allocation=[],
+			hour_series=[],
+			day_series=[],
+			month_series=[],
+			year_series=[],
+			holdings_return_hour_series=[],
+			holdings_return_day_series=[],
+			holdings_return_month_series=[],
+			holdings_return_year_series=[],
+			holding_return_series=[],
+			warnings=[],
+		)
+
+	monkeypatch.setattr(main, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(main, "_get_cached_dashboard", fake_get_cached_dashboard)
+
+	asyncio.run(main.get_dashboard(current_user, session, True))
+
+	assert refresh_calls["cache_clear"] == 1
+	assert captured_args["force_refresh"] is True

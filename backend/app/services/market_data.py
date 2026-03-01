@@ -750,6 +750,13 @@ class MarketDataClient:
 		self.search_ttl_seconds = search_ttl_seconds
 		self.fx_ttl_seconds = fx_ttl_seconds
 
+	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
+		"""Clear short-lived runtime caches so a manual refresh can force new provider fetches."""
+		self.quote_cache.clear()
+		self.fx_cache.clear()
+		if clear_search:
+			self.search_cache.clear()
+
 	async def fetch_quote(self, symbol: str) -> tuple[Quote, list[str]]:
 		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
 		normalized_symbol = normalize_symbol_for_market(symbol)

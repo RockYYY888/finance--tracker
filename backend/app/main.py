@@ -2018,5 +2018,11 @@ async def search_securities(
 async def get_dashboard(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
+	refresh: bool = False,
 ) -> DashboardResponse:
+	if refresh:
+		market_data_client.clear_runtime_caches()
+		_invalidate_dashboard_cache(current_user.username)
+		return await _get_cached_dashboard(session, current_user, force_refresh=True)
+
 	return await _get_cached_dashboard(session, current_user)
