@@ -18,3 +18,8 @@ export interface AdminFeedbackReplyInput {
 	reply_message: string;
 	close: boolean;
 }
+
+export interface FeedbackSummary {
+	inbox_count: number;
+	mode: string;
+}

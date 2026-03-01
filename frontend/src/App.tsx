@@ -19,6 +19,7 @@ import {
 import { getDashboard } from "./lib/dashboardApi";
 import {
 	closeFeedbackForAdmin,
+	getFeedbackSummary,
 	listFeedbackForCurrentUser,
 	listFeedbackForAdmin,
 	replyToFeedbackForAdmin,
@@ -369,6 +370,7 @@ function App() {
 	const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
+	const [feedbackInboxCount, setFeedbackInboxCount] = useState(0);
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
 	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
 	const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
@@ -404,6 +406,7 @@ function App() {
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
 		setFeedbackNoticeMessage(null);
+		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
 		setAdminInboxErrorMessage(null);
@@ -426,6 +429,7 @@ function App() {
 		setAuthStatus("anonymous");
 		setAuthNoticeMessage(null);
 		setFeedbackNoticeMessage(null);
+		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
 		setAdminInboxErrorMessage(null);
@@ -450,6 +454,7 @@ function App() {
 		}
 
 		void loadDashboard({ initial: true });
+		void refreshFeedbackSummary();
 	}, [authStatus, currentUserId]);
 
 	useEffect(() => {
@@ -601,6 +606,20 @@ function App() {
 		setIsFeedbackOpen(false);
 	}
 
+	async function refreshFeedbackSummary(): Promise<void> {
+		if (authStatus !== "authenticated") {
+			setFeedbackInboxCount(0);
+			return;
+		}
+
+		try {
+			const summary = await getFeedbackSummary();
+			setFeedbackInboxCount(summary.inbox_count);
+		} catch {
+			// Keep current badge value when summary refresh fails.
+		}
+	}
+
 	async function openAdminInbox(): Promise<void> {
 		if (authStatus !== "authenticated" || currentUserId !== "admin") {
 			return;
@@ -613,6 +632,7 @@ function App() {
 		try {
 			const items = await listFeedbackForAdmin();
 			setAdminFeedbackItems(items);
+			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
 				error instanceof Error ? error.message : "消息加载失败，请稍后再试。",
@@ -643,6 +663,7 @@ function App() {
 		try {
 			const items = await listFeedbackForCurrentUser();
 			setUserFeedbackItems(items);
+			await refreshFeedbackSummary();
 		} catch (error) {
 			setUserInboxErrorMessage(
 				error instanceof Error ? error.message : "消息加载失败，请稍后再试。",
@@ -669,6 +690,7 @@ function App() {
 			await submitUserFeedback({ message });
 			setFeedbackNoticeMessage("问题反馈已记录。");
 			setIsFeedbackOpen(false);
+			await refreshFeedbackSummary();
 		} catch (error) {
 			setFeedbackErrorMessage(
 				error instanceof Error ? error.message : "反馈提交失败，请稍后再试。",
@@ -687,6 +709,7 @@ function App() {
 			setAdminFeedbackItems((currentItems) =>
 				currentItems.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
 			);
+			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
 				error instanceof Error ? error.message : "关闭反馈失败，请稍后再试。",
@@ -712,6 +735,7 @@ function App() {
 			setAdminFeedbackItems((currentItems) =>
 				currentItems.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
 			);
+			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
 				error instanceof Error ? error.message : "回复失败，请稍后再试。",
@@ -1085,7 +1109,7 @@ function App() {
 							}
 							disabled={isRecoveringSession || isLoadingAdminInbox || isLoadingUserInbox}
 						>
-							消息
+							{feedbackInboxCount > 0 ? `消息 (${feedbackInboxCount})` : "消息"}
 						</button>
 						<button
 							type="button"

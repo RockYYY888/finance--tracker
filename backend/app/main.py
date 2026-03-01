@@ -44,6 +44,7 @@ from app.schemas import (
 	FixedAssetCreate,
 	FixedAssetRead,
 	FixedAssetUpdate,
+	FeedbackSummaryRead,
 	HoldingReturnSeries,
 	LiabilityEntryCreate,
 	LiabilityEntryRead,
@@ -1610,6 +1611,36 @@ def list_feedback_for_current_user(
 		),
 	)
 	return [_to_feedback_read(feedback) for feedback in feedback_items]
+
+
+@app.get("/api/feedback/summary", response_model=FeedbackSummaryRead)
+def get_feedback_summary(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> FeedbackSummaryRead:
+	if current_user.username == "admin":
+		inbox_count = len(
+			list(
+				session.exec(
+					select(UserFeedback.id).where(UserFeedback.resolved_at.is_(None)),
+				),
+			),
+		)
+		return FeedbackSummaryRead(inbox_count=inbox_count, mode="admin-open")
+
+	inbox_count = len(
+		list(
+			session.exec(
+				select(UserFeedback.id).where(
+					UserFeedback.user_id == current_user.username,
+					UserFeedback.reply_message.is_(None),
+					UserFeedback.resolved_at.is_(None),
+				),
+			),
+		),
+	)
+	return FeedbackSummaryRead(inbox_count=inbox_count, mode="user-pending")
 
 
 @app.get("/api/admin/feedback", response_model=list[UserFeedbackRead])

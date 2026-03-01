@@ -20,6 +20,7 @@ const dashboardApiMocks = vi.hoisted(() => ({
 
 const feedbackApiMocks = vi.hoisted(() => ({
 	submitUserFeedback: vi.fn(),
+	getFeedbackSummary: vi.fn(),
 	listFeedbackForCurrentUser: vi.fn(),
 	listFeedbackForAdmin: vi.fn(),
 	replyToFeedbackForAdmin: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock("./components/feedback/UserFeedbackInboxDialog", () => ({
 
 vi.mock("./lib/feedbackApi", () => ({
 	submitUserFeedback: feedbackApiMocks.submitUserFeedback,
+	getFeedbackSummary: feedbackApiMocks.getFeedbackSummary,
 	listFeedbackForCurrentUser: feedbackApiMocks.listFeedbackForCurrentUser,
 	listFeedbackForAdmin: feedbackApiMocks.listFeedbackForAdmin,
 	replyToFeedbackForAdmin: feedbackApiMocks.replyToFeedbackForAdmin,
@@ -92,6 +94,10 @@ describe("App session restore", () => {
 		vi.clearAllMocks();
 		window.sessionStorage.clear();
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
+		feedbackApiMocks.getFeedbackSummary.mockResolvedValue({
+			inbox_count: 0,
+			mode: "user-pending",
+		});
 		feedbackApiMocks.listFeedbackForCurrentUser.mockResolvedValue([]);
 		feedbackApiMocks.listFeedbackForAdmin.mockResolvedValue([]);
 		feedbackApiMocks.replyToFeedbackForAdmin.mockResolvedValue({

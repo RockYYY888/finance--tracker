@@ -1,6 +1,7 @@
 import { createApiClient } from "./apiClient";
 import type {
 	AdminFeedbackReplyInput,
+	FeedbackSummary,
 	UserFeedbackInput,
 	UserFeedbackRecord,
 } from "../types/feedback";
@@ -18,6 +19,10 @@ export async function submitUserFeedback(
 
 export async function listFeedbackForCurrentUser(): Promise<UserFeedbackRecord[]> {
 	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/feedback");
+}
+
+export async function getFeedbackSummary(): Promise<FeedbackSummary> {
+	return feedbackApiClient.request<FeedbackSummary>("/api/feedback/summary");
 }
 
 export async function listFeedbackForAdmin(): Promise<UserFeedbackRecord[]> {

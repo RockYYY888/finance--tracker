@@ -7,6 +7,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import (
 	close_feedback_for_admin,
+	get_feedback_summary,
 	list_feedback_for_admin,
 	list_feedback_for_current_user,
 	reply_to_feedback_for_admin,
@@ -125,3 +126,27 @@ def test_admin_can_reply_and_user_can_see_reply(session: Session) -> None:
 	assert replied_feedback.resolved_at is not None
 	assert len(user_feedback_items) == 1
 	assert user_feedback_items[0].reply_message == "已收到，我们会在下一版优化说明文字。"
+
+
+def test_feedback_summary_counts_pending_items_for_admin_and_user(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "summary_user")
+
+	submit_feedback(
+		UserFeedbackCreate(message="第一条反馈。"),
+		normal_user,
+		session,
+	)
+	submit_feedback(
+		UserFeedbackCreate(message="第二条反馈。"),
+		normal_user,
+		session,
+	)
+
+	user_summary = get_feedback_summary(normal_user, session, None)
+	admin_summary = get_feedback_summary(admin_user, session, None)
+
+	assert user_summary.mode == "user-pending"
+	assert user_summary.inbox_count == 2
+	assert admin_summary.mode == "admin-open"
+	assert admin_summary.inbox_count == 2

@@ -327,6 +327,11 @@ class UserFeedbackRead(BaseModel):
 	created_at: datetime
 
 
+class FeedbackSummaryRead(BaseModel):
+	inbox_count: int
+	mode: str
+
+
 class AdminFeedbackReplyUpdate(BaseModel):
 	reply_message: str = Field(min_length=1, max_length=2000)
 	close: bool = False
