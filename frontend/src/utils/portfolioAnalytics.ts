@@ -10,30 +10,30 @@ import type {
 } from "../types/portfolioAnalytics";
 
 const CHART_COLORS = [
-	"#ef476f",
-	"#118ab2",
+	"#63e8ff",
+	"#7a8cff",
+	"#37f0c8",
 	"#ffd166",
-	"#06d6a0",
-	"#f78c6b",
-	"#73d2de",
+	"#ff8ab3",
+	"#7ecbff",
 ];
 
 export const ANALYTICS_TOOLTIP_STYLE = {
-	backgroundColor: "#161615",
-	border: "1px solid rgba(255,255,255,0.08)",
+	backgroundColor: "rgba(8, 18, 34, 0.96)",
+	border: "1px solid rgba(122,214,255,0.16)",
 	borderRadius: 16,
-	boxShadow: "0 18px 36px rgba(0, 0, 0, 0.28)",
-	color: "#f6f0df",
+	boxShadow: "0 18px 36px rgba(0, 0, 0, 0.32)",
+	color: "#ecf7ff",
 	padding: "0.85rem 1rem",
 };
 
 export const ANALYTICS_TOOLTIP_LABEL_STYLE = {
-	color: "#f6f0df",
+	color: "#ecf7ff",
 	fontWeight: 600,
 };
 
 export const ANALYTICS_TOOLTIP_ITEM_STYLE = {
-	color: "#f6f0df",
+	color: "#d5eeff",
 	fontSize: "0.92rem",
 };
 

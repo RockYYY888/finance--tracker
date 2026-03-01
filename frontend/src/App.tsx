@@ -112,9 +112,9 @@ function App() {
 
 			<header className="hero-panel">
 				<div className="hero-copy-block">
-					<p className="eyebrow">ASSET DASHBOARD</p>
-					<h1>个人资产</h1>
-					<p className="hero-copy">统一查看现金与证券，所有估值按人民币汇总。</p>
+					<p className="eyebrow">CNY CONTROL PANEL</p>
+					<h1>资产控制台</h1>
+					<p className="hero-copy">全部资产统一按人民币计价。</p>
 					<p className="hero-note">最近更新：{formatLastUpdated(lastUpdatedAt)}</p>
 				</div>
 
@@ -145,7 +145,7 @@ function App() {
 			) : null}
 
 			{!hasAnyAsset ? (
-				<div className="banner info">先新增一笔资产，图表会自动形成。</div>
+				<div className="banner info">暂无资产数据。</div>
 			) : null}
 
 			<section className="panel section-shell">
@@ -153,7 +153,7 @@ function App() {
 					<div>
 						<p className="eyebrow">ANALYTICS</p>
 						<h2>变化与分布</h2>
-						<p className="section-copy">查看走势、占比和集中度。</p>
+						<p className="section-copy">走势与结构。</p>
 					</div>
 				</div>
 
@@ -174,8 +174,8 @@ function App() {
 				<AssetManager
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
-					title="资产录入"
-					description="操作后自动更新，每分钟刷新一次。"
+					title="资产管理"
+					description="新增、编辑、删除。"
 					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
 					refreshToken={assetRefreshToken}
 				/>
