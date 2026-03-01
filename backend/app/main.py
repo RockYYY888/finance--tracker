@@ -587,12 +587,17 @@ async def _value_holdings(
 			warnings.extend(quote_warnings)
 			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:
+			logger.warning(
+				"Quote lookup still pending for %s: %s",
+				holding.symbol,
+				exc,
+			)
 			value_cny = 0.0
 			price = 0.0
 			price_currency = holding.fallback_currency
 			fx_rate = 0.0
 			last_updated = None
-			warnings.append(f"持仓 {holding.symbol} 行情拉取失败: {exc}")
+			warnings.append(f"持仓 {holding.symbol} 行情更新中")
 
 		items.append(
 			ValuedHolding(

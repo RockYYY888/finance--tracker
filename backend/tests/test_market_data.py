@@ -460,4 +460,4 @@ def test_value_holdings_turns_provider_failure_into_warning(
 	assert items[0].price == 0.0
 	assert items[0].fx_to_cny == 0.0
 	assert items[0].price_currency == "USD"
-	assert warnings == ["持仓 AAPL 行情拉取失败: provider down"]
+	assert warnings == ["持仓 AAPL 行情更新中"]

@@ -47,6 +47,10 @@ export function HoldingList({
 	const effectiveError = localError ?? errorMessage;
 	const isActionLocked = busy;
 
+	function isHoldingQuotePending(holding: HoldingRecord): boolean {
+		return !holding.last_updated || (holding.price ?? 0) <= 0;
+	}
+
 	async function handleDelete(recordId: number): Promise<void> {
 		if (!onDelete) {
 			return;
@@ -98,8 +102,11 @@ export function HoldingList({
 				<div className="asset-manager__empty-state">{emptyMessage}</div>
 			) : (
 				<ul className="asset-manager__list">
-					{holdings.map((holding) => (
-						<li key={holding.id} className="asset-manager__card">
+					{holdings.map((holding) => {
+						const quotePending = isHoldingQuotePending(holding);
+
+						return (
+							<li key={holding.id} className="asset-manager__card">
 							<div className="asset-manager__card-top">
 								<div className="asset-manager__card-title">
 									<div className="asset-manager__badge-row">
@@ -110,7 +117,7 @@ export function HoldingList({
 									</div>
 									<h3>{holding.name}</h3>
 									<p className="asset-manager__card-note">
-										更新：{formatTimestamp(holding.last_updated)}
+										更新：{quotePending ? "更新中" : formatTimestamp(holding.last_updated)}
 										{shouldShowHoldingSource(holding.broker?.trim())
 											? ` · ${holding.broker?.trim()}`
 											: ""}
@@ -154,15 +161,19 @@ export function HoldingList({
 								</div>
 								<div className="asset-manager__metric">
 									<span>折算人民币</span>
-									<strong>{formatCnyAmount(holding.value_cny)}</strong>
+									<strong>
+										{quotePending ? "更新中" : formatCnyAmount(holding.value_cny)}
+									</strong>
 								</div>
 								<div className="asset-manager__metric">
 									<span>现价</span>
 									<strong>
-										{formatPriceAmount(
-											holding.price ?? 0,
-											holding.price_currency ?? holding.fallback_currency,
-										)}
+										{quotePending
+											? "更新中"
+											: formatPriceAmount(
+												holding.price ?? 0,
+												holding.price_currency ?? holding.fallback_currency,
+											)}
 									</strong>
 								</div>
 								<div className="asset-manager__metric">
@@ -179,7 +190,9 @@ export function HoldingList({
 								<div className="asset-manager__metric">
 									<span>收益率</span>
 									<strong>
-										{holding.return_pct != null
+										{quotePending
+											? "更新中"
+											: holding.return_pct != null
 											? formatPercentValue(holding.return_pct)
 											: "待计算"}
 									</strong>
@@ -198,7 +211,8 @@ export function HoldingList({
 								</div>
 							</div>
 						</li>
-					))}
+						);
+					})}
 				</ul>
 			)}
 		</section>
