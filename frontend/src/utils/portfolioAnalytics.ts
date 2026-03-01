@@ -23,7 +23,18 @@ export const ANALYTICS_TOOLTIP_STYLE = {
 	border: "1px solid rgba(255,255,255,0.08)",
 	borderRadius: 16,
 	boxShadow: "0 18px 36px rgba(0, 0, 0, 0.28)",
+	color: "#f6f0df",
 	padding: "0.85rem 1rem",
+};
+
+export const ANALYTICS_TOOLTIP_LABEL_STYLE = {
+	color: "#f6f0df",
+	fontWeight: 600,
+};
+
+export const ANALYTICS_TOOLTIP_ITEM_STYLE = {
+	color: "#f6f0df",
+	fontSize: "0.92rem",
 };
 
 /**

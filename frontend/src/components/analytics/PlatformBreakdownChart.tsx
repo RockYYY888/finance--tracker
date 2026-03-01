@@ -14,6 +14,8 @@ import type {
 	ValuedHolding,
 } from "../../types/portfolioAnalytics";
 import {
+	ANALYTICS_TOOLTIP_ITEM_STYLE,
+	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildPlatformBreakdown,
 	formatCompactCny,
@@ -89,6 +91,8 @@ export function PlatformBreakdownChart({
 									formatter={(value) => formatCny(Number(value ?? 0))}
 									labelFormatter={(label) => `入口: ${String(label ?? "")}`}
 									contentStyle={ANALYTICS_TOOLTIP_STYLE}
+									itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
+									labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 								/>
 								<Bar dataKey="value_cny" radius={[0, 12, 12, 0]}>
 									{platformBreakdown.map((item) => (

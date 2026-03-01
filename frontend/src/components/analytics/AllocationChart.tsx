@@ -8,6 +8,8 @@ import {
 
 import type { AllocationSlice } from "../../types/portfolioAnalytics";
 import {
+	ANALYTICS_TOOLTIP_ITEM_STYLE,
+	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildAllocationLegend,
 	formatCny,
@@ -63,6 +65,8 @@ export function AllocationChart({
 								<Tooltip
 									formatter={(value) => formatCny(Number(value ?? 0))}
 									contentStyle={ANALYTICS_TOOLTIP_STYLE}
+									itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
+									labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 								/>
 							</PieChart>
 						</ResponsiveContainer>
