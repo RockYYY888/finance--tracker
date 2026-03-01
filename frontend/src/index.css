@@ -65,6 +65,28 @@ button {
 	padding: 30px 20px 72px;
 }
 
+.session-recovery-mask {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	display: grid;
+	place-items: center;
+	padding: 20px;
+	background: rgba(4, 10, 19, 0.76);
+	backdrop-filter: blur(10px);
+}
+
+.session-recovery-mask__panel {
+	width: min(100%, 420px);
+	padding: 24px;
+	text-align: center;
+}
+
+.session-recovery-mask__panel p:last-child {
+	margin: 10px 0 0;
+	color: var(--text-soft);
+}
+
 .ambient {
 	position: fixed;
 	z-index: -1;

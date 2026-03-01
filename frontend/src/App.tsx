@@ -29,6 +29,40 @@ import { formatCny } from "./utils/portfolioAnalytics";
 type AuthStatus = "checking" | "anonymous" | "authenticated";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
+const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
+
+function readRememberedSessionUserId(): string | null {
+	if (typeof window === "undefined") {
+		return null;
+	}
+
+	try {
+		const rememberedUserId = window.sessionStorage.getItem(REMEMBERED_SESSION_USER_KEY);
+		if (!rememberedUserId) {
+			return null;
+		}
+
+		return rememberedUserId.trim() || null;
+	} catch {
+		return null;
+	}
+}
+
+function rememberSessionUserId(userId: string): void {
+	try {
+		window.sessionStorage.setItem(REMEMBERED_SESSION_USER_KEY, userId);
+	} catch {
+		// Ignore storage access issues and fall back to the normal session check.
+	}
+}
+
+function clearRememberedSessionUserId(): void {
+	try {
+		window.sessionStorage.removeItem(REMEMBERED_SESSION_USER_KEY);
+	} catch {
+		// Ignore storage access issues and fall back to the normal session check.
+	}
+}
 
 function getMillisecondsUntilNextMinute(): number {
 	const now = new Date();
@@ -302,7 +336,9 @@ function toDashboardOtherAsset(
 
 function App() {
 	const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
-	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+	const [currentUserId, setCurrentUserId] = useState<string | null>(() =>
+		readRememberedSessionUserId()
+	);
 	const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 	const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
@@ -330,6 +366,7 @@ function App() {
 	}
 
 	function markSignedIn(userId: string): void {
+		rememberSessionUserId(userId);
 		setCurrentUserId(userId);
 		setAuthStatus("authenticated");
 		setAuthErrorMessage(null);
@@ -341,6 +378,7 @@ function App() {
 	}
 
 	function markSignedOut(): void {
+		clearRememberedSessionUserId();
 		setCurrentUserId(null);
 		setAuthStatus("anonymous");
 		setFeedbackNoticeMessage(null);
@@ -449,6 +487,10 @@ function App() {
 	}
 
 	function openFeedbackDialog(): void {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
 		setFeedbackErrorMessage(null);
 		setFeedbackNoticeMessage(null);
 		setIsFeedbackOpen(true);
@@ -535,7 +577,9 @@ function App() {
 		setDashboard((currentDashboard) => finalizeDashboardState(mutator(currentDashboard)));
 	}
 
-	if (authStatus !== "authenticated" || !currentUserId) {
+	const isRecoveringSession = authStatus === "checking" && currentUserId !== null;
+
+	if (!currentUserId || authStatus === "anonymous") {
 		return (
 			<LoginScreen
 				loading={isSubmittingAuth}
@@ -768,6 +812,15 @@ function App() {
 		<div className="app-shell">
 			<div className="ambient ambient-left" />
 			<div className="ambient ambient-right" />
+			{isRecoveringSession ? (
+				<div className="session-recovery-mask" role="status" aria-live="polite">
+					<div className="session-recovery-mask__panel panel">
+						<p className="eyebrow">SESSION RESTORE</p>
+						<h2>正在恢复登录状态</h2>
+						<p>验证通过后会继续停留在当前页面。</p>
+					</div>
+				</div>
+			) : null}
 
 			<header className="hero-panel">
 				<div className="hero-copy-block">
@@ -779,14 +832,16 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={() => void loadDashboard({ forceRefresh: true })}
-							disabled={isDashboardBusy}
+							disabled={isDashboardBusy || isRecoveringSession}
 						>
 							<span
 								className={`hero-note__status ${isDashboardBusy ? "is-active" : ""}`}
 								aria-hidden="true"
 							/>
 							<span>
-								{isDashboardBusy
+								{isRecoveringSession
+									? "正在恢复会话..."
+									: isDashboardBusy
 									? "同步中..."
 									: `最近更新：${formatLastUpdated(lastUpdatedAt)}`}
 							</span>
@@ -795,6 +850,7 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={openFeedbackDialog}
+							disabled={isRecoveringSession}
 						>
 							反馈问题
 						</button>
@@ -802,6 +858,7 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={() => void handleLogout()}
+							disabled={isRecoveringSession}
 						>
 							退出登录
 						</button>
@@ -874,7 +931,7 @@ function App() {
 				</div>
 			) : null}
 
-			{!hasAnyAsset && !isDashboardBusy && !errorMessage ? (
+			{!hasAnyAsset && !isDashboardBusy && !errorMessage && !isRecoveringSession ? (
 				<div className="banner info">暂无资产数据。</div>
 			) : null}
 
@@ -904,7 +961,7 @@ function App() {
 					holdings_return_month_series={dashboard.holdings_return_month_series}
 					holdings_return_year_series={dashboard.holdings_return_year_series}
 					holding_return_series={dashboard.holding_return_series}
-					loading={isLoadingDashboard}
+					loading={isLoadingDashboard || isRecoveringSession}
 				/>
 			</section>
 
