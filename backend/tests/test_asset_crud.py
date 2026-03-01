@@ -870,6 +870,64 @@ def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
 	assert captured_args["force_refresh"] is True
 
 
+def test_get_dashboard_refresh_only_clears_runtime_cache_once_within_global_window(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	refresh_calls = {"cache_clear": 0, "dashboard_rebuild": 0}
+
+	class RefreshAwareClient(StaticMarketDataClient):
+		def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
+			refresh_calls["cache_clear"] += 1
+
+	async def fake_get_cached_dashboard(
+		db_session: Session,
+		user: UserAccount,
+		force_refresh: bool = False,
+	) -> DashboardResponse:
+		assert db_session is session
+		assert user.username == current_user.username
+		assert force_refresh is True
+		refresh_calls["dashboard_rebuild"] += 1
+		return DashboardResponse(
+			total_value_cny=0,
+			cash_value_cny=0,
+			holdings_value_cny=0,
+			fixed_assets_value_cny=0,
+			liabilities_value_cny=0,
+			other_assets_value_cny=0,
+			usd_cny_rate=None,
+			hkd_cny_rate=None,
+			cash_accounts=[],
+			holdings=[],
+			fixed_assets=[],
+			liabilities=[],
+			other_assets=[],
+			allocation=[],
+			hour_series=[],
+			day_series=[],
+			month_series=[],
+			year_series=[],
+			holdings_return_hour_series=[],
+			holdings_return_day_series=[],
+			holdings_return_month_series=[],
+			holdings_return_year_series=[],
+			holding_return_series=[],
+			warnings=[],
+		)
+
+	monkeypatch.setattr(main, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(main, "_get_cached_dashboard", fake_get_cached_dashboard)
+	monkeypatch.setattr(main, "last_global_force_refresh_at", None)
+
+	asyncio.run(main.get_dashboard(current_user, session, True))
+	asyncio.run(main.get_dashboard(current_user, session, True))
+
+	assert refresh_calls["cache_clear"] == 1
+	assert refresh_calls["dashboard_rebuild"] == 2
+
+
 def test_refresh_user_dashboards_clears_market_data_once_per_cycle(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,

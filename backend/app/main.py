@@ -91,6 +91,7 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 FEEDBACK_TIMEZONE = ZoneInfo("Asia/Shanghai")
 MAX_DAILY_FEEDBACK_SUBMISSIONS = 3
+GLOBAL_FORCE_REFRESH_INTERVAL = timedelta(seconds=60)
 
 
 @dataclass(slots=True)
@@ -127,6 +128,8 @@ dashboard_cache: dict[str, DashboardCacheEntry] = {}
 live_portfolio_states: dict[str, LivePortfolioState] = {}
 live_holdings_return_states: dict[str, LiveHoldingsReturnState] = {}
 dashboard_cache_lock = asyncio.Lock()
+global_force_refresh_lock = asyncio.Lock()
+last_global_force_refresh_at: datetime | None = None
 background_refresh_task: asyncio.Task[None] | None = None
 
 
@@ -277,6 +280,22 @@ def _is_current_minute(value: datetime | None, now: datetime | None = None) -> b
 		return False
 
 	return _current_minute_bucket(value) == _current_minute_bucket(now)
+
+
+async def _consume_global_force_refresh_slot() -> bool:
+	"""Allow at most one cache-clearing force refresh every 60 seconds across the process."""
+	global last_global_force_refresh_at
+
+	async with global_force_refresh_lock:
+		now = utc_now()
+		if (
+			last_global_force_refresh_at is not None
+			and now - _coerce_utc_datetime(last_global_force_refresh_at) < GLOBAL_FORCE_REFRESH_INTERVAL
+		):
+			return False
+
+		last_global_force_refresh_at = now
+		return True
 
 
 def _is_same_hour(value: datetime | None, now: datetime | None = None) -> bool:
@@ -2337,7 +2356,8 @@ async def get_dashboard(
 	refresh: bool = False,
 ) -> DashboardResponse:
 	if refresh:
-		market_data_client.clear_runtime_caches()
+		if await _consume_global_force_refresh_slot():
+			market_data_client.clear_runtime_caches()
 		_invalidate_dashboard_cache(current_user.username)
 		return await _get_cached_dashboard(session, current_user, force_refresh=True)
 
