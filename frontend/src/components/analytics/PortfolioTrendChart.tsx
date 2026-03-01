@@ -11,6 +11,8 @@ import {
 
 import type { TimelinePoint, TimelineRange } from "../../types/portfolioAnalytics";
 import {
+	ANALYTICS_TOOLTIP_ITEM_STYLE,
+	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	formatCompactCny,
 	formatCny,
@@ -114,9 +116,14 @@ export function PortfolioTrendChart({
 								tickFormatter={formatCompactCny}
 							/>
 							<Tooltip
-								formatter={(value) => formatCny(Number(value ?? 0))}
+								formatter={(value) => [
+									formatCny(Number(value ?? 0)),
+									"资产总额",
+								]}
 								labelFormatter={(label) => `周期: ${String(label ?? "")}`}
 								contentStyle={ANALYTICS_TOOLTIP_STYLE}
+								itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
+								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 							/>
 							<Line
 								type="monotone"
