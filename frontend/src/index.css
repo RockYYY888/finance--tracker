@@ -1,5 +1,9 @@
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
 
+html {
+	overflow-x: hidden;
+}
+
 :root {
 	color-scheme: dark;
 	--bg-deep: #050c17;
@@ -41,6 +45,7 @@ body {
 	margin: 0;
 	min-width: 320px;
 	min-height: 100vh;
+	overflow-x: hidden;
 	background: var(--bg-deep);
 }
 
@@ -56,6 +61,7 @@ button {
 
 #root {
 	min-height: 100vh;
+	overflow-x: clip;
 }
 
 .app-shell {
