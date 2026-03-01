@@ -11,6 +11,8 @@ import {
 
 import type { ValuedHolding } from "../../types/portfolioAnalytics";
 import {
+	ANALYTICS_TOOLTIP_ITEM_STYLE,
+	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildHoldingsBreakdown,
 	formatCompactCny,
@@ -82,9 +84,14 @@ export function HoldingsBreakdownChart({
 									tickFormatter={(label: string) => truncateLabel(label, 8)}
 								/>
 								<Tooltip
-									formatter={(value) => formatCny(Number(value ?? 0))}
+									formatter={(value) => [
+										formatCny(Number(value ?? 0)),
+										"持仓市值",
+									]}
 									labelFormatter={(label) => `持仓: ${String(label ?? "")}`}
 									contentStyle={ANALYTICS_TOOLTIP_STYLE}
+									itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
+									labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 								/>
 								<Bar dataKey="value_cny" radius={[0, 12, 12, 0]}>
 									{breakdown.map((item) => (
