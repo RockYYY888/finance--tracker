@@ -20,7 +20,9 @@ const dashboardApiMocks = vi.hoisted(() => ({
 
 const feedbackApiMocks = vi.hoisted(() => ({
 	submitUserFeedback: vi.fn(),
+	listFeedbackForCurrentUser: vi.fn(),
 	listFeedbackForAdmin: vi.fn(),
+	replyToFeedbackForAdmin: vi.fn(),
 	closeFeedbackForAdmin: vi.fn(),
 }));
 
@@ -57,9 +59,15 @@ vi.mock("./components/feedback/AdminFeedbackDialog", () => ({
 	AdminFeedbackDialog: () => null,
 }));
 
+vi.mock("./components/feedback/UserFeedbackInboxDialog", () => ({
+	UserFeedbackInboxDialog: () => null,
+}));
+
 vi.mock("./lib/feedbackApi", () => ({
 	submitUserFeedback: feedbackApiMocks.submitUserFeedback,
+	listFeedbackForCurrentUser: feedbackApiMocks.listFeedbackForCurrentUser,
 	listFeedbackForAdmin: feedbackApiMocks.listFeedbackForAdmin,
+	replyToFeedbackForAdmin: feedbackApiMocks.replyToFeedbackForAdmin,
 	closeFeedbackForAdmin: feedbackApiMocks.closeFeedbackForAdmin,
 }));
 
@@ -84,11 +92,26 @@ describe("App session restore", () => {
 		vi.clearAllMocks();
 		window.sessionStorage.clear();
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
+		feedbackApiMocks.listFeedbackForCurrentUser.mockResolvedValue([]);
 		feedbackApiMocks.listFeedbackForAdmin.mockResolvedValue([]);
+		feedbackApiMocks.replyToFeedbackForAdmin.mockResolvedValue({
+			id: 1,
+			user_id: "alice",
+			message: "msg",
+			reply_message: "reply",
+			replied_at: new Date().toISOString(),
+			replied_by: "admin",
+			resolved_at: null,
+			closed_by: null,
+			created_at: new Date().toISOString(),
+		});
 		feedbackApiMocks.closeFeedbackForAdmin.mockResolvedValue({
 			id: 1,
 			user_id: "alice",
 			message: "msg",
+			reply_message: null,
+			replied_at: null,
+			replied_by: null,
 			resolved_at: null,
 			closed_by: null,
 			created_at: new Date().toISOString(),

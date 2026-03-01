@@ -32,6 +32,7 @@ from app.models import (
 )
 from app.schemas import (
 	ActionMessageRead,
+	AdminFeedbackReplyUpdate,
 	AllocationSlice,
 	AuthLoginCredentials,
 	AuthRegisterCredentials,
@@ -375,6 +376,9 @@ def _ensure_legacy_schema() -> None:
 		(
 			UserFeedback.__table__.name,
 			{
+				"reply_message": "TEXT",
+				"replied_at": "TEXT",
+				"replied_by": "TEXT",
 				"resolved_at": "TEXT",
 				"closed_by": "TEXT",
 			},
@@ -1476,6 +1480,20 @@ def _require_admin_user(current_user: UserAccount) -> None:
 		raise HTTPException(status_code=403, detail="仅管理员可访问。")
 
 
+def _to_feedback_read(feedback: UserFeedback) -> UserFeedbackRead:
+	return UserFeedbackRead(
+		id=feedback.id or 0,
+		user_id=feedback.user_id,
+		message=feedback.message,
+		reply_message=feedback.reply_message,
+		replied_at=feedback.replied_at,
+		replied_by=feedback.replied_by,
+		resolved_at=feedback.resolved_at,
+		closed_by=feedback.closed_by,
+		created_at=feedback.created_at,
+	)
+
+
 @app.get("/api/auth/session", response_model=AuthSessionRead)
 def get_auth_session(
 	request: Request,
@@ -1575,14 +1593,23 @@ def submit_feedback(
 	session.add(feedback)
 	session.commit()
 	session.refresh(feedback)
-	return UserFeedbackRead(
-		id=feedback.id or 0,
-		user_id=feedback.user_id,
-		message=feedback.message,
-		resolved_at=feedback.resolved_at,
-		closed_by=feedback.closed_by,
-		created_at=feedback.created_at,
+	return _to_feedback_read(feedback)
+
+
+@app.get("/api/feedback", response_model=list[UserFeedbackRead])
+def list_feedback_for_current_user(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> list[UserFeedbackRead]:
+	feedback_items = list(
+		session.exec(
+			select(UserFeedback)
+			.where(UserFeedback.user_id == current_user.username)
+			.order_by(UserFeedback.created_at.desc()),
+		),
 	)
+	return [_to_feedback_read(feedback) for feedback in feedback_items]
 
 
 @app.get("/api/admin/feedback", response_model=list[UserFeedbackRead])
@@ -1601,16 +1628,35 @@ def list_feedback_for_admin(
 		),
 	)
 	return [
-		UserFeedbackRead(
-			id=feedback.id or 0,
-			user_id=feedback.user_id,
-			message=feedback.message,
-			resolved_at=feedback.resolved_at,
-			closed_by=feedback.closed_by,
-			created_at=feedback.created_at,
-		)
+		_to_feedback_read(feedback)
 		for feedback in feedback_items
 	]
+
+
+@app.post("/api/admin/feedback/{feedback_id}/reply", response_model=UserFeedbackRead)
+def reply_to_feedback_for_admin(
+	feedback_id: int,
+	payload: AdminFeedbackReplyUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> UserFeedbackRead:
+	_require_admin_user(current_user)
+	feedback = session.get(UserFeedback, feedback_id)
+	if feedback is None:
+		raise HTTPException(status_code=404, detail="反馈不存在。")
+
+	feedback.reply_message = payload.reply_message
+	feedback.replied_at = utc_now()
+	feedback.replied_by = current_user.username
+	if payload.close and feedback.resolved_at is None:
+		feedback.resolved_at = utc_now()
+		feedback.closed_by = current_user.username
+	session.add(feedback)
+	session.commit()
+	session.refresh(feedback)
+
+	return _to_feedback_read(feedback)
 
 
 @app.post("/api/admin/feedback/{feedback_id}/close", response_model=UserFeedbackRead)
@@ -1632,14 +1678,7 @@ def close_feedback_for_admin(
 		session.commit()
 		session.refresh(feedback)
 
-	return UserFeedbackRead(
-		id=feedback.id or 0,
-		user_id=feedback.user_id,
-		message=feedback.message,
-		resolved_at=feedback.resolved_at,
-		closed_by=feedback.closed_by,
-		created_at=feedback.created_at,
-	)
+	return _to_feedback_read(feedback)
 
 
 @app.get("/api/accounts", response_model=list[CashAccountRead])

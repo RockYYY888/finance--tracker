@@ -5,9 +5,15 @@ import pytest
 from fastapi import HTTPException
 from sqlmodel import SQLModel, Session, create_engine, select
 
-from app.main import close_feedback_for_admin, list_feedback_for_admin, submit_feedback
+from app.main import (
+	close_feedback_for_admin,
+	list_feedback_for_admin,
+	list_feedback_for_current_user,
+	reply_to_feedback_for_admin,
+	submit_feedback,
+)
 from app.models import UserAccount, UserFeedback
-from app.schemas import UserFeedbackCreate
+from app.schemas import AdminFeedbackReplyUpdate, UserFeedbackCreate
 
 
 @pytest.fixture
@@ -92,3 +98,30 @@ def test_admin_can_list_and_close_feedback_without_affecting_daily_limit(session
 	assert closed_feedback.user_id == normal_user.username
 	assert closed_feedback.closed_by == "admin"
 	assert closed_feedback.resolved_at is not None
+
+
+def test_admin_can_reply_and_user_can_see_reply(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "reply_user")
+
+	created_feedback = submit_feedback(
+		UserFeedbackCreate(message="希望看到更清晰的收益率说明。"),
+		normal_user,
+		session,
+	)
+
+	replied_feedback = reply_to_feedback_for_admin(
+		created_feedback.id,
+		AdminFeedbackReplyUpdate(reply_message="已收到，我们会在下一版优化说明文字。", close=True),
+		admin_user,
+		session,
+		None,
+	)
+
+	user_feedback_items = list_feedback_for_current_user(normal_user, session, None)
+
+	assert replied_feedback.reply_message == "已收到，我们会在下一版优化说明文字。"
+	assert replied_feedback.replied_by == "admin"
+	assert replied_feedback.resolved_at is not None
+	assert len(user_feedback_items) == 1
+	assert user_feedback_items[0].reply_message == "已收到，我们会在下一版优化说明文字。"

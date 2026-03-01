@@ -319,9 +319,22 @@ class UserFeedbackRead(BaseModel):
 	id: int
 	user_id: str
 	message: str
+	reply_message: str | None = None
+	replied_at: datetime | None = None
+	replied_by: str | None = None
 	resolved_at: datetime | None = None
 	closed_by: str | None = None
 	created_at: datetime
+
+
+class AdminFeedbackReplyUpdate(BaseModel):
+	reply_message: str = Field(min_length=1, max_length=2000)
+	close: bool = False
+
+	@field_validator("reply_message", mode="before")
+	@classmethod
+	def normalize_reply_message(cls, value: str) -> str:
+		return _normalize_required_text(value, "reply_message")
 
 
 class SecurityHoldingCreate(BaseModel):

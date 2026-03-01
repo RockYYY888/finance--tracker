@@ -6,6 +6,7 @@ import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
 import { PortfolioAnalytics } from "./components/analytics";
 import { FeedbackDialog } from "./components/feedback/FeedbackDialog";
+import { UserFeedbackInboxDialog } from "./components/feedback/UserFeedbackInboxDialog";
 import { defaultAssetApiClient } from "./lib/assetApi";
 import {
 	getAuthSession,
@@ -18,7 +19,9 @@ import {
 import { getDashboard } from "./lib/dashboardApi";
 import {
 	closeFeedbackForAdmin,
+	listFeedbackForCurrentUser,
 	listFeedbackForAdmin,
+	replyToFeedbackForAdmin,
 	submitUserFeedback,
 } from "./lib/feedbackApi";
 import type {
@@ -367,9 +370,13 @@ function App() {
 	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
+	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
 	const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
 	const [adminInboxErrorMessage, setAdminInboxErrorMessage] = useState<string | null>(null);
 	const [adminFeedbackItems, setAdminFeedbackItems] = useState<UserFeedbackRecord[]>([]);
+	const [isLoadingUserInbox, setIsLoadingUserInbox] = useState(false);
+	const [userInboxErrorMessage, setUserInboxErrorMessage] = useState<string | null>(null);
+	const [userFeedbackItems, setUserFeedbackItems] = useState<UserFeedbackRecord[]>([]);
 	const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
 	const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
 	const [emailDialogErrorMessage, setEmailDialogErrorMessage] = useState<string | null>(null);
@@ -402,6 +409,9 @@ function App() {
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
 		setAdminFeedbackItems([]);
+		setUserInboxErrorMessage(null);
+		setIsUserInboxOpen(false);
+		setUserFeedbackItems([]);
 		setEmailNoticeMessage(null);
 		setEmailDialogErrorMessage(null);
 		setIsEmailDialogOpen(false);
@@ -421,6 +431,9 @@ function App() {
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
 		setAdminFeedbackItems([]);
+		setUserInboxErrorMessage(null);
+		setIsUserInboxOpen(false);
+		setUserFeedbackItems([]);
 		setEmailNoticeMessage(null);
 		setEmailDialogErrorMessage(null);
 		setIsEmailDialogOpen(false);
@@ -618,6 +631,36 @@ function App() {
 		setIsAdminInboxOpen(false);
 	}
 
+	async function openUserInbox(): Promise<void> {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
+		setUserInboxErrorMessage(null);
+		setIsUserInboxOpen(true);
+		setIsLoadingUserInbox(true);
+
+		try {
+			const items = await listFeedbackForCurrentUser();
+			setUserFeedbackItems(items);
+		} catch (error) {
+			setUserInboxErrorMessage(
+				error instanceof Error ? error.message : "消息加载失败，请稍后再试。",
+			);
+		} finally {
+			setIsLoadingUserInbox(false);
+		}
+	}
+
+	function closeUserInbox(): void {
+		if (isLoadingUserInbox) {
+			return;
+		}
+
+		setUserInboxErrorMessage(null);
+		setIsUserInboxOpen(false);
+	}
+
 	async function handleSubmitFeedback(message: string): Promise<void> {
 		setIsSubmittingFeedback(true);
 		setFeedbackErrorMessage(null);
@@ -647,6 +690,31 @@ function App() {
 		} catch (error) {
 			setAdminInboxErrorMessage(
 				error instanceof Error ? error.message : "关闭反馈失败，请稍后再试。",
+			);
+		} finally {
+			setIsLoadingAdminInbox(false);
+		}
+	}
+
+	async function handleReplyFeedbackItem(
+		feedbackId: number,
+		replyMessage: string,
+		close: boolean,
+	): Promise<void> {
+		setIsLoadingAdminInbox(true);
+		setAdminInboxErrorMessage(null);
+
+		try {
+			const updatedItem = await replyToFeedbackForAdmin(feedbackId, {
+				reply_message: replyMessage,
+				close,
+			});
+			setAdminFeedbackItems((currentItems) =>
+				currentItems.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+			);
+		} catch (error) {
+			setAdminInboxErrorMessage(
+				error instanceof Error ? error.message : "回复失败，请稍后再试。",
 			);
 		} finally {
 			setIsLoadingAdminInbox(false);
@@ -1012,21 +1080,21 @@ function App() {
 						<button
 							type="button"
 							className="hero-note hero-note--action"
+							onClick={() =>
+								currentUserId === "admin" ? void openAdminInbox() : void openUserInbox()
+							}
+							disabled={isRecoveringSession || isLoadingAdminInbox || isLoadingUserInbox}
+						>
+							消息
+						</button>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
 							onClick={openFeedbackDialog}
 							disabled={isRecoveringSession}
 						>
 							反馈问题
 						</button>
-						{currentUserId === "admin" ? (
-							<button
-								type="button"
-								className="hero-note hero-note--action"
-								onClick={() => void openAdminInbox()}
-								disabled={isRecoveringSession || isLoadingAdminInbox}
-							>
-								消息
-							</button>
-						) : null}
 						<button
 							type="button"
 							className="hero-note hero-note--action"
@@ -1186,6 +1254,14 @@ function App() {
 				errorMessage={adminInboxErrorMessage}
 				onClose={closeAdminInbox}
 				onCloseItem={handleCloseFeedbackItem}
+				onReplyItem={handleReplyFeedbackItem}
+			/>
+			<UserFeedbackInboxDialog
+				open={isUserInboxOpen}
+				busy={isLoadingUserInbox}
+				items={userFeedbackItems}
+				errorMessage={userInboxErrorMessage}
+				onClose={closeUserInbox}
 			/>
 			<EmailDialog
 				open={isEmailDialogOpen}

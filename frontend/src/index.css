@@ -687,6 +687,52 @@ h3 {
 	white-space: pre-wrap;
 }
 
+.admin-feedback-card__actions,
+.admin-feedback-card__footer-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.admin-feedback-card__detail {
+	margin-top: 14px;
+	padding-top: 14px;
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
+	display: grid;
+	gap: 14px;
+}
+
+.admin-feedback-card__reply-history strong {
+	display: block;
+	margin-bottom: 6px;
+}
+
+.admin-feedback-card__reply-history p {
+	margin: 0;
+	color: var(--text-soft);
+	line-height: 1.6;
+	white-space: pre-wrap;
+}
+
+.admin-feedback-card__editor {
+	display: grid;
+	gap: 8px;
+}
+
+.admin-feedback-card__editor textarea {
+	min-height: 110px;
+	resize: vertical;
+}
+
+.admin-feedback-card__footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 14px;
+	color: var(--text-muted);
+	font-size: 0.84rem;
+}
+
 .form-panel {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));

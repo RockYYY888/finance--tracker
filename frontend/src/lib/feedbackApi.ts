@@ -1,5 +1,9 @@
 import { createApiClient } from "./apiClient";
-import type { UserFeedbackInput, UserFeedbackRecord } from "../types/feedback";
+import type {
+	AdminFeedbackReplyInput,
+	UserFeedbackInput,
+	UserFeedbackRecord,
+} from "../types/feedback";
 
 const feedbackApiClient = createApiClient();
 
@@ -12,12 +16,29 @@ export async function submitUserFeedback(
 	});
 }
 
+export async function listFeedbackForCurrentUser(): Promise<UserFeedbackRecord[]> {
+	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/feedback");
+}
+
 export async function listFeedbackForAdmin(): Promise<UserFeedbackRecord[]> {
 	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/admin/feedback");
 }
 
-export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFeedbackRecord> {
-	return feedbackApiClient.request<UserFeedbackRecord>(`/api/admin/feedback/${feedbackId}/close`, {
+export async function replyToFeedbackForAdmin(
+	feedbackId: number,
+	payload: AdminFeedbackReplyInput,
+): Promise<UserFeedbackRecord> {
+	return feedbackApiClient.request<UserFeedbackRecord>(`/api/admin/feedback/${feedbackId}/reply`, {
 		method: "POST",
+		body: JSON.stringify(payload),
 	});
+}
+
+export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFeedbackRecord> {
+	return feedbackApiClient.request<UserFeedbackRecord>(
+		`/api/admin/feedback/${feedbackId}/close`,
+		{
+			method: "POST",
+		},
+	);
 }
