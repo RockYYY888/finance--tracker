@@ -49,6 +49,17 @@ def test_settings_default_to_local_development() -> None:
 	assert settings.trusted_hosts() == ["localhost", "127.0.0.1"]
 
 
+def test_settings_generate_process_local_session_secret_in_development() -> None:
+	settings = get_settings()
+
+	first_secret = settings.session_secret_value()
+	second_secret = settings.session_secret_value()
+
+	assert first_secret == second_secret
+	assert first_secret != "asset-tracker-development-session-secret"
+	assert len(first_secret) >= 32
+
+
 def test_settings_lock_down_same_origin_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")

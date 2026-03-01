@@ -1,7 +1,8 @@
 from functools import lru_cache
+import secrets
 from urllib.parse import urlparse
 
-from pydantic import SecretStr
+from pydantic import PrivateAttr, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
 		env_prefix="ASSET_TRACKER_",
 		extra="ignore",
 	)
+	_runtime_session_secret: str | None = PrivateAttr(default=None)
 
 	app_env: str = "development"
 	api_token: SecretStr | None = None
@@ -55,6 +57,13 @@ class Settings(BaseSettings):
 	def require_api_token(self) -> bool:
 		return self.api_token_value() is not None
 
+	def _configured_session_secret_value(self) -> str | None:
+		if self.session_secret is None:
+			return None
+
+		secret = self.session_secret.get_secret_value().strip()
+		return secret or None
+
 	def api_token_value(self) -> str | None:
 		if self.api_token is None:
 			return None
@@ -62,16 +71,18 @@ class Settings(BaseSettings):
 		token = self.api_token.get_secret_value().strip()
 		return token or None
 
-	def session_secret_value(self) -> str | None:
-		if self.session_secret is not None:
-			secret = self.session_secret.get_secret_value().strip()
-			if secret:
-				return secret
+	def session_secret_value(self) -> str:
+		configured_secret = self._configured_session_secret_value()
+		if configured_secret is not None:
+			return configured_secret
 
-		if not self.is_production:
-			return "asset-tracker-development-session-secret"
+		if self.is_production:
+			raise ValueError("Production mode requires ASSET_TRACKER_SESSION_SECRET.")
 
-		return None
+		if self._runtime_session_secret is None:
+			self._runtime_session_secret = secrets.token_urlsafe(32)
+
+		return self._runtime_session_secret
 
 	def cors_origins(self) -> list[str]:
 		configured_origins = [_normalize_origin(item) for item in _split_csv(self.allowed_origins)]
@@ -112,7 +123,7 @@ class Settings(BaseSettings):
 				"ASSET_TRACKER_ALLOWED_ORIGINS, or ASSET_TRACKER_ALLOWED_HOSTS.",
 			)
 
-		if self.is_production and not self.session_secret_value():
+		if self.is_production and not self._configured_session_secret_value():
 			raise ValueError("Production mode requires ASSET_TRACKER_SESSION_SECRET.")
 
 
