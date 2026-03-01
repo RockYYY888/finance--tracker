@@ -424,6 +424,8 @@ class DashboardResponse(BaseModel):
 	fixed_assets_value_cny: float
 	liabilities_value_cny: float
 	other_assets_value_cny: float
+	usd_cny_rate: Optional[float] = None
+	hkd_cny_rate: Optional[float] = None
 	cash_accounts: list[ValuedCashAccount]
 	holdings: list[ValuedHolding]
 	fixed_assets: list[ValuedFixedAsset]

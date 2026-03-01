@@ -6,6 +6,8 @@ export type DashboardResponse = PortfolioAnalyticsData & {
 	fixed_assets_value_cny: number;
 	liabilities_value_cny: number;
 	other_assets_value_cny: number;
+	usd_cny_rate: number | null;
+	hkd_cny_rate: number | null;
 	warnings: string[];
 };
 
@@ -16,6 +18,8 @@ export const EMPTY_DASHBOARD: DashboardResponse = {
 	fixed_assets_value_cny: 0,
 	liabilities_value_cny: 0,
 	other_assets_value_cny: 0,
+	usd_cny_rate: null,
+	hkd_cny_rate: null,
 	cash_accounts: [],
 	holdings: [],
 	fixed_assets: [],

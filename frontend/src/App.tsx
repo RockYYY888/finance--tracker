@@ -65,6 +65,14 @@ function formatSummaryCny(value: number): string {
 	return `${sign}¥${(absoluteValue / 100_000_000).toFixed(2)}亿`;
 }
 
+function formatFxRate(rate: number | null | undefined): string {
+	if (rate === null || rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+		return "--";
+	}
+
+	return rate.toFixed(4);
+}
+
 function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number]): CashAccountRecord {
 	return {
 		...record,
@@ -433,6 +441,16 @@ function App() {
 						>
 							退出登录
 						</button>
+					</div>
+					<div className="hero-rates" aria-label="实时汇率">
+						<div className="rate-card">
+							<span>USD/CNY</span>
+							<strong>{formatFxRate(dashboard.usd_cny_rate)}</strong>
+						</div>
+						<div className="rate-card">
+							<span>HKD/CNY</span>
+							<strong>{formatFxRate(dashboard.hkd_cny_rate)}</strong>
+						</div>
 					</div>
 				</div>
 

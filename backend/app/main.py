@@ -423,16 +423,47 @@ def _ensure_legacy_schema() -> None:
 			session.commit()
 
 
+async def _load_display_fx_rates() -> tuple[dict[str, float], float | None, float | None, list[str]]:
+	"""Load top-level display FX rates and reuse them in dashboard valuation."""
+	rates: dict[str, float] = {"CNY": 1.0}
+	warnings: list[str] = []
+	usd_cny_rate: float | None = None
+	hkd_cny_rate: float | None = None
+
+	for currency_code in ("USD", "HKD"):
+		try:
+			rate, rate_warnings = await market_data_client.fetch_fx_rate(currency_code, "CNY")
+		except (QuoteLookupError, ValueError) as exc:
+			warnings.append(f"{currency_code}/CNY 汇率拉取失败: {exc}")
+			continue
+
+		rates[currency_code] = rate
+		warnings.extend(rate_warnings)
+		if currency_code == "USD":
+			usd_cny_rate = round(rate, 6)
+		else:
+			hkd_cny_rate = round(rate, 6)
+
+	return rates, usd_cny_rate, hkd_cny_rate, warnings
+
+
 async def _value_cash_accounts(
 	accounts: list[CashAccount],
+	fx_rate_overrides: dict[str, float] | None = None,
 ) -> tuple[list[ValuedCashAccount], float, list[str]]:
 	items: list[ValuedCashAccount] = []
 	total = 0.0
 	warnings: list[str] = []
 
 	for account in accounts:
+		currency_code = _normalize_currency(account.currency)
 		try:
-			fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(account.currency, "CNY")
+			override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
+			if override_rate is not None:
+				fx_rate = override_rate
+				fx_warnings: list[str] = []
+			else:
+				fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(currency_code, "CNY")
 			value_cny = round(account.balance * fx_rate, 2)
 			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:
@@ -461,6 +492,7 @@ async def _value_cash_accounts(
 
 async def _value_holdings(
 	holdings: list[SecurityHolding],
+	fx_rate_overrides: dict[str, float] | None = None,
 ) -> tuple[list[ValuedHolding], float, list[str]]:
 	items: list[ValuedHolding] = []
 	total = 0.0
@@ -469,10 +501,16 @@ async def _value_holdings(
 	for holding in holdings:
 		try:
 			quote, quote_warnings = await market_data_client.fetch_quote(holding.symbol)
-			fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(quote.currency, "CNY")
+			currency_code = _normalize_currency(quote.currency)
+			override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
+			if override_rate is not None:
+				fx_rate = override_rate
+				fx_warnings: list[str] = []
+			else:
+				fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(currency_code, "CNY")
 			value_cny = round(holding.quantity * quote.price * fx_rate, 2)
 			price = round(quote.price, 4)
-			price_currency = quote.currency
+			price_currency = currency_code
 			last_updated = quote.market_time
 			warnings.extend(quote_warnings)
 			warnings.extend(fx_warnings)
@@ -543,14 +581,21 @@ def _value_fixed_assets(
 
 async def _value_liabilities(
 	entries: list[LiabilityEntry],
+	fx_rate_overrides: dict[str, float] | None = None,
 ) -> tuple[list[ValuedLiabilityEntry], float, list[str]]:
 	items: list[ValuedLiabilityEntry] = []
 	total = 0.0
 	warnings: list[str] = []
 
 	for entry in entries:
+		currency_code = _normalize_currency(entry.currency)
 		try:
-			fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(entry.currency, "CNY")
+			override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
+			if override_rate is not None:
+				fx_rate = override_rate
+				fx_warnings: list[str] = []
+			else:
+				fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(currency_code, "CNY")
 			value_cny = round(entry.balance * fx_rate, 2)
 			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:
@@ -1055,6 +1100,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 	now = utc_now()
 	_roll_live_portfolio_state_if_needed(session, user_id, now)
 	_roll_live_holdings_return_state_if_needed(session, user_id, now)
+	fx_rate_overrides, usd_cny_rate, hkd_cny_rate, fx_display_warnings = await _load_display_fx_rates()
 
 	accounts = list(
 		session.exec(
@@ -1092,11 +1138,18 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		),
 	)
 
-	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(accounts)
-	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(holdings)
+	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(
+		accounts,
+		fx_rate_overrides,
+	)
+	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(
+		holdings,
+		fx_rate_overrides,
+	)
 	valued_fixed_assets, fixed_assets_value_cny = _value_fixed_assets(fixed_assets)
 	valued_liabilities, liabilities_value_cny, liability_warnings = await _value_liabilities(
 		liabilities,
+		fx_rate_overrides,
 	)
 	valued_other_assets, other_assets_value_cny = _value_other_assets(other_assets)
 	total_value_cny = round(
@@ -1238,6 +1291,8 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		fixed_assets_value_cny=fixed_assets_value_cny,
 		liabilities_value_cny=liabilities_value_cny,
 		other_assets_value_cny=other_assets_value_cny,
+		usd_cny_rate=usd_cny_rate,
+		hkd_cny_rate=hkd_cny_rate,
 		cash_accounts=valued_accounts,
 		holdings=valued_holdings,
 		fixed_assets=valued_fixed_assets,
@@ -1262,7 +1317,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		holdings_return_month_series=holdings_return_month_series,
 		holdings_return_year_series=holdings_return_year_series,
 		holding_return_series=holding_return_series,
-		warnings=[*account_warnings, *holding_warnings, *liability_warnings],
+		warnings=[*fx_display_warnings, *account_warnings, *holding_warnings, *liability_warnings],
 	)
 
 

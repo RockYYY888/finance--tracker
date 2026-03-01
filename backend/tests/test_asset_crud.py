@@ -719,6 +719,8 @@ def test_build_dashboard_converts_usd_liabilities_to_cny(
 
 	dashboard = asyncio.run(main._build_dashboard(session, current_user))
 
+	assert dashboard.usd_cny_rate == 7.0
+	assert dashboard.hkd_cny_rate == 7.0
 	assert dashboard.cash_value_cny == 1_000.0
 	assert dashboard.liabilities_value_cny == 700.0
 	assert dashboard.total_value_cny == 300.0
