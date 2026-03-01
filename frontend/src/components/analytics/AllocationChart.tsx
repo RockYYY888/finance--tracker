@@ -27,8 +27,8 @@ type AllocationChartProps = {
 export function AllocationChart({
 	total_value_cny,
 	allocation,
-	title = "资产分布",
-	description = "按当前正向资产结构汇总，负债已单独扣减。",
+	title = "正向资产分布",
+	description = "按当前正向资产结构汇总，不包括负债。",
 }: AllocationChartProps) {
 	const legendItems = buildAllocationLegend(allocation, total_value_cny);
 	const positiveAssetTotal = legendItems.reduce((sum, item) => sum + item.value_cny, 0);
