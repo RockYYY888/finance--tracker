@@ -11,3 +11,13 @@ export async function submitUserFeedback(
 		body: JSON.stringify(payload),
 	});
 }
+
+export async function listFeedbackForAdmin(): Promise<UserFeedbackRecord[]> {
+	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/admin/feedback");
+}
+
+export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFeedbackRecord> {
+	return feedbackApiClient.request<UserFeedbackRecord>(`/api/admin/feedback/${feedbackId}/close`, {
+		method: "POST",
+	});
+}

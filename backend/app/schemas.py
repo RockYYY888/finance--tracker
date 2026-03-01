@@ -317,7 +317,10 @@ class UserFeedbackCreate(BaseModel):
 
 class UserFeedbackRead(BaseModel):
 	id: int
+	user_id: str
 	message: str
+	resolved_at: datetime | None = None
+	closed_by: str | None = None
 	created_at: datetime
 
 

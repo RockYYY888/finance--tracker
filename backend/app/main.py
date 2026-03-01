@@ -373,6 +373,13 @@ def _ensure_legacy_schema() -> None:
 			},
 		),
 		(
+			UserFeedback.__table__.name,
+			{
+				"resolved_at": "TEXT",
+				"closed_by": "TEXT",
+			},
+		),
+		(
 			CashAccount.__table__.name,
 			{
 				"user_id": "TEXT",
@@ -1464,6 +1471,11 @@ def _update_user_email(
 	return current_user
 
 
+def _require_admin_user(current_user: UserAccount) -> None:
+	if current_user.username != "admin":
+		raise HTTPException(status_code=403, detail="仅管理员可访问。")
+
+
 @app.get("/api/auth/session", response_model=AuthSessionRead)
 def get_auth_session(
 	request: Request,
@@ -1565,7 +1577,67 @@ def submit_feedback(
 	session.refresh(feedback)
 	return UserFeedbackRead(
 		id=feedback.id or 0,
+		user_id=feedback.user_id,
 		message=feedback.message,
+		resolved_at=feedback.resolved_at,
+		closed_by=feedback.closed_by,
+		created_at=feedback.created_at,
+	)
+
+
+@app.get("/api/admin/feedback", response_model=list[UserFeedbackRead])
+def list_feedback_for_admin(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> list[UserFeedbackRead]:
+	_require_admin_user(current_user)
+	feedback_items = list(
+		session.exec(
+			select(UserFeedback).order_by(
+				UserFeedback.resolved_at.is_not(None),
+				UserFeedback.created_at.desc(),
+			),
+		),
+	)
+	return [
+		UserFeedbackRead(
+			id=feedback.id or 0,
+			user_id=feedback.user_id,
+			message=feedback.message,
+			resolved_at=feedback.resolved_at,
+			closed_by=feedback.closed_by,
+			created_at=feedback.created_at,
+		)
+		for feedback in feedback_items
+	]
+
+
+@app.post("/api/admin/feedback/{feedback_id}/close", response_model=UserFeedbackRead)
+def close_feedback_for_admin(
+	feedback_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> UserFeedbackRead:
+	_require_admin_user(current_user)
+	feedback = session.get(UserFeedback, feedback_id)
+	if feedback is None:
+		raise HTTPException(status_code=404, detail="反馈不存在。")
+
+	if feedback.resolved_at is None:
+		feedback.resolved_at = utc_now()
+		feedback.closed_by = current_user.username
+		session.add(feedback)
+		session.commit()
+		session.refresh(feedback)
+
+	return UserFeedbackRead(
+		id=feedback.id or 0,
+		user_id=feedback.user_id,
+		message=feedback.message,
+		resolved_at=feedback.resolved_at,
+		closed_by=feedback.closed_by,
 		created_at=feedback.created_at,
 	)
 

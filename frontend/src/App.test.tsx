@@ -18,6 +18,12 @@ const dashboardApiMocks = vi.hoisted(() => ({
 	getDashboard: vi.fn(),
 }));
 
+const feedbackApiMocks = vi.hoisted(() => ({
+	submitUserFeedback: vi.fn(),
+	listFeedbackForAdmin: vi.fn(),
+	closeFeedbackForAdmin: vi.fn(),
+}));
+
 vi.mock("./lib/authApi", () => ({
 	getAuthSession: authApiMocks.getAuthSession,
 	loginWithPassword: authApiMocks.loginWithPassword,
@@ -47,8 +53,14 @@ vi.mock("./components/feedback/FeedbackDialog", () => ({
 	FeedbackDialog: () => null,
 }));
 
+vi.mock("./components/feedback/AdminFeedbackDialog", () => ({
+	AdminFeedbackDialog: () => null,
+}));
+
 vi.mock("./lib/feedbackApi", () => ({
-	submitUserFeedback: vi.fn(),
+	submitUserFeedback: feedbackApiMocks.submitUserFeedback,
+	listFeedbackForAdmin: feedbackApiMocks.listFeedbackForAdmin,
+	closeFeedbackForAdmin: feedbackApiMocks.closeFeedbackForAdmin,
 }));
 
 function createDeferredPromise<T>() {
@@ -72,6 +84,15 @@ describe("App session restore", () => {
 		vi.clearAllMocks();
 		window.sessionStorage.clear();
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
+		feedbackApiMocks.listFeedbackForAdmin.mockResolvedValue([]);
+		feedbackApiMocks.closeFeedbackForAdmin.mockResolvedValue({
+			id: 1,
+			user_id: "alice",
+			message: "msg",
+			resolved_at: null,
+			closed_by: null,
+			created_at: new Date().toISOString(),
+		});
 		dashboardApiMocks.getDashboard.mockResolvedValue({ ...EMPTY_DASHBOARD });
 	});
 
