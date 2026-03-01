@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Optional
+from datetime import date, datetime, timezone
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from app.models import (
 	CASH_ACCOUNT_TYPES,
@@ -45,6 +45,26 @@ def _normalize_choice(
 		raise ValueError(f"{field_name} must be one of: {', '.join(allowed_values)}.")
 
 	return normalized
+
+
+def _coerce_utc_datetime(value: datetime) -> datetime:
+	if value.tzinfo is None:
+		return value.replace(tzinfo=timezone.utc)
+
+	return value.astimezone(timezone.utc)
+
+
+def _serialize_utc_datetime(value: datetime) -> str:
+	return _coerce_utc_datetime(value).isoformat().replace("+00:00", "Z")
+
+
+class UtcTimestampResponseModel(BaseModel):
+	@field_serializer("*", when_used="json", check_fields=False)
+	def serialize_datetime_fields(self, value: Any) -> Any:
+		if isinstance(value, datetime):
+			return _serialize_utc_datetime(value)
+
+		return value
 
 
 class CashAccountCreate(BaseModel):
@@ -315,7 +335,7 @@ class UserFeedbackCreate(BaseModel):
 		return _normalize_required_text(value, "message")
 
 
-class UserFeedbackRead(BaseModel):
+class UserFeedbackRead(UtcTimestampResponseModel):
 	id: int
 	user_id: str
 	message: str
@@ -399,7 +419,7 @@ class SecurityHoldingUpdate(BaseModel):
 		return self
 
 
-class SecurityHoldingRead(BaseModel):
+class SecurityHoldingRead(UtcTimestampResponseModel):
 	id: int
 	symbol: str
 	name: str
@@ -439,7 +459,7 @@ class ValuedCashAccount(BaseModel):
 	value_cny: float
 
 
-class ValuedHolding(BaseModel):
+class ValuedHolding(UtcTimestampResponseModel):
 	id: int
 	symbol: str
 	name: str

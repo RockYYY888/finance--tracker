@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { formatTimestamp as formatAssetTimestamp } from "../../lib/assetFormatting";
 import type { UserFeedbackRecord } from "../../types/feedback";
 
 export interface UserFeedbackInboxDialogProps {
@@ -15,17 +16,8 @@ function formatTimestamp(value: string | null): string {
 		return "未记录";
 	}
 
-	const parsedValue = new Date(value);
-	if (Number.isNaN(parsedValue.getTime())) {
-		return "未记录";
-	}
-
-	return new Intl.DateTimeFormat("zh-CN", {
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(parsedValue);
+	const formattedValue = formatAssetTimestamp(value);
+	return formattedValue === "待更新" ? "未记录" : formattedValue;
 }
 
 export function UserFeedbackInboxDialog({

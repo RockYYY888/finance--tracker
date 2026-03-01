@@ -17,6 +17,9 @@ const percentFormatter = new Intl.NumberFormat("zh-CN", {
 	minimumFractionDigits: 2,
 	maximumFractionDigits: 2,
 });
+const DISPLAY_TIME_ZONE = "Asia/Shanghai";
+const BARE_UTC_TIMESTAMP_PATTERN =
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
 
 const cashAccountTypeLabels: Record<string, string> = {
 	ALIPAY: "支付宝",
@@ -82,12 +85,26 @@ export function formatQuantity(value: number): string {
 	return numberFormatter.format(Number.isFinite(value) ? value : 0);
 }
 
+function normalizeUtcTimestampValue(value: string): string {
+	const trimmedValue = value.trim();
+	const normalizedValue = trimmedValue.replace(
+		/^(\d{4}-\d{2}-\d{2}) /,
+		"$1T",
+	);
+
+	if (BARE_UTC_TIMESTAMP_PATTERN.test(normalizedValue)) {
+		return `${normalizedValue}Z`;
+	}
+
+	return normalizedValue;
+}
+
 export function formatTimestamp(value?: string | null): string {
 	if (!value) {
 		return "待更新";
 	}
 
-	const parsedValue = new Date(value);
+	const parsedValue = new Date(normalizeUtcTimestampValue(value));
 	if (Number.isNaN(parsedValue.getTime())) {
 		return "待更新";
 	}
@@ -97,6 +114,7 @@ export function formatTimestamp(value?: string | null): string {
 		day: "2-digit",
 		hour: "2-digit",
 		minute: "2-digit",
+		timeZone: DISPLAY_TIME_ZONE,
 	}).format(parsedValue);
 }
 
