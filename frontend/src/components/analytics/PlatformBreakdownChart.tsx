@@ -54,9 +54,7 @@ export function PlatformBreakdownChart({
 			</div>
 
 			{platformBreakdown.length === 0 ? (
-				<div className="analytics-empty-state">
-					暂无可展示的平台分布。先录入现金账户或证券持仓即可生成。
-				</div>
+				<div className="analytics-empty-state">暂无平台分布数据。</div>
 			) : (
 				<>
 					<div className="analytics-chart">

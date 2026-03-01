@@ -41,7 +41,7 @@ export function AllocationChart({
 			</div>
 
 			{legendItems.length === 0 ? (
-				<div className="analytics-empty-state">录入资产后，这里会显示现金与证券的占比。</div>
+				<div className="analytics-empty-state">暂无资产分布数据。</div>
 			) : (
 				<div className="analytics-donut">
 					<div className="analytics-chart">

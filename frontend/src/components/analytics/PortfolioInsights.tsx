@@ -37,7 +37,7 @@ export function PortfolioInsights({
 		? "集中度偏高"
 		: "集中度适中";
 	const recommendations = holdings.length === 0
-		? ["先录入持仓", cashMessage]
+		? ["暂无持仓数据", cashMessage]
 		: [concentrationMessage, cashMessage, "快照越多，趋势越稳定"];
 
 	return (
@@ -62,7 +62,7 @@ export function PortfolioInsights({
 							? `${formatCny(summary.topHolding.value_cny)} · ${formatPercentage(
 								summary.topHoldingRatio,
 							)}`
-							: "录入持仓后自动识别"}
+							: "暂无持仓数据"}
 					</p>
 				</div>
 				<div className="analytics-metric">
