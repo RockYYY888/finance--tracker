@@ -1,28 +1,53 @@
 import { useEffect, useState } from "react";
 import { CashAccountForm } from "./CashAccountForm";
 import { CashAccountList } from "./CashAccountList";
+import { FixedAssetForm } from "./FixedAssetForm";
+import { FixedAssetList } from "./FixedAssetList";
 import { HoldingForm } from "./HoldingForm";
 import { HoldingList } from "./HoldingList";
+import { LiabilityForm } from "./LiabilityForm";
+import { LiabilityList } from "./LiabilityList";
+import { OtherAssetForm } from "./OtherAssetForm";
+import { OtherAssetList } from "./OtherAssetList";
 import { useAssetCollection } from "../../hooks/useAssetCollection";
 import type {
 	AssetManagerController,
 	CashAccountFormDraft,
 	CashAccountInput,
 	CashAccountRecord,
+	FixedAssetFormDraft,
+	FixedAssetInput,
+	FixedAssetRecord,
 	HoldingFormDraft,
 	HoldingInput,
 	HoldingRecord,
+	LiabilityFormDraft,
+	LiabilityInput,
+	LiabilityRecord,
+	OtherAssetFormDraft,
+	OtherAssetInput,
+	OtherAssetRecord,
 } from "../../types/assets";
 
-type AssetSection = "cash" | "holding";
+type AssetSection = "cash" | "investment" | "fixed" | "liability" | "other";
+
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
+const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
+const EMPTY_LIABILITIES: LiabilityRecord[] = [];
+const EMPTY_OTHER_ASSETS: OtherAssetRecord[] = [];
 
 export interface AssetManagerProps {
 	initialCashAccounts?: CashAccountRecord[];
 	initialHoldings?: HoldingRecord[];
+	initialFixedAssets?: FixedAssetRecord[];
+	initialLiabilities?: LiabilityRecord[];
+	initialOtherAssets?: OtherAssetRecord[];
 	cashActions?: AssetManagerController["cashAccounts"];
 	holdingActions?: AssetManagerController["holdings"];
+	fixedAssetActions?: AssetManagerController["fixedAssets"];
+	liabilityActions?: AssetManagerController["liabilities"];
+	otherAssetActions?: AssetManagerController["otherAssets"];
 	defaultSection?: AssetSection;
 	title?: string;
 	description?: string;
@@ -49,6 +74,36 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		cost_basis_price: record.cost_basis_price != null ? String(record.cost_basis_price) : "",
 		market: record.market,
 		broker: record.broker ?? "",
+		note: record.note ?? "",
+	};
+}
+
+function toFixedAssetDraft(record: FixedAssetRecord): FixedAssetFormDraft {
+	return {
+		name: record.name,
+		category: record.category,
+		current_value_cny: String(record.current_value_cny),
+		purchase_value_cny: record.purchase_value_cny != null ? String(record.purchase_value_cny) : "",
+		note: record.note ?? "",
+	};
+}
+
+function toLiabilityDraft(record: LiabilityRecord): LiabilityFormDraft {
+	return {
+		name: record.name,
+		category: record.category,
+		currency: record.currency,
+		balance: String(record.balance),
+		note: record.note ?? "",
+	};
+}
+
+function toOtherAssetDraft(record: OtherAssetRecord): OtherAssetFormDraft {
+	return {
+		name: record.name,
+		category: record.category,
+		current_value_cny: String(record.current_value_cny),
+		original_value_cny: record.original_value_cny != null ? String(record.original_value_cny) : "",
 		note: record.note ?? "",
 	};
 }
@@ -108,33 +163,167 @@ function updateLocalHolding(
 	};
 }
 
+function createLocalFixedAsset(
+	payload: FixedAssetInput,
+	nextId: number,
+): FixedAssetRecord {
+	return {
+		id: nextId,
+		...payload,
+		purchase_value_cny: payload.purchase_value_cny,
+		note: payload.note,
+		value_cny: payload.current_value_cny,
+		return_pct: payload.purchase_value_cny
+			? Number(
+				(
+					((payload.current_value_cny - payload.purchase_value_cny) /
+						payload.purchase_value_cny) *
+					100
+				).toFixed(2),
+			)
+			: null,
+	};
+}
+
+function updateLocalFixedAsset(
+	currentRecord: FixedAssetRecord,
+	payload: FixedAssetInput,
+): FixedAssetRecord {
+	return {
+		...currentRecord,
+		...payload,
+		purchase_value_cny: payload.purchase_value_cny,
+		note: payload.note,
+		value_cny: payload.current_value_cny,
+		return_pct: payload.purchase_value_cny
+			? Number(
+				(
+					((payload.current_value_cny - payload.purchase_value_cny) /
+						payload.purchase_value_cny) *
+					100
+				).toFixed(2),
+			)
+			: null,
+	};
+}
+
+function createLocalLiability(
+	payload: LiabilityInput,
+	nextId: number,
+): LiabilityRecord {
+	return {
+		id: nextId,
+		...payload,
+		note: payload.note,
+		value_cny: payload.currency === "CNY" ? payload.balance : 0,
+		fx_to_cny: payload.currency === "CNY" ? 1 : null,
+	};
+}
+
+function updateLocalLiability(
+	currentRecord: LiabilityRecord,
+	payload: LiabilityInput,
+): LiabilityRecord {
+	return {
+		...currentRecord,
+		...payload,
+		note: payload.note,
+		value_cny: payload.currency === "CNY" ? payload.balance : currentRecord.value_cny ?? 0,
+		fx_to_cny: payload.currency === "CNY" ? 1 : currentRecord.fx_to_cny ?? null,
+	};
+}
+
+function createLocalOtherAsset(
+	payload: OtherAssetInput,
+	nextId: number,
+): OtherAssetRecord {
+	return {
+		id: nextId,
+		...payload,
+		original_value_cny: payload.original_value_cny,
+		note: payload.note,
+		value_cny: payload.current_value_cny,
+		return_pct: payload.original_value_cny
+			? Number(
+				(
+					((payload.current_value_cny - payload.original_value_cny) /
+						payload.original_value_cny) *
+					100
+				).toFixed(2),
+			)
+			: null,
+	};
+}
+
+function updateLocalOtherAsset(
+	currentRecord: OtherAssetRecord,
+	payload: OtherAssetInput,
+): OtherAssetRecord {
+	return {
+		...currentRecord,
+		...payload,
+		original_value_cny: payload.original_value_cny,
+		note: payload.note,
+		value_cny: payload.current_value_cny,
+		return_pct: payload.original_value_cny
+			? Number(
+				(
+					((payload.current_value_cny - payload.original_value_cny) /
+						payload.original_value_cny) *
+					100
+				).toFixed(2),
+			)
+			: null,
+	};
+}
+
 export function AssetManager({
 	initialCashAccounts,
 	initialHoldings,
+	initialFixedAssets,
+	initialLiabilities,
+	initialOtherAssets,
 	cashActions,
 	holdingActions,
+	fixedAssetActions,
+	liabilityActions,
+	otherAssetActions,
 	defaultSection = "cash",
-	title = "资产录入",
+	title = "资产管理",
 	description,
 	autoRefreshOnMount = false,
 	refreshToken = 0,
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
-	const resolvedCashAccounts = initialCashAccounts ?? EMPTY_CASH_ACCOUNTS;
-	const resolvedHoldings = initialHoldings ?? EMPTY_HOLDINGS;
-
 	const cashCollection = useAssetCollection({
-		initialItems: resolvedCashAccounts,
+		initialItems: initialCashAccounts ?? EMPTY_CASH_ACCOUNTS,
 		actions: cashActions,
 		createLocalRecord: createLocalCashAccount,
 		updateLocalRecord: updateLocalCashAccount,
 	});
-
 	const holdingCollection = useAssetCollection({
-		initialItems: resolvedHoldings,
+		initialItems: initialHoldings ?? EMPTY_HOLDINGS,
 		actions: holdingActions,
 		createLocalRecord: createLocalHolding,
 		updateLocalRecord: updateLocalHolding,
+	});
+	const fixedAssetCollection = useAssetCollection({
+		initialItems: initialFixedAssets ?? EMPTY_FIXED_ASSETS,
+		actions: fixedAssetActions,
+		createLocalRecord: createLocalFixedAsset,
+		updateLocalRecord: updateLocalFixedAsset,
+	});
+	const liabilityCollection = useAssetCollection({
+		initialItems: initialLiabilities ?? EMPTY_LIABILITIES,
+		actions: liabilityActions,
+		createLocalRecord: createLocalLiability,
+		updateLocalRecord: updateLocalLiability,
+	});
+	const otherAssetCollection = useAssetCollection({
+		initialItems: initialOtherAssets ?? EMPTY_OTHER_ASSETS,
+		actions: otherAssetActions,
+		createLocalRecord: createLocalOtherAsset,
+		updateLocalRecord: updateLocalOtherAsset,
 	});
 
 	useEffect(() => {
@@ -144,34 +333,54 @@ export function AssetManager({
 
 		void cashCollection.refresh();
 		void holdingCollection.refresh();
+		void fixedAssetCollection.refresh();
+		void liabilityCollection.refresh();
+		void otherAssetCollection.refresh();
 	}, [autoRefreshOnMount, refreshToken]);
 
-	async function handleCashDelete(recordId: number): Promise<void> {
-		const targetAccount = cashCollection.items.find((item) => item.id === recordId);
-		if (!targetAccount) {
+	async function removeCashRecord(recordId: number): Promise<void> {
+		const record = cashCollection.items.find((item) => item.id === recordId);
+		if (!record) {
 			return;
 		}
-
-		await cashCollection.remove(targetAccount);
+		await cashCollection.remove(record);
 	}
 
-	async function handleHoldingDelete(recordId: number): Promise<void> {
-		const targetHolding = holdingCollection.items.find((item) => item.id === recordId);
-		if (!targetHolding) {
+	async function removeHoldingRecord(recordId: number): Promise<void> {
+		const record = holdingCollection.items.find((item) => item.id === recordId);
+		if (!record) {
 			return;
 		}
-
-		await holdingCollection.remove(targetHolding);
+		await holdingCollection.remove(record);
 	}
 
-	const cashFormMode =
-		cashCollection.editingRecord !== null ? "edit" : "create";
-	const holdingFormMode =
-		holdingCollection.editingRecord !== null ? "edit" : "create";
-	const showCashEditor =
-		cashCollection.isEditorOpen || cashCollection.items.length === 0;
-	const showHoldingEditor =
-		holdingCollection.isEditorOpen || holdingCollection.items.length === 0;
+	async function removeFixedAssetRecord(recordId: number): Promise<void> {
+		const record = fixedAssetCollection.items.find((item) => item.id === recordId);
+		if (!record) {
+			return;
+		}
+		await fixedAssetCollection.remove(record);
+	}
+
+	async function removeLiabilityRecord(recordId: number): Promise<void> {
+		const record = liabilityCollection.items.find((item) => item.id === recordId);
+		if (!record) {
+			return;
+		}
+		await liabilityCollection.remove(record);
+	}
+
+	async function removeOtherAssetRecord(recordId: number): Promise<void> {
+		const record = otherAssetCollection.items.find((item) => item.id === recordId);
+		if (!record) {
+			return;
+		}
+		await otherAssetCollection.remove(record);
+	}
+
+	function summaryCountClass(section: AssetSection): string {
+		return `asset-manager__summary-card asset-manager__summary-card--${section}`;
+	}
 
 	return (
 		<section className="asset-manager">
@@ -182,13 +391,25 @@ export function AssetManager({
 					{description ? <p>{description}</p> : null}
 				</div>
 				<div className="asset-manager__summary">
-					<div className="asset-manager__summary-card is-cash">
-						<span>现金账户</span>
+					<div className={summaryCountClass("cash")}>
+						<span>现金</span>
 						<strong>{cashCollection.items.length}</strong>
 					</div>
-					<div className="asset-manager__summary-card is-holding">
-						<span>证券持仓</span>
+					<div className={summaryCountClass("investment")}>
+						<span>投资类</span>
 						<strong>{holdingCollection.items.length}</strong>
+					</div>
+					<div className={summaryCountClass("fixed")}>
+						<span>固定资产</span>
+						<strong>{fixedAssetCollection.items.length}</strong>
+					</div>
+					<div className={summaryCountClass("liability")}>
+						<span>负债</span>
+						<strong>{liabilityCollection.items.length}</strong>
+					</div>
+					<div className={summaryCountClass("other")}>
+						<span>其他</span>
+						<strong>{otherAssetCollection.items.length}</strong>
 					</div>
 				</div>
 			</header>
@@ -203,19 +424,40 @@ export function AssetManager({
 				</button>
 				<button
 					type="button"
-					className={activeSection === "holding" ? "is-active" : undefined}
-					onClick={() => setActiveSection("holding")}
+					className={activeSection === "investment" ? "is-active" : undefined}
+					onClick={() => setActiveSection("investment")}
 				>
-					证券
+					投资类
+				</button>
+				<button
+					type="button"
+					className={activeSection === "fixed" ? "is-active" : undefined}
+					onClick={() => setActiveSection("fixed")}
+				>
+					固定资产
+				</button>
+				<button
+					type="button"
+					className={activeSection === "liability" ? "is-active" : undefined}
+					onClick={() => setActiveSection("liability")}
+				>
+					负债
+				</button>
+				<button
+					type="button"
+					className={activeSection === "other" ? "is-active" : undefined}
+					onClick={() => setActiveSection("other")}
+				>
+					其他
 				</button>
 			</div>
 
 			<div className="asset-manager__workspace">
 				{activeSection === "cash" ? (
 					<>
-						{showCashEditor ? (
+						{(cashCollection.isEditorOpen || cashCollection.items.length === 0) ? (
 							<CashAccountForm
-								mode={cashFormMode}
+								mode={cashCollection.editingRecord ? "edit" : "create"}
 								value={
 									cashCollection.editingRecord
 										? toCashDraft(cashCollection.editingRecord)
@@ -226,26 +468,31 @@ export function AssetManager({
 								errorMessage={cashCollection.errorMessage}
 								onCreate={(payload) => cashCollection.submit(payload)}
 								onEdit={(_recordId, payload) => cashCollection.submit(payload)}
-								onDelete={(recordId) => handleCashDelete(recordId)}
+								onDelete={(recordId) => removeCashRecord(recordId)}
 								onCancel={cashCollection.closeEditor}
 							/>
 						) : null}
-
 						<CashAccountList
 							accounts={cashCollection.items}
 							loading={cashCollection.isRefreshing}
 							busy={cashCollection.isSubmitting}
 							errorMessage={cashCollection.errorMessage}
-							onCreate={showCashEditor ? undefined : cashCollection.openCreate}
+							onCreate={
+								cashCollection.isEditorOpen || cashCollection.items.length === 0
+									? undefined
+									: cashCollection.openCreate
+							}
 							onEdit={(account) => cashCollection.openEdit(account)}
-							onDelete={(recordId) => handleCashDelete(recordId)}
+							onDelete={cashActions?.onDelete}
 						/>
 					</>
-				) : (
+				) : null}
+
+				{activeSection === "investment" ? (
 					<>
-						{showHoldingEditor ? (
+						{(holdingCollection.isEditorOpen || holdingCollection.items.length === 0) ? (
 							<HoldingForm
-								mode={holdingFormMode}
+								mode={holdingCollection.editingRecord ? "edit" : "create"}
 								value={
 									holdingCollection.editingRecord
 										? toHoldingDraft(holdingCollection.editingRecord)
@@ -256,23 +503,131 @@ export function AssetManager({
 								errorMessage={holdingCollection.errorMessage}
 								onCreate={(payload) => holdingCollection.submit(payload)}
 								onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
-								onDelete={(recordId) => handleHoldingDelete(recordId)}
+								onDelete={(recordId) => removeHoldingRecord(recordId)}
 								onSearch={holdingActions?.onSearch}
 								onCancel={holdingCollection.closeEditor}
 							/>
 						) : null}
-
 						<HoldingList
 							holdings={holdingCollection.items}
 							loading={holdingCollection.isRefreshing}
 							busy={holdingCollection.isSubmitting}
 							errorMessage={holdingCollection.errorMessage}
-							onCreate={showHoldingEditor ? undefined : holdingCollection.openCreate}
+							onCreate={
+								holdingCollection.isEditorOpen || holdingCollection.items.length === 0
+									? undefined
+									: holdingCollection.openCreate
+							}
 							onEdit={(holding) => holdingCollection.openEdit(holding)}
-							onDelete={(recordId) => handleHoldingDelete(recordId)}
+							onDelete={holdingActions?.onDelete}
 						/>
 					</>
-				)}
+				) : null}
+
+				{activeSection === "fixed" ? (
+					<>
+						{(fixedAssetCollection.isEditorOpen || fixedAssetCollection.items.length === 0) ? (
+							<FixedAssetForm
+								mode={fixedAssetCollection.editingRecord ? "edit" : "create"}
+								value={
+									fixedAssetCollection.editingRecord
+										? toFixedAssetDraft(fixedAssetCollection.editingRecord)
+										: null
+								}
+								recordId={fixedAssetCollection.editingRecord?.id ?? null}
+								busy={fixedAssetCollection.isSubmitting}
+								errorMessage={fixedAssetCollection.errorMessage}
+								onCreate={(payload) => fixedAssetCollection.submit(payload)}
+								onEdit={(_recordId, payload) => fixedAssetCollection.submit(payload)}
+								onDelete={(recordId) => removeFixedAssetRecord(recordId)}
+								onCancel={fixedAssetCollection.closeEditor}
+							/>
+						) : null}
+						<FixedAssetList
+							assets={fixedAssetCollection.items}
+							loading={fixedAssetCollection.isRefreshing}
+							busy={fixedAssetCollection.isSubmitting}
+							errorMessage={fixedAssetCollection.errorMessage}
+							onCreate={
+								fixedAssetCollection.isEditorOpen || fixedAssetCollection.items.length === 0
+									? undefined
+									: fixedAssetCollection.openCreate
+							}
+							onEdit={(asset) => fixedAssetCollection.openEdit(asset)}
+							onDelete={fixedAssetActions?.onDelete}
+						/>
+					</>
+				) : null}
+
+				{activeSection === "liability" ? (
+					<>
+						{(liabilityCollection.isEditorOpen || liabilityCollection.items.length === 0) ? (
+							<LiabilityForm
+								mode={liabilityCollection.editingRecord ? "edit" : "create"}
+								value={
+									liabilityCollection.editingRecord
+										? toLiabilityDraft(liabilityCollection.editingRecord)
+										: null
+								}
+								recordId={liabilityCollection.editingRecord?.id ?? null}
+								busy={liabilityCollection.isSubmitting}
+								errorMessage={liabilityCollection.errorMessage}
+								onCreate={(payload) => liabilityCollection.submit(payload)}
+								onEdit={(_recordId, payload) => liabilityCollection.submit(payload)}
+								onDelete={(recordId) => removeLiabilityRecord(recordId)}
+								onCancel={liabilityCollection.closeEditor}
+							/>
+						) : null}
+						<LiabilityList
+							liabilities={liabilityCollection.items}
+							loading={liabilityCollection.isRefreshing}
+							busy={liabilityCollection.isSubmitting}
+							errorMessage={liabilityCollection.errorMessage}
+							onCreate={
+								liabilityCollection.isEditorOpen || liabilityCollection.items.length === 0
+									? undefined
+									: liabilityCollection.openCreate
+							}
+							onEdit={(entry) => liabilityCollection.openEdit(entry)}
+							onDelete={liabilityActions?.onDelete}
+						/>
+					</>
+				) : null}
+
+				{activeSection === "other" ? (
+					<>
+						{(otherAssetCollection.isEditorOpen || otherAssetCollection.items.length === 0) ? (
+							<OtherAssetForm
+								mode={otherAssetCollection.editingRecord ? "edit" : "create"}
+								value={
+									otherAssetCollection.editingRecord
+										? toOtherAssetDraft(otherAssetCollection.editingRecord)
+										: null
+								}
+								recordId={otherAssetCollection.editingRecord?.id ?? null}
+								busy={otherAssetCollection.isSubmitting}
+								errorMessage={otherAssetCollection.errorMessage}
+								onCreate={(payload) => otherAssetCollection.submit(payload)}
+								onEdit={(_recordId, payload) => otherAssetCollection.submit(payload)}
+								onDelete={(recordId) => removeOtherAssetRecord(recordId)}
+								onCancel={otherAssetCollection.closeEditor}
+							/>
+						) : null}
+						<OtherAssetList
+							assets={otherAssetCollection.items}
+							loading={otherAssetCollection.isRefreshing}
+							busy={otherAssetCollection.isSubmitting}
+							errorMessage={otherAssetCollection.errorMessage}
+							onCreate={
+								otherAssetCollection.isEditorOpen || otherAssetCollection.items.length === 0
+									? undefined
+									: otherAssetCollection.openCreate
+							}
+							onEdit={(asset) => otherAssetCollection.openEdit(asset)}
+							onDelete={otherAssetActions?.onDelete}
+						/>
+					</>
+				) : null}
 			</div>
 		</section>
 	);

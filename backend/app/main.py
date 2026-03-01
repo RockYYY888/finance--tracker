@@ -19,7 +19,10 @@ from app.analytics import build_return_timeline, build_timeline
 from app.database import engine, get_session, init_db
 from app.models import (
 	CashAccount,
+	FixedAsset,
 	HoldingPerformanceSnapshot,
+	LiabilityEntry,
+	OtherAsset,
 	PortfolioSnapshot,
 	SecurityHolding,
 	UserAccount,
@@ -33,13 +36,25 @@ from app.schemas import (
 	CashAccountRead,
 	CashAccountUpdate,
 	DashboardResponse,
+	FixedAssetCreate,
+	FixedAssetRead,
+	FixedAssetUpdate,
 	HoldingReturnSeries,
+	LiabilityEntryCreate,
+	LiabilityEntryRead,
+	LiabilityEntryUpdate,
+	OtherAssetCreate,
+	OtherAssetRead,
+	OtherAssetUpdate,
 	SecuritySearchRead,
 	SecurityHoldingCreate,
 	SecurityHoldingRead,
 	SecurityHoldingUpdate,
 	ValuedCashAccount,
+	ValuedFixedAsset,
 	ValuedHolding,
+	ValuedLiabilityEntry,
+	ValuedOtherAsset,
 )
 from app.security import (
 	get_session_user_id,
@@ -200,8 +215,25 @@ def _normalize_optional_text(value: str | None) -> str | None:
 	return stripped or None
 
 
-def _touch_model(model: CashAccount | SecurityHolding | UserAccount) -> None:
+def _touch_model(
+	model: CashAccount
+	| SecurityHolding
+	| FixedAsset
+	| LiabilityEntry
+	| OtherAsset
+	| UserAccount,
+) -> None:
 	model.updated_at = utc_now()
+
+
+def _calculate_return_pct(
+	current_value: float,
+	basis_value: float | None,
+) -> float | None:
+	if basis_value is None or basis_value <= 0:
+		return None
+
+	return round(((current_value - basis_value) / basis_value) * 100, 2)
 
 
 def _coerce_utc_datetime(value: datetime) -> datetime:
@@ -263,6 +295,9 @@ def _ensure_seed_user_and_legacy_ownership() -> None:
 		for table_name in (
 			CashAccount.__table__.name,
 			SecurityHolding.__table__.name,
+			FixedAsset.__table__.name,
+			LiabilityEntry.__table__.name,
+			OtherAsset.__table__.name,
 			PortfolioSnapshot.__table__.name,
 			HoldingPerformanceSnapshot.__table__.name,
 		):
@@ -442,8 +477,8 @@ async def _value_holdings(
 				price_currency=price_currency,
 				fx_to_cny=round(fx_rate, 6),
 				value_cny=value_cny,
-				return_pct=round(((price - holding.cost_basis_price) / holding.cost_basis_price) * 100, 2)
-				if holding.cost_basis_price and price > 0
+				return_pct=_calculate_return_pct(price, holding.cost_basis_price)
+				if price > 0
 				else None,
 				last_updated=last_updated,
 			),
@@ -451,6 +486,94 @@ async def _value_holdings(
 		total += value_cny
 
 	return items, round(total, 2), warnings
+
+
+def _value_fixed_assets(
+	assets: list[FixedAsset],
+) -> tuple[list[ValuedFixedAsset], float]:
+	items: list[ValuedFixedAsset] = []
+	total = 0.0
+
+	for asset in assets:
+		value_cny = round(asset.current_value_cny, 2)
+		items.append(
+			ValuedFixedAsset(
+				id=asset.id or 0,
+				name=asset.name,
+				category=asset.category,
+				current_value_cny=value_cny,
+				purchase_value_cny=round(asset.purchase_value_cny, 2)
+				if asset.purchase_value_cny is not None
+				else None,
+				note=asset.note,
+				value_cny=value_cny,
+				return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
+			),
+		)
+		total += value_cny
+
+	return items, round(total, 2)
+
+
+async def _value_liabilities(
+	entries: list[LiabilityEntry],
+) -> tuple[list[ValuedLiabilityEntry], float, list[str]]:
+	items: list[ValuedLiabilityEntry] = []
+	total = 0.0
+	warnings: list[str] = []
+
+	for entry in entries:
+		try:
+			fx_rate, fx_warnings = await market_data_client.fetch_fx_rate(entry.currency, "CNY")
+			value_cny = round(entry.balance * fx_rate, 2)
+			warnings.extend(fx_warnings)
+		except (QuoteLookupError, ValueError) as exc:
+			fx_rate = 0.0
+			value_cny = 0.0
+			warnings.append(f"负债 {entry.name} 换汇失败: {exc}")
+
+		items.append(
+			ValuedLiabilityEntry(
+				id=entry.id or 0,
+				name=entry.name,
+				category=entry.category,
+				currency=entry.currency,
+				balance=round(entry.balance, 2),
+				note=entry.note,
+				fx_to_cny=round(fx_rate, 6),
+				value_cny=value_cny,
+			),
+		)
+		total += value_cny
+
+	return items, round(total, 2), warnings
+
+
+def _value_other_assets(
+	assets: list[OtherAsset],
+) -> tuple[list[ValuedOtherAsset], float]:
+	items: list[ValuedOtherAsset] = []
+	total = 0.0
+
+	for asset in assets:
+		value_cny = round(asset.current_value_cny, 2)
+		items.append(
+			ValuedOtherAsset(
+				id=asset.id or 0,
+				name=asset.name,
+				category=asset.category,
+				current_value_cny=value_cny,
+				original_value_cny=round(asset.original_value_cny, 2)
+				if asset.original_value_cny is not None
+				else None,
+				note=asset.note,
+				value_cny=value_cny,
+				return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
+			),
+		)
+		total += value_cny
+
+	return items, round(total, 2)
 
 
 def _summarize_holdings_return_state(
@@ -864,11 +987,44 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			.order_by(SecurityHolding.symbol, SecurityHolding.name),
 		),
 	)
+	fixed_assets = list(
+		session.exec(
+			select(FixedAsset)
+			.where(FixedAsset.user_id == user_id)
+			.order_by(FixedAsset.category, FixedAsset.name),
+		),
+	)
+	liabilities = list(
+		session.exec(
+			select(LiabilityEntry)
+			.where(LiabilityEntry.user_id == user_id)
+			.order_by(LiabilityEntry.category, LiabilityEntry.name),
+		),
+	)
+	other_assets = list(
+		session.exec(
+			select(OtherAsset)
+			.where(OtherAsset.user_id == user_id)
+			.order_by(OtherAsset.category, OtherAsset.name),
+		),
+	)
 
 	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(accounts)
 	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(holdings)
-	total_value_cny = round(cash_value_cny + holdings_value_cny, 2)
-	has_assets = bool(accounts or holdings)
+	valued_fixed_assets, fixed_assets_value_cny = _value_fixed_assets(fixed_assets)
+	valued_liabilities, liabilities_value_cny, liability_warnings = await _value_liabilities(
+		liabilities,
+	)
+	valued_other_assets, other_assets_value_cny = _value_other_assets(other_assets)
+	total_value_cny = round(
+		cash_value_cny
+		+ holdings_value_cny
+		+ fixed_assets_value_cny
+		+ other_assets_value_cny
+		- liabilities_value_cny,
+		2,
+	)
+	has_assets = bool(accounts or holdings or fixed_assets or liabilities or other_assets)
 	aggregate_holdings_return_pct, holding_return_points = _summarize_holdings_return_state(
 		valued_holdings,
 	)
@@ -996,11 +1152,23 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		total_value_cny=total_value_cny,
 		cash_value_cny=cash_value_cny,
 		holdings_value_cny=holdings_value_cny,
+		fixed_assets_value_cny=fixed_assets_value_cny,
+		liabilities_value_cny=liabilities_value_cny,
+		other_assets_value_cny=other_assets_value_cny,
 		cash_accounts=valued_accounts,
 		holdings=valued_holdings,
+		fixed_assets=valued_fixed_assets,
+		liabilities=valued_liabilities,
+		other_assets=valued_other_assets,
 		allocation=[
-			AllocationSlice(label="现金", value=cash_value_cny),
-			AllocationSlice(label="证券", value=holdings_value_cny),
+			AllocationSlice(label=label, value=value)
+			for label, value in (
+				("现金", cash_value_cny),
+				("投资类", holdings_value_cny),
+				("固定资产", fixed_assets_value_cny),
+				("其他", other_assets_value_cny),
+			)
+			if value > 0
 		],
 		hour_series=hour_series,
 		day_series=day_series,
@@ -1011,7 +1179,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		holdings_return_month_series=holdings_return_month_series,
 		holdings_return_year_series=holdings_return_year_series,
 		holding_return_series=holding_return_series,
-		warnings=[*account_warnings, *holding_warnings],
+		warnings=[*account_warnings, *holding_warnings, *liability_warnings],
 	)
 
 
@@ -1215,6 +1383,361 @@ def delete_account(
 		raise HTTPException(status_code=404, detail="Account not found.")
 
 	session.delete(account)
+	session.commit()
+	_invalidate_dashboard_cache(current_user.username)
+	return Response(status_code=204)
+
+
+@app.get("/api/fixed-assets", response_model=list[FixedAssetRead])
+async def list_fixed_assets(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> list[FixedAssetRead]:
+	dashboard = await _get_cached_dashboard(session, current_user)
+	assets = list(
+		session.exec(
+			select(FixedAsset)
+			.where(FixedAsset.user_id == current_user.username)
+			.order_by(FixedAsset.category, FixedAsset.name),
+		),
+	)
+	valued_asset_map = {asset.id: asset for asset in dashboard.fixed_assets}
+	items: list[FixedAssetRead] = []
+
+	for asset in assets:
+		valued_asset = valued_asset_map.get(asset.id or 0)
+		items.append(
+			FixedAssetRead(
+				id=asset.id or 0,
+				name=asset.name,
+				category=asset.category,
+				current_value_cny=round(asset.current_value_cny, 2),
+				purchase_value_cny=round(asset.purchase_value_cny, 2)
+				if asset.purchase_value_cny is not None
+				else None,
+				note=asset.note,
+				value_cny=valued_asset.value_cny if valued_asset else round(asset.current_value_cny, 2),
+				return_pct=valued_asset.return_pct if valued_asset else None,
+			),
+		)
+
+	return items
+
+
+@app.post("/api/fixed-assets", response_model=FixedAssetRead, status_code=201)
+def create_fixed_asset(
+	payload: FixedAssetCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> FixedAssetRead:
+	asset = FixedAsset(
+		user_id=current_user.username,
+		name=payload.name.strip(),
+		category=payload.category,
+		current_value_cny=payload.current_value_cny,
+		purchase_value_cny=payload.purchase_value_cny,
+		note=payload.note,
+	)
+	session.add(asset)
+	session.commit()
+	session.refresh(asset)
+	_invalidate_dashboard_cache(current_user.username)
+	value_cny = round(asset.current_value_cny, 2)
+	return FixedAssetRead(
+		id=asset.id or 0,
+		name=asset.name,
+		category=asset.category,
+		current_value_cny=value_cny,
+		purchase_value_cny=round(asset.purchase_value_cny, 2)
+		if asset.purchase_value_cny is not None
+		else None,
+		note=asset.note,
+		value_cny=value_cny,
+		return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
+	)
+
+
+@app.put("/api/fixed-assets/{asset_id}", response_model=FixedAssetRead)
+def update_fixed_asset(
+	asset_id: int,
+	payload: FixedAssetUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> FixedAssetRead:
+	asset = session.get(FixedAsset, asset_id)
+	if asset is None or asset.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Fixed asset not found.")
+
+	asset.name = payload.name.strip()
+	asset.category = payload.category
+	asset.current_value_cny = payload.current_value_cny
+	asset.purchase_value_cny = payload.purchase_value_cny
+	if "note" in payload.model_fields_set:
+		asset.note = _normalize_optional_text(payload.note)
+	_touch_model(asset)
+	session.add(asset)
+	session.commit()
+	session.refresh(asset)
+	_invalidate_dashboard_cache(current_user.username)
+	value_cny = round(asset.current_value_cny, 2)
+	return FixedAssetRead(
+		id=asset.id or 0,
+		name=asset.name,
+		category=asset.category,
+		current_value_cny=value_cny,
+		purchase_value_cny=round(asset.purchase_value_cny, 2)
+		if asset.purchase_value_cny is not None
+		else None,
+		note=asset.note,
+		value_cny=value_cny,
+		return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
+	)
+
+
+@app.delete("/api/fixed-assets/{asset_id}", status_code=204)
+def delete_fixed_asset(
+	asset_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> Response:
+	asset = session.get(FixedAsset, asset_id)
+	if asset is None or asset.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Fixed asset not found.")
+
+	session.delete(asset)
+	session.commit()
+	_invalidate_dashboard_cache(current_user.username)
+	return Response(status_code=204)
+
+
+@app.get("/api/liabilities", response_model=list[LiabilityEntryRead])
+async def list_liabilities(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> list[LiabilityEntryRead]:
+	dashboard = await _get_cached_dashboard(session, current_user)
+	entries = list(
+		session.exec(
+			select(LiabilityEntry)
+			.where(LiabilityEntry.user_id == current_user.username)
+			.order_by(LiabilityEntry.category, LiabilityEntry.name),
+		),
+	)
+	valued_entry_map = {entry.id: entry for entry in dashboard.liabilities}
+	items: list[LiabilityEntryRead] = []
+
+	for entry in entries:
+		valued_entry = valued_entry_map.get(entry.id or 0)
+		items.append(
+			LiabilityEntryRead(
+				id=entry.id or 0,
+				name=entry.name,
+				category=entry.category,
+				currency=entry.currency,
+				balance=round(entry.balance, 2),
+				note=entry.note,
+				fx_to_cny=valued_entry.fx_to_cny if valued_entry else None,
+				value_cny=valued_entry.value_cny if valued_entry else None,
+			),
+		)
+
+	return items
+
+
+@app.post("/api/liabilities", response_model=LiabilityEntryRead, status_code=201)
+def create_liability(
+	payload: LiabilityEntryCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> LiabilityEntryRead:
+	entry = LiabilityEntry(
+		user_id=current_user.username,
+		name=payload.name.strip(),
+		category=payload.category,
+		currency=_normalize_currency(payload.currency),
+		balance=payload.balance,
+		note=payload.note,
+	)
+	session.add(entry)
+	session.commit()
+	session.refresh(entry)
+	_invalidate_dashboard_cache(current_user.username)
+	return LiabilityEntryRead(
+		id=entry.id or 0,
+		name=entry.name,
+		category=entry.category,
+		currency=entry.currency,
+		balance=round(entry.balance, 2),
+		note=entry.note,
+	)
+
+
+@app.put("/api/liabilities/{entry_id}", response_model=LiabilityEntryRead)
+def update_liability(
+	entry_id: int,
+	payload: LiabilityEntryUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> LiabilityEntryRead:
+	entry = session.get(LiabilityEntry, entry_id)
+	if entry is None or entry.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Liability not found.")
+
+	entry.name = payload.name.strip()
+	entry.currency = _normalize_currency(payload.currency)
+	entry.balance = payload.balance
+	if payload.category is not None:
+		entry.category = payload.category
+	if "note" in payload.model_fields_set:
+		entry.note = _normalize_optional_text(payload.note)
+	_touch_model(entry)
+	session.add(entry)
+	session.commit()
+	session.refresh(entry)
+	_invalidate_dashboard_cache(current_user.username)
+	return LiabilityEntryRead(
+		id=entry.id or 0,
+		name=entry.name,
+		category=entry.category,
+		currency=entry.currency,
+		balance=round(entry.balance, 2),
+		note=entry.note,
+	)
+
+
+@app.delete("/api/liabilities/{entry_id}", status_code=204)
+def delete_liability(
+	entry_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> Response:
+	entry = session.get(LiabilityEntry, entry_id)
+	if entry is None or entry.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Liability not found.")
+
+	session.delete(entry)
+	session.commit()
+	_invalidate_dashboard_cache(current_user.username)
+	return Response(status_code=204)
+
+
+@app.get("/api/other-assets", response_model=list[OtherAssetRead])
+async def list_other_assets(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> list[OtherAssetRead]:
+	dashboard = await _get_cached_dashboard(session, current_user)
+	assets = list(
+		session.exec(
+			select(OtherAsset)
+			.where(OtherAsset.user_id == current_user.username)
+			.order_by(OtherAsset.category, OtherAsset.name),
+		),
+	)
+	valued_asset_map = {asset.id: asset for asset in dashboard.other_assets}
+	items: list[OtherAssetRead] = []
+
+	for asset in assets:
+		valued_asset = valued_asset_map.get(asset.id or 0)
+		items.append(
+			OtherAssetRead(
+				id=asset.id or 0,
+				name=asset.name,
+				category=asset.category,
+				current_value_cny=round(asset.current_value_cny, 2),
+				original_value_cny=round(asset.original_value_cny, 2)
+				if asset.original_value_cny is not None
+				else None,
+				note=asset.note,
+				value_cny=valued_asset.value_cny if valued_asset else round(asset.current_value_cny, 2),
+				return_pct=valued_asset.return_pct if valued_asset else None,
+			),
+		)
+
+	return items
+
+
+@app.post("/api/other-assets", response_model=OtherAssetRead, status_code=201)
+def create_other_asset(
+	payload: OtherAssetCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> OtherAssetRead:
+	asset = OtherAsset(
+		user_id=current_user.username,
+		name=payload.name.strip(),
+		category=payload.category,
+		current_value_cny=payload.current_value_cny,
+		original_value_cny=payload.original_value_cny,
+		note=payload.note,
+	)
+	session.add(asset)
+	session.commit()
+	session.refresh(asset)
+	_invalidate_dashboard_cache(current_user.username)
+	value_cny = round(asset.current_value_cny, 2)
+	return OtherAssetRead(
+		id=asset.id or 0,
+		name=asset.name,
+		category=asset.category,
+		current_value_cny=value_cny,
+		original_value_cny=round(asset.original_value_cny, 2)
+		if asset.original_value_cny is not None
+		else None,
+		note=asset.note,
+		value_cny=value_cny,
+		return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
+	)
+
+
+@app.put("/api/other-assets/{asset_id}", response_model=OtherAssetRead)
+def update_other_asset(
+	asset_id: int,
+	payload: OtherAssetUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> OtherAssetRead:
+	asset = session.get(OtherAsset, asset_id)
+	if asset is None or asset.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Other asset not found.")
+
+	asset.name = payload.name.strip()
+	asset.category = payload.category
+	asset.current_value_cny = payload.current_value_cny
+	asset.original_value_cny = payload.original_value_cny
+	if "note" in payload.model_fields_set:
+		asset.note = _normalize_optional_text(payload.note)
+	_touch_model(asset)
+	session.add(asset)
+	session.commit()
+	session.refresh(asset)
+	_invalidate_dashboard_cache(current_user.username)
+	value_cny = round(asset.current_value_cny, 2)
+	return OtherAssetRead(
+		id=asset.id or 0,
+		name=asset.name,
+		category=asset.category,
+		current_value_cny=value_cny,
+		original_value_cny=round(asset.original_value_cny, 2)
+		if asset.original_value_cny is not None
+		else None,
+		note=asset.note,
+		value_cny=value_cny,
+		return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
+	)
+
+
+@app.delete("/api/other-assets/{asset_id}", status_code=204)
+def delete_other_asset(
+	asset_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> Response:
+	asset = session.get(OtherAsset, asset_id)
+	if asset is None or asset.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Other asset not found.")
+
+	session.delete(asset)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)

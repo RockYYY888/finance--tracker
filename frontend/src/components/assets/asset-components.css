@@ -47,7 +47,7 @@
 
 .asset-manager__summary {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
 	gap: 0.75rem;
 }
 
@@ -70,17 +70,33 @@
 	font-size: 1.3rem;
 }
 
-.asset-manager__summary-card.is-cash strong {
+.asset-manager__summary-card strong {
+	color: var(--text-main);
+}
+
+.asset-manager__summary-card--cash strong {
 	color: var(--accent-cyan);
 }
 
-.asset-manager__summary-card.is-holding strong {
+.asset-manager__summary-card--investment strong {
 	color: var(--accent-mint);
+}
+
+.asset-manager__summary-card--fixed strong {
+	color: #b6c1ff;
+}
+
+.asset-manager__summary-card--liability strong {
+	color: #ffc8d3;
+}
+
+.asset-manager__summary-card--other strong {
+	color: #f6d68b;
 }
 
 .asset-manager__toolbar {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: repeat(5, minmax(0, 1fr));
 	gap: 0.65rem;
 	padding: 0.35rem;
 	border-radius: 999px;
@@ -442,7 +458,7 @@
 	}
 
 	.asset-manager__summary {
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(5, minmax(0, 1fr));
 	}
 
 	.asset-manager__workspace {
@@ -460,6 +476,11 @@
 }
 
 @media (max-width: 900px) {
+	.asset-manager__toolbar {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		border-radius: 24px;
+	}
+
 	.asset-manager__field-grid--triple {
 		grid-template-columns: 1fr;
 	}

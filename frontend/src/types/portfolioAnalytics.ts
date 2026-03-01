@@ -1,5 +1,8 @@
 import type {
 	CashAccountType,
+	FixedAssetCategory,
+	LiabilityCategory,
+	OtherAssetCategory,
 	SecurityMarket,
 } from "./assets";
 
@@ -33,6 +36,39 @@ export type ValuedHolding = {
 	last_updated: string | null;
 };
 
+export type ValuedFixedAsset = {
+	id: number;
+	name: string;
+	category: FixedAssetCategory;
+	current_value_cny: number;
+	purchase_value_cny?: number | null;
+	note?: string | null;
+	value_cny: number;
+	return_pct?: number | null;
+};
+
+export type ValuedLiability = {
+	id: number;
+	name: string;
+	category: LiabilityCategory;
+	currency: string;
+	balance: number;
+	note?: string | null;
+	fx_to_cny: number;
+	value_cny: number;
+};
+
+export type ValuedOtherAsset = {
+	id: number;
+	name: string;
+	category: OtherAssetCategory;
+	current_value_cny: number;
+	original_value_cny?: number | null;
+	note?: string | null;
+	value_cny: number;
+	return_pct?: number | null;
+};
+
 export type TimelinePoint = {
 	label: string;
 	value: number;
@@ -58,6 +94,9 @@ export type PortfolioAnalyticsData = {
 	total_value_cny: number;
 	cash_accounts: ValuedCashAccount[];
 	holdings: ValuedHolding[];
+	fixed_assets: ValuedFixedAsset[];
+	liabilities: ValuedLiability[];
+	other_assets: ValuedOtherAsset[];
 	allocation: AllocationSlice[];
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];

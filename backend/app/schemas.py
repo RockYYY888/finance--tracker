@@ -5,7 +5,13 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models import CASH_ACCOUNT_TYPES, SECURITY_MARKETS
+from app.models import (
+	CASH_ACCOUNT_TYPES,
+	FIXED_ASSET_CATEGORIES,
+	LIABILITY_CATEGORIES,
+	OTHER_ASSET_CATEGORIES,
+	SECURITY_MARKETS,
+)
 from app.security import normalize_user_id, validate_password_strength
 
 
@@ -80,6 +86,125 @@ class CashAccountRead(BaseModel):
 	note: Optional[str] = None
 	fx_to_cny: Optional[float] = None
 	value_cny: Optional[float] = None
+
+
+class FixedAssetBase(BaseModel):
+	name: str = Field(min_length=1, max_length=120)
+	category: str = Field(default="OTHER", min_length=4, max_length=24)
+	current_value_cny: float = Field(gt=0)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("category", mode="before")
+	@classmethod
+	def validate_category(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FIXED_ASSET_CATEGORIES, "category")
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class FixedAssetCreate(FixedAssetBase):
+	purchase_value_cny: Optional[float] = Field(default=None, gt=0)
+
+
+class FixedAssetUpdate(FixedAssetBase):
+	purchase_value_cny: Optional[float] = Field(default=None, gt=0)
+
+
+class FixedAssetRead(BaseModel):
+	id: int
+	name: str
+	category: str
+	current_value_cny: float
+	purchase_value_cny: Optional[float] = None
+	note: Optional[str] = None
+	value_cny: float
+	return_pct: Optional[float] = None
+
+
+class LiabilityEntryCreate(BaseModel):
+	name: str = Field(min_length=1, max_length=120)
+	category: str = Field(default="OTHER", min_length=4, max_length=24)
+	currency: str = Field(default="CNY", min_length=3, max_length=8)
+	balance: float = Field(ge=0)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("category", mode="before")
+	@classmethod
+	def validate_category(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, LIABILITY_CATEGORIES, "category")
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class LiabilityEntryUpdate(BaseModel):
+	name: str = Field(min_length=1, max_length=120)
+	category: Optional[str] = Field(default=None, min_length=4, max_length=24)
+	currency: str = Field(default="CNY", min_length=3, max_length=8)
+	balance: float = Field(ge=0)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("category", mode="before")
+	@classmethod
+	def validate_category(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, LIABILITY_CATEGORIES, "category")
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class LiabilityEntryRead(BaseModel):
+	id: int
+	name: str
+	category: str
+	currency: str
+	balance: float
+	note: Optional[str] = None
+	fx_to_cny: Optional[float] = None
+	value_cny: Optional[float] = None
+
+
+class OtherAssetBase(BaseModel):
+	name: str = Field(min_length=1, max_length=120)
+	category: str = Field(default="OTHER", min_length=4, max_length=24)
+	current_value_cny: float = Field(gt=0)
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("category", mode="before")
+	@classmethod
+	def validate_category(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, OTHER_ASSET_CATEGORIES, "category")
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class OtherAssetCreate(OtherAssetBase):
+	original_value_cny: Optional[float] = Field(default=None, gt=0)
+
+
+class OtherAssetUpdate(OtherAssetBase):
+	original_value_cny: Optional[float] = Field(default=None, gt=0)
+
+
+class OtherAssetRead(BaseModel):
+	id: int
+	name: str
+	category: str
+	current_value_cny: float
+	original_value_cny: Optional[float] = None
+	note: Optional[str] = None
+	value_cny: float
+	return_pct: Optional[float] = None
 
 
 class AuthCredentials(BaseModel):
@@ -210,6 +335,39 @@ class ValuedHolding(BaseModel):
 	last_updated: Optional[datetime] = None
 
 
+class ValuedFixedAsset(BaseModel):
+	id: int
+	name: str
+	category: str
+	current_value_cny: float
+	purchase_value_cny: Optional[float] = None
+	note: Optional[str] = None
+	value_cny: float
+	return_pct: Optional[float] = None
+
+
+class ValuedLiabilityEntry(BaseModel):
+	id: int
+	name: str
+	category: str
+	currency: str
+	balance: float
+	note: Optional[str] = None
+	fx_to_cny: float
+	value_cny: float
+
+
+class ValuedOtherAsset(BaseModel):
+	id: int
+	name: str
+	category: str
+	current_value_cny: float
+	original_value_cny: Optional[float] = None
+	note: Optional[str] = None
+	value_cny: float
+	return_pct: Optional[float] = None
+
+
 class AllocationSlice(BaseModel):
 	label: str
 	value: float
@@ -233,8 +391,14 @@ class DashboardResponse(BaseModel):
 	total_value_cny: float
 	cash_value_cny: float
 	holdings_value_cny: float
+	fixed_assets_value_cny: float
+	liabilities_value_cny: float
+	other_assets_value_cny: float
 	cash_accounts: list[ValuedCashAccount]
 	holdings: list[ValuedHolding]
+	fixed_assets: list[ValuedFixedAsset]
+	liabilities: list[ValuedLiabilityEntry]
+	other_assets: list[ValuedOtherAsset]
 	allocation: list[AllocationSlice]
 	hour_series: list[TimelinePoint]
 	day_series: list[TimelinePoint]

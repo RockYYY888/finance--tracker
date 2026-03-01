@@ -7,6 +7,22 @@ from sqlmodel import Field, SQLModel
 
 CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
 SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "CRYPTO", "OTHER")
+FIXED_ASSET_CATEGORIES = (
+	"REAL_ESTATE",
+	"VEHICLE",
+	"PRECIOUS_METAL",
+	"COLLECTIBLE",
+	"SOCIAL_SECURITY",
+	"OTHER",
+)
+LIABILITY_CATEGORIES = (
+	"MORTGAGE",
+	"AUTO_LOAN",
+	"CREDIT_CARD",
+	"PERSONAL_LOAN",
+	"OTHER",
+)
+OTHER_ASSET_CATEGORIES = ("RECEIVABLE", "OTHER")
 
 
 def utc_now() -> datetime:
@@ -44,6 +60,42 @@ class SecurityHolding(SQLModel, table=True):
 	cost_basis_price: Optional[float] = Field(default=None)
 	market: str = Field(default="OTHER", max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
+	note: Optional[str] = Field(default=None, max_length=500)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class FixedAsset(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(default="admin", index=True, max_length=32)
+	name: str
+	category: str = Field(default="OTHER", max_length=24)
+	current_value_cny: float = Field(default=0)
+	purchase_value_cny: Optional[float] = Field(default=None)
+	note: Optional[str] = Field(default=None, max_length=500)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class LiabilityEntry(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(default="admin", index=True, max_length=32)
+	name: str
+	category: str = Field(default="OTHER", max_length=24)
+	currency: str = Field(default="CNY", max_length=8)
+	balance: float = Field(default=0)
+	note: Optional[str] = Field(default=None, max_length=500)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OtherAsset(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(default="admin", index=True, max_length=32)
+	name: str
+	category: str = Field(default="OTHER", max_length=24)
+	current_value_cny: float = Field(default=0)
+	original_value_cny: Optional[float] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)

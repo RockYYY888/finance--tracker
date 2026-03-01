@@ -165,7 +165,7 @@ export function HoldingForm({
 
 					setSearchResults([]);
 					setIsSearchOpen(false);
-					setSearchError(toErrorMessage(error, "证券搜索失败，请稍后重试。"));
+					setSearchError(toErrorMessage(error, "标的搜索失败，请稍后重试。"));
 				} finally {
 					if (requestId === searchRequestIdRef.current) {
 						setIsSearching(false);
@@ -179,7 +179,7 @@ export function HoldingForm({
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
-	const resolvedTitle = title ?? (mode === "edit" ? "编辑持仓" : "新增持仓");
+	const resolvedTitle = title ?? (mode === "edit" ? "编辑投资类资产" : "新增投资类资产");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
 	const quantityLabel = draft.market === "FUND"
 		? "份额"
@@ -238,7 +238,7 @@ export function HoldingForm({
 		try {
 			const payload = toHoldingInput(draft);
 			if (!payload.symbol || !payload.name || !payload.fallback_currency) {
-				throw new Error("请先选择证券，再填写数量。");
+				throw new Error("请先选择投资标的，再填写数量。");
 			}
 			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
 				throw new Error("请输入有效的持仓数量。");
@@ -304,7 +304,7 @@ export function HoldingForm({
 
 			<form className="asset-manager__form" onSubmit={(event) => void handleSubmit(event)}>
 				<label className="asset-manager__field asset-manager__search-field">
-					<span>搜索证券</span>
+					<span>搜索投资标的</span>
 					<div className="asset-manager__search-shell">
 						<input
 							value={searchQuery}

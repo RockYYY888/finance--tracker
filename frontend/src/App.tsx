@@ -15,7 +15,10 @@ import type { AuthCredentials } from "./types/auth";
 import type {
 	AssetManagerController,
 	CashAccountRecord,
+	FixedAssetRecord,
 	HoldingRecord,
+	LiabilityRecord,
+	OtherAssetRecord,
 } from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import { formatCny } from "./utils/portfolioAnalytics";
@@ -75,6 +78,37 @@ function toHoldingRecord(record: DashboardResponse["holdings"][number]): Holding
 		broker: record.broker ?? undefined,
 		note: record.note ?? undefined,
 		last_updated: record.last_updated ?? undefined,
+	};
+}
+
+function toFixedAssetRecord(
+	record: DashboardResponse["fixed_assets"][number],
+): FixedAssetRecord {
+	return {
+		...record,
+		purchase_value_cny: record.purchase_value_cny ?? undefined,
+		note: record.note ?? undefined,
+		return_pct: record.return_pct ?? undefined,
+	};
+}
+
+function toLiabilityRecord(
+	record: DashboardResponse["liabilities"][number],
+): LiabilityRecord {
+	return {
+		...record,
+		note: record.note ?? undefined,
+	};
+}
+
+function toOtherAssetRecord(
+	record: DashboardResponse["other_assets"][number],
+): OtherAssetRecord {
+	return {
+		...record,
+		original_value_cny: record.original_value_cny ?? undefined,
+		note: record.note ?? undefined,
+		return_pct: record.return_pct ?? undefined,
 	};
 }
 
@@ -249,10 +283,17 @@ function App() {
 	}
 
 	const hasAnyAsset =
-		dashboard.cash_accounts.length > 0 || dashboard.holdings.length > 0;
+		dashboard.cash_accounts.length > 0 ||
+		dashboard.holdings.length > 0 ||
+		dashboard.fixed_assets.length > 0 ||
+		dashboard.liabilities.length > 0 ||
+		dashboard.other_assets.length > 0;
 	const isDashboardBusy = isLoadingDashboard || isRefreshingDashboard;
 	const cashAccountRecords = dashboard.cash_accounts.map(toCashAccountRecord);
 	const holdingRecords = dashboard.holdings.map(toHoldingRecord);
+	const fixedAssetRecords = dashboard.fixed_assets.map(toFixedAssetRecord);
+	const liabilityRecords = dashboard.liabilities.map(toLiabilityRecord);
+	const otherAssetRecords = dashboard.other_assets.map(toOtherAssetRecord);
 
 	const assetManagerController: AssetManagerController = {
 		cashAccounts: {
@@ -287,6 +328,54 @@ function App() {
 				await loadDashboard();
 			},
 			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
+		},
+		fixedAssets: {
+			onCreate: async (payload) => {
+				const createdRecord = await defaultAssetApiClient.createFixedAsset(payload);
+				await loadDashboard();
+				return createdRecord;
+			},
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateFixedAsset(recordId, payload);
+				await loadDashboard();
+				return updatedRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteFixedAsset(recordId);
+				await loadDashboard();
+			},
+		},
+		liabilities: {
+			onCreate: async (payload) => {
+				const createdRecord = await defaultAssetApiClient.createLiability(payload);
+				await loadDashboard();
+				return createdRecord;
+			},
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateLiability(recordId, payload);
+				await loadDashboard();
+				return updatedRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteLiability(recordId);
+				await loadDashboard();
+			},
+		},
+		otherAssets: {
+			onCreate: async (payload) => {
+				const createdRecord = await defaultAssetApiClient.createOtherAsset(payload);
+				await loadDashboard();
+				return createdRecord;
+			},
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateOtherAsset(recordId, payload);
+				await loadDashboard();
+				return updatedRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteOtherAsset(recordId);
+				await loadDashboard();
+			},
 		},
 	};
 
@@ -341,9 +430,27 @@ function App() {
 						</strong>
 					</div>
 					<div className="stat-card green">
-						<span>证券资产</span>
+						<span>投资类</span>
 						<strong title={formatCny(dashboard.holdings_value_cny)}>
 							{formatSummaryCny(dashboard.holdings_value_cny)}
+						</strong>
+					</div>
+					<div className="stat-card violet">
+						<span>固定资产</span>
+						<strong title={formatCny(dashboard.fixed_assets_value_cny)}>
+							{formatSummaryCny(dashboard.fixed_assets_value_cny)}
+						</strong>
+					</div>
+					<div className="stat-card amber">
+						<span>其他</span>
+						<strong title={formatCny(dashboard.other_assets_value_cny)}>
+							{formatSummaryCny(dashboard.other_assets_value_cny)}
+						</strong>
+					</div>
+					<div className="stat-card danger">
+						<span>负债</span>
+						<strong title={formatCny(-dashboard.liabilities_value_cny)}>
+							{formatSummaryCny(-dashboard.liabilities_value_cny)}
 						</strong>
 					</div>
 				</div>
@@ -376,6 +483,9 @@ function App() {
 					total_value_cny={dashboard.total_value_cny}
 					cash_accounts={dashboard.cash_accounts}
 					holdings={dashboard.holdings}
+					fixed_assets={dashboard.fixed_assets}
+					liabilities={dashboard.liabilities}
+					other_assets={dashboard.other_assets}
 					allocation={dashboard.allocation}
 					hour_series={dashboard.hour_series}
 					day_series={dashboard.day_series}
@@ -394,11 +504,27 @@ function App() {
 				<AssetManager
 					initialCashAccounts={cashAccountRecords}
 					initialHoldings={holdingRecords}
+					initialFixedAssets={fixedAssetRecords}
+					initialLiabilities={liabilityRecords}
+					initialOtherAssets={otherAssetRecords}
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
+					fixedAssetActions={assetManagerController.fixedAssets}
+					liabilityActions={assetManagerController.liabilities}
+					otherAssetActions={assetManagerController.otherAssets}
 					title="资产管理"
 					description="自动同步。"
-					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
+					defaultSection={
+						dashboard.holdings.length > 0
+							? "investment"
+							: dashboard.fixed_assets.length > 0
+								? "fixed"
+								: dashboard.liabilities.length > 0
+									? "liability"
+									: dashboard.other_assets.length > 0
+										? "other"
+										: "cash"
+					}
 				/>
 			</div>
 		</div>

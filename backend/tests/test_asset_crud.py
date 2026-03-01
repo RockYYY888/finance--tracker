@@ -10,9 +10,12 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 import app.main as main
 from app.main import (
+	create_fixed_asset,
 	_persist_hour_snapshot,
 	_persist_holdings_return_snapshot,
 	_summarize_holdings_return_state,
+	create_liability,
+	create_other_asset,
 	create_account,
 	create_holding,
 	delete_account,
@@ -22,7 +25,10 @@ from app.main import (
 )
 from app.models import (
 	CashAccount,
+	FixedAsset,
 	HoldingPerformanceSnapshot,
+	LiabilityEntry,
+	OtherAsset,
 	PortfolioSnapshot,
 	SecurityHolding,
 	UserAccount,
@@ -30,6 +36,9 @@ from app.models import (
 from app.schemas import (
 	CashAccountCreate,
 	CashAccountUpdate,
+	FixedAssetCreate,
+	LiabilityEntryCreate,
+	OtherAssetCreate,
 	SecurityHoldingCreate,
 	SecurityHoldingUpdate,
 )
@@ -526,3 +535,107 @@ def test_holding_schema_allows_fractional_crypto_units() -> None:
 	)
 
 	assert holding.quantity == 0.25
+
+
+def test_create_new_asset_categories_persists_records(session: Session) -> None:
+	current_user = make_user(session)
+
+	fixed_asset = create_fixed_asset(
+		FixedAssetCreate(
+			name="Primary Home",
+			category="real_estate",
+			current_value_cny=2_000_000,
+			purchase_value_cny=1_800_000,
+			note="  family use  ",
+		),
+		current_user,
+		session,
+	)
+	liability = create_liability(
+		LiabilityEntryCreate(
+			name="Mortgage",
+			category="mortgage",
+			currency="cny",
+			balance=500_000,
+			note="  monthly repayment  ",
+		),
+		current_user,
+		session,
+	)
+	other_asset = create_other_asset(
+		OtherAssetCreate(
+			name="Friend Loan",
+			category="receivable",
+			current_value_cny=20_000,
+			original_value_cny=18_000,
+			note="  due next quarter  ",
+		),
+		current_user,
+		session,
+	)
+
+	assert fixed_asset.category == "REAL_ESTATE"
+	assert fixed_asset.return_pct == 11.11
+	assert liability.category == "MORTGAGE"
+	assert other_asset.category == "RECEIVABLE"
+	assert other_asset.return_pct == 11.11
+
+	assert session.exec(select(FixedAsset)).one().user_id == current_user.username
+	assert session.exec(select(LiabilityEntry)).one().user_id == current_user.username
+	assert session.exec(select(OtherAsset)).one().user_id == current_user.username
+
+
+def test_build_dashboard_subtracts_liabilities_from_total(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	create_account(
+		CashAccountCreate(
+			name="Checking",
+			platform="Bank",
+			currency="cny",
+			balance=1000,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	create_fixed_asset(
+		FixedAssetCreate(
+			name="Primary Home",
+			category="real_estate",
+			current_value_cny=500_000,
+		),
+		current_user,
+		session,
+	)
+	create_other_asset(
+		OtherAssetCreate(
+			name="Receivable",
+			category="receivable",
+			current_value_cny=20_000,
+		),
+		current_user,
+		session,
+	)
+	create_liability(
+		LiabilityEntryCreate(
+			name="Mortgage",
+			category="mortgage",
+			currency="cny",
+			balance=120_000,
+		),
+		current_user,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	dashboard = asyncio.run(main._build_dashboard(session, current_user))
+
+	assert dashboard.cash_value_cny == 1000.0
+	assert dashboard.fixed_assets_value_cny == 500_000.0
+	assert dashboard.other_assets_value_cny == 20_000.0
+	assert dashboard.liabilities_value_cny == 120_000.0
+	assert dashboard.total_value_cny == 401_000.0
+	assert [slice.label for slice in dashboard.allocation] == ["现金", "固定资产", "其他"]

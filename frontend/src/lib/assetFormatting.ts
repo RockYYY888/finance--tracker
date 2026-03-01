@@ -35,6 +35,28 @@ const securityMarketLabels: Record<string, string> = {
 	OTHER: "其他",
 };
 
+const fixedAssetCategoryLabels: Record<string, string> = {
+	REAL_ESTATE: "不动产",
+	VEHICLE: "车辆",
+	PRECIOUS_METAL: "贵金属",
+	COLLECTIBLE: "收藏品",
+	SOCIAL_SECURITY: "社会保障",
+	OTHER: "其他",
+};
+
+const liabilityCategoryLabels: Record<string, string> = {
+	MORTGAGE: "房贷",
+	AUTO_LOAN: "车贷",
+	CREDIT_CARD: "信用卡",
+	PERSONAL_LOAN: "个人借款",
+	OTHER: "其他",
+};
+
+const otherAssetCategoryLabels: Record<string, string> = {
+	RECEIVABLE: "应收款项",
+	OTHER: "其他",
+};
+
 export function formatCnyAmount(value?: number | null): string {
 	const numericValue = Number(value ?? 0);
 	return cnyFormatter.format(Number.isFinite(numericValue) ? numericValue : 0);
@@ -92,4 +114,28 @@ export function formatSecurityMarket(value?: string | null): string {
 	}
 
 	return securityMarketLabels[value] ?? value;
+}
+
+export function formatFixedAssetCategory(value?: string | null): string {
+	if (!value) {
+		return "其他";
+	}
+
+	return fixedAssetCategoryLabels[value] ?? value;
+}
+
+export function formatLiabilityCategory(value?: string | null): string {
+	if (!value) {
+		return "其他";
+	}
+
+	return liabilityCategoryLabels[value] ?? value;
+}
+
+export function formatOtherAssetCategory(value?: string | null): string {
+	if (!value) {
+		return "其他";
+	}
+
+	return otherAssetCategoryLabels[value] ?? value;
 }
