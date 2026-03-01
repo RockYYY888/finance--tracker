@@ -36,16 +36,18 @@ function formatLastUpdated(timestamp: string | null): string {
 }
 
 function formatSummaryCny(value: number): string {
-	if (Math.abs(value) < 10_000) {
+	const absoluteValue = Math.abs(value);
+	const sign = value < 0 ? "-" : "";
+
+	if (absoluteValue < 10_000) {
 		return formatCny(value);
 	}
 
-	return new Intl.NumberFormat("zh-CN", {
-		style: "currency",
-		currency: "CNY",
-		notation: "compact",
-		maximumFractionDigits: 2,
-	}).format(value);
+	if (absoluteValue < 100_000_000) {
+		return `${sign}¥${(absoluteValue / 10_000).toFixed(2)}万`;
+	}
+
+	return `${sign}¥${(absoluteValue / 100_000_000).toFixed(2)}亿`;
 }
 
 function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number]): CashAccountRecord {
