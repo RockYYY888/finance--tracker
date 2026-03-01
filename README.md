@@ -8,7 +8,7 @@ Local development does not assume a host proxy:
 docker compose up -d --build
 ```
 
-Server deployment that needs the host `mihomo` proxy should include the proxy override file:
+Default server build command (host deployment, using the host `mihomo` proxy):
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
