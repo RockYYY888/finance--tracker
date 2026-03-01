@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Annotated
 
 from sqlalchemy import text
@@ -40,14 +43,43 @@ SessionDependency = Annotated[Session, Depends(get_session)]
 TokenDependency = Annotated[None, Depends(verify_api_token)]
 market_data_client = MarketDataClient()
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class DashboardCacheEntry:
+	dashboard: DashboardResponse
+	generated_at: datetime
+
+
+dashboard_cache: DashboardCacheEntry | None = None
+dashboard_cache_lock = asyncio.Lock()
+background_refresh_task: asyncio.Task[None] | None = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+	global background_refresh_task
 	settings.validate_runtime()
 	init_db()
 	_ensure_legacy_schema()
-	yield
+
+	try:
+		with Session(engine) as session:
+			await _get_cached_dashboard(session, force_refresh=True)
+	except Exception:
+		logger.exception("Initial dashboard refresh failed during startup.")
+
+	background_refresh_task = asyncio.create_task(_background_refresh_loop())
+
+	try:
+		yield
+	finally:
+		if background_refresh_task is not None:
+			background_refresh_task.cancel()
+			with suppress(asyncio.CancelledError):
+				await background_refresh_task
+			background_refresh_task = None
 
 
 app = FastAPI(
@@ -119,6 +151,39 @@ def _coerce_utc_datetime(value: datetime) -> datetime:
 	return value.astimezone(timezone.utc)
 
 
+def _current_minute_bucket(value: datetime | None = None) -> datetime:
+	timestamp = _coerce_utc_datetime(value or utc_now())
+	return timestamp.replace(second=0, microsecond=0)
+
+
+def _is_current_minute(value: datetime | None, now: datetime | None = None) -> bool:
+	if value is None:
+		return False
+
+	return _current_minute_bucket(value) == _current_minute_bucket(now)
+
+
+def _invalidate_dashboard_cache() -> None:
+	global dashboard_cache
+	dashboard_cache = None
+
+
+async def _sleep_until_next_minute() -> None:
+	now = datetime.now(timezone.utc)
+	delay_seconds = 60 - now.second - (now.microsecond / 1_000_000)
+	await asyncio.sleep(max(delay_seconds, 0.05))
+
+
+async def _background_refresh_loop() -> None:
+	while True:
+		await _sleep_until_next_minute()
+		try:
+			with Session(engine) as session:
+				await _get_cached_dashboard(session, force_refresh=True)
+		except Exception:
+			logger.exception("Scheduled dashboard refresh failed.")
+
+
 def _load_table_columns(session: Session, table_name: str) -> set[str]:
 	rows = session.exec(text(f"PRAGMA table_info({table_name})")).all()
 	return {row[1] for row in rows}
@@ -188,6 +253,8 @@ async def _value_cash_accounts(
 				platform=account.platform,
 				balance=round(account.balance, 2),
 				currency=account.currency,
+				account_type=account.account_type,
+				note=account.note,
 				fx_to_cny=round(fx_rate, 6),
 				value_cny=value_cny,
 			),
@@ -228,6 +295,10 @@ async def _value_holdings(
 				symbol=holding.symbol,
 				name=holding.name,
 				quantity=round(holding.quantity, 4),
+				fallback_currency=holding.fallback_currency,
+				market=holding.market,
+				broker=holding.broker,
+				note=holding.note,
 				price=price,
 				price_currency=price_currency,
 				fx_to_cny=round(fx_rate, 6),
@@ -241,19 +312,24 @@ async def _value_holdings(
 
 
 def _persist_snapshot(session: Session, total_value_cny: float) -> None:
-	cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
 	last_snapshot = session.exec(
 		select(PortfolioSnapshot)
 		.order_by(PortfolioSnapshot.created_at.desc())
 		.limit(1),
 	).first()
+	current_bucket = _current_minute_bucket()
 
-	if last_snapshot and _coerce_utc_datetime(last_snapshot.created_at) >= cutoff:
+	if last_snapshot and _is_current_minute(last_snapshot.created_at, current_bucket):
 		last_snapshot.total_value_cny = total_value_cny
-		last_snapshot.created_at = utc_now()
+		last_snapshot.created_at = current_bucket
 		session.add(last_snapshot)
 	else:
-		session.add(PortfolioSnapshot(total_value_cny=total_value_cny))
+		session.add(
+			PortfolioSnapshot(
+				total_value_cny=total_value_cny,
+				created_at=current_bucket,
+			),
+		)
 
 	session.commit()
 
@@ -278,7 +354,8 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(holdings)
 	total_value_cny = round(cash_value_cny + holdings_value_cny, 2)
 
-	_persist_snapshot(session, total_value_cny)
+	if accounts or holdings:
+		_persist_snapshot(session, total_value_cny)
 
 	now = datetime.now(timezone.utc)
 	hour_series = build_timeline(_load_series(session, now - timedelta(hours=24)), "hour")
@@ -304,6 +381,35 @@ async def _build_dashboard(session: Session) -> DashboardResponse:
 	)
 
 
+async def _get_cached_dashboard(
+	session: Session,
+	force_refresh: bool = False,
+) -> DashboardResponse:
+	global dashboard_cache
+
+	if (
+		not force_refresh
+		and dashboard_cache is not None
+		and _is_current_minute(dashboard_cache.generated_at)
+	):
+		return dashboard_cache.dashboard
+
+	async with dashboard_cache_lock:
+		if (
+			not force_refresh
+			and dashboard_cache is not None
+			and _is_current_minute(dashboard_cache.generated_at)
+		):
+			return dashboard_cache.dashboard
+
+		dashboard = await _build_dashboard(session)
+		dashboard_cache = DashboardCacheEntry(
+			dashboard=dashboard,
+			generated_at=utc_now(),
+		)
+		return dashboard
+
+
 @app.get("/api/health")
 def healthcheck() -> dict[str, str]:
 	return {"status": "ok"}
@@ -311,9 +417,9 @@ def healthcheck() -> dict[str, str]:
 
 @app.get("/api/accounts", response_model=list[CashAccountRead])
 async def list_accounts(_: TokenDependency, session: SessionDependency) -> list[CashAccountRead]:
+	dashboard = await _get_cached_dashboard(session)
 	accounts = list(session.exec(select(CashAccount).order_by(CashAccount.platform, CashAccount.name)))
-	valued_accounts, _, _ = await _value_cash_accounts(accounts)
-	valued_account_map = {account.id: account for account in valued_accounts}
+	valued_account_map = {account.id: account for account in dashboard.cash_accounts}
 	items: list[CashAccountRead] = []
 
 	for account in accounts:
@@ -352,6 +458,7 @@ def create_account(
 	session.add(account)
 	session.commit()
 	session.refresh(account)
+	_invalidate_dashboard_cache()
 	return account
 
 
@@ -378,6 +485,7 @@ def update_account(
 	session.add(account)
 	session.commit()
 	session.refresh(account)
+	_invalidate_dashboard_cache()
 	return account
 
 
@@ -393,6 +501,7 @@ def delete_account(
 
 	session.delete(account)
 	session.commit()
+	_invalidate_dashboard_cache()
 	return Response(status_code=204)
 
 
@@ -401,11 +510,11 @@ async def list_holdings(
 	_: TokenDependency,
 	session: SessionDependency,
 ) -> list[SecurityHoldingRead]:
+	dashboard = await _get_cached_dashboard(session)
 	holdings = list(
 		session.exec(select(SecurityHolding).order_by(SecurityHolding.symbol, SecurityHolding.name)),
 	)
-	valued_holdings, _, _ = await _value_holdings(holdings)
-	valued_holding_map = {holding.id: holding for holding in valued_holdings}
+	valued_holding_map = {holding.id: holding for holding in dashboard.holdings}
 	items: list[SecurityHoldingRead] = []
 
 	for holding in holdings:
@@ -448,6 +557,7 @@ def create_holding(
 	session.add(holding)
 	session.commit()
 	session.refresh(holding)
+	_invalidate_dashboard_cache()
 	return holding
 
 
@@ -476,6 +586,7 @@ def update_holding(
 	session.add(holding)
 	session.commit()
 	session.refresh(holding)
+	_invalidate_dashboard_cache()
 	return holding
 
 
@@ -491,6 +602,7 @@ def delete_holding(
 
 	session.delete(holding)
 	session.commit()
+	_invalidate_dashboard_cache()
 	return Response(status_code=204)
 
 
@@ -508,4 +620,4 @@ async def search_securities(
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
 async def get_dashboard(_: TokenDependency, session: SessionDependency) -> DashboardResponse:
-	return await _build_dashboard(session)
+	return await _get_cached_dashboard(session)

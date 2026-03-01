@@ -162,6 +162,8 @@ class ValuedCashAccount(BaseModel):
 	platform: str
 	balance: float
 	currency: str
+	account_type: str
+	note: Optional[str] = None
 	fx_to_cny: float
 	value_cny: float
 
@@ -171,6 +173,10 @@ class ValuedHolding(BaseModel):
 	symbol: str
 	name: str
 	quantity: float
+	fallback_currency: str
+	market: str
+	broker: Optional[str] = None
+	note: Optional[str] = None
 	price: float
 	price_currency: str
 	fx_to_cny: float

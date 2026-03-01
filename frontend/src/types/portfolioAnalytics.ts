@@ -1,9 +1,16 @@
+import type {
+	CashAccountType,
+	SecurityMarket,
+} from "./assets";
+
 export type ValuedCashAccount = {
 	id: number;
 	name: string;
 	platform: string;
 	balance: number;
 	currency: string;
+	account_type: CashAccountType;
+	note?: string | null;
 	fx_to_cny: number;
 	value_cny: number;
 };
@@ -13,6 +20,10 @@ export type ValuedHolding = {
 	symbol: string;
 	name: string;
 	quantity: number;
+	fallback_currency: string;
+	market: SecurityMarket;
+	broker?: string | null;
+	note?: string | null;
 	price: number;
 	price_currency: string;
 	fx_to_cny: number;

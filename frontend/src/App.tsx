@@ -3,9 +3,18 @@ import { AssetManager } from "./components/assets";
 import { PortfolioAnalytics } from "./components/analytics";
 import { defaultAssetApiClient } from "./lib/assetApi";
 import { getDashboard } from "./lib/dashboardApi";
-import type { AssetManagerController } from "./types/assets";
+import type {
+	AssetManagerController,
+	CashAccountRecord,
+	HoldingRecord,
+} from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import { formatCny } from "./utils/portfolioAnalytics";
+
+function getMillisecondsUntilNextMinute(): number {
+	const now = new Date();
+	return ((60 - now.getSeconds()) * 1000) - now.getMilliseconds();
+}
 
 function formatLastUpdated(timestamp: string | null): string {
 	if (!timestamp) {
@@ -26,23 +35,58 @@ function formatLastUpdated(timestamp: string | null): string {
 	}).format(parsedTimestamp);
 }
 
+function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number]): CashAccountRecord {
+	return {
+		...record,
+		note: record.note ?? undefined,
+	};
+}
+
+function toHoldingRecord(record: DashboardResponse["holdings"][number]): HoldingRecord {
+	return {
+		...record,
+		broker: record.broker ?? undefined,
+		note: record.note ?? undefined,
+		last_updated: record.last_updated ?? undefined,
+	};
+}
+
 function App() {
 	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
-	const [assetRefreshToken, setAssetRefreshToken] = useState(0);
 
 	useEffect(() => {
 		void loadDashboard();
 	}, []);
 
 	useEffect(() => {
-		const refreshTimer = window.setInterval(() => {
+		let refreshTimer = 0;
+		const initialDelay = window.setTimeout(() => {
 			void loadDashboard();
-		}, 60 * 1000);
+			refreshTimer = window.setInterval(() => {
+				void loadDashboard();
+			}, 60 * 1000);
+		}, getMillisecondsUntilNextMinute());
 
-		return () => window.clearInterval(refreshTimer);
+		return () => {
+			window.clearTimeout(initialDelay);
+			if (refreshTimer) {
+				window.clearInterval(refreshTimer);
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		function handleVisibilityChange(): void {
+			if (document.visibilityState === "visible") {
+				void loadDashboard();
+			}
+		}
+
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
 	}, []);
 
 	async function loadDashboard(): Promise<void> {
@@ -52,7 +96,6 @@ function App() {
 			const nextDashboard = await getDashboard();
 			setDashboard(nextDashboard);
 			setLastUpdatedAt(new Date().toISOString());
-			setAssetRefreshToken((currentValue) => currentValue + 1);
 		} catch (error) {
 			setErrorMessage(
 				error instanceof Error
@@ -66,6 +109,8 @@ function App() {
 
 	const hasAnyAsset =
 		dashboard.cash_accounts.length > 0 || dashboard.holdings.length > 0;
+	const cashAccountRecords = dashboard.cash_accounts.map(toCashAccountRecord);
+	const holdingRecords = dashboard.holdings.map(toHoldingRecord);
 
 	const assetManagerController: AssetManagerController = {
 		cashAccounts: {
@@ -83,7 +128,6 @@ function App() {
 				await defaultAssetApiClient.deleteCashAccount(recordId);
 				await loadDashboard();
 			},
-			onRefresh: () => defaultAssetApiClient.listCashAccounts(),
 		},
 		holdings: {
 			onCreate: async (payload) => {
@@ -100,7 +144,6 @@ function App() {
 				await defaultAssetApiClient.deleteHolding(recordId);
 				await loadDashboard();
 			},
-			onRefresh: () => defaultAssetApiClient.listHoldings(),
 			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
 		},
 	};
@@ -172,12 +215,13 @@ function App() {
 
 			<div className="integrated-stack">
 				<AssetManager
+					initialCashAccounts={cashAccountRecords}
+					initialHoldings={holdingRecords}
 					cashActions={assetManagerController.cashAccounts}
 					holdingActions={assetManagerController.holdings}
 					title="资产管理"
-					description="新增、编辑、删除。"
+					description="自动同步。"
 					defaultSection={hasAnyAsset && dashboard.holdings.length > 0 ? "holding" : "cash"}
-					refreshToken={assetRefreshToken}
 				/>
 			</div>
 		</div>
