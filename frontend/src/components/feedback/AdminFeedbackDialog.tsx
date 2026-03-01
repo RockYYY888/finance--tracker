@@ -14,12 +14,12 @@ export interface AdminFeedbackDialogProps {
 
 function formatTimestamp(value: string | null): string {
 	if (!value) {
-		return "未记录";
+		return "暂无";
 	}
 
 	const parsedValue = new Date(value);
 	if (Number.isNaN(parsedValue.getTime())) {
-		return "未记录";
+		return "暂无";
 	}
 
 	return new Intl.DateTimeFormat("zh-CN", {
@@ -106,7 +106,7 @@ export function AdminFeedbackDialog({
 					<div>
 						<p className="eyebrow">ADMIN INBOX</p>
 						<h2 id="admin-feedback-title">消息</h2>
-						<p className="feedback-modal__copy">展开后可查看详情、回复，并按需关闭。</p>
+						<p className="feedback-modal__copy">展开后可查看详情，未关闭的反馈支持回复与关闭。</p>
 					</div>
 					<button
 						type="button"
@@ -141,11 +141,11 @@ export function AdminFeedbackDialog({
 											<p>
 												提交：{formatTimestamp(item.created_at)}
 												{item.replied_at
-													? ` · 已回复：${formatTimestamp(item.replied_at)}`
-													: " · 未回复"}
+													? ` · 最近回复：${formatTimestamp(item.replied_at)}`
+													: " · 暂未回复"}
 												{isClosed
 													? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
-													: " · 待处理"}
+													: " · 处理中"}
 											</p>
 										</div>
 										<div className="admin-feedback-card__actions">
@@ -172,41 +172,52 @@ export function AdminFeedbackDialog({
 										<div className="admin-feedback-card__detail">
 											<div className="admin-feedback-card__reply-history">
 												<strong>回复内容</strong>
-												<p>{item.reply_message ?? "暂无回复"}</p>
+												<p>{item.reply_message ?? "暂未回复"}</p>
 											</div>
-											<label className="admin-feedback-card__editor">
-												<span>回复</span>
-												<textarea
-													value={expandedItem?.id === item.id ? draftReply : item.reply_message ?? ""}
-													onChange={(event) => setDraftReply(event.target.value)}
-													placeholder="输入回复，用户会在自己的消息里看到。"
-													disabled={busy}
-												/>
-											</label>
 											<div className="admin-feedback-card__footer">
 												<span>
 													{item.replied_by
 														? `最近回复人：${item.replied_by}`
 														: "尚未回复"}
 												</span>
-												<div className="admin-feedback-card__footer-actions">
-													<button
-														type="button"
-														className="ghost-button"
-														disabled={busy || !draftReply.trim()}
-														onClick={() => void handleReply(item.id, false)}
-													>
-														保存回复
-													</button>
-													<button
-														type="button"
-														disabled={busy || !draftReply.trim()}
-														onClick={() => void handleReply(item.id, true)}
-													>
-														回复并关闭
-													</button>
-												</div>
 											</div>
+											{!isClosed ? (
+												<>
+													<label className="admin-feedback-card__editor">
+														<span>回复</span>
+														<textarea
+															value={
+																expandedItem?.id === item.id
+																	? draftReply
+																	: item.reply_message ?? ""
+															}
+															onChange={(event) => setDraftReply(event.target.value)}
+															placeholder="输入回复，用户会在自己的消息里看到。"
+															disabled={busy}
+														/>
+													</label>
+													<div className="admin-feedback-card__footer">
+														<span>保存后用户会在自己的消息中看到回复。</span>
+														<div className="admin-feedback-card__footer-actions">
+															<button
+																type="button"
+																className="ghost-button"
+																disabled={busy || !draftReply.trim()}
+																onClick={() => void handleReply(item.id, false)}
+															>
+																保存回复
+															</button>
+															<button
+																type="button"
+																disabled={busy || !draftReply.trim()}
+																onClick={() => void handleReply(item.id, true)}
+															>
+																回复并关闭
+															</button>
+														</div>
+													</div>
+												</>
+											) : null}
 										</div>
 									) : null}
 								</article>
