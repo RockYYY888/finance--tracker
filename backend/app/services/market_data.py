@@ -418,6 +418,10 @@ def _merge_search_results(
 	return merged_results
 
 
+def _contains_cjk_characters(value: str) -> bool:
+	return any("\u4e00" <= character <= "\u9fff" for character in value)
+
+
 def build_local_search_results(query: str) -> list[SecuritySearchResult]:
 	"""Fallback suggestions for symbol-like input and common names."""
 	normalized_query = query.strip().casefold()
@@ -801,10 +805,22 @@ class MarketDataClient:
 		if cached_quote is not None:
 			return cached_quote, []
 
-		try:
-			quote = await self.quote_provider.fetch_quote(normalized_symbol)
-		except QuoteLookupError as exc:
+		primary_provider = self.quote_provider
+		secondary_provider = None
+		if resolved_market in {"HK", "CN"}:
+			primary_provider = self.fallback_quote_provider
+		elif resolved_market == "CRYPTO":
+			primary_provider = self.crypto_quote_provider
+		else:
 			if resolved_market in {"HK", "CN"}:
+				secondary_provider = self.fallback_quote_provider
+			elif resolved_market == "CRYPTO":
+				secondary_provider = self.crypto_quote_provider
+
+		try:
+			quote = await primary_provider.fetch_quote(normalized_symbol)
+		except QuoteLookupError as exc:
+			if secondary_provider is self.fallback_quote_provider:
 				try:
 					quote = await self.fallback_quote_provider.fetch_quote(normalized_symbol)
 				except QuoteLookupError as fallback_exc:
@@ -815,7 +831,7 @@ class MarketDataClient:
 							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {combined_error}",
 						]
 					raise QuoteLookupError(combined_error) from fallback_exc
-			elif resolved_market == "CRYPTO":
+			elif secondary_provider is self.crypto_quote_provider:
 				try:
 					quote = await self.crypto_quote_provider.fetch_quote(normalized_symbol)
 				except QuoteLookupError as crypto_exc:
@@ -854,23 +870,27 @@ class MarketDataClient:
 		local_results = build_local_search_results(normalized_query)
 		china_results: list[SecuritySearchResult] = []
 		global_results: list[SecuritySearchResult] = []
+		should_query_global_provider = not local_results and not _contains_cjk_characters(
+			normalized_query,
+		)
 
 		try:
 			china_results = await self.china_search_provider.search(normalized_query)
 		except QuoteLookupError:
 			china_results = []
 
-		try:
-			global_results = await self.search_provider.search(normalized_query)
-		except QuoteLookupError:
-			global_results = []
+		if should_query_global_provider:
+			try:
+				global_results = await self.search_provider.search(normalized_query)
+			except QuoteLookupError:
+				global_results = []
 
 		results = _merge_search_results(local_results, _merge_search_results(china_results, global_results))
 		self.search_cache.set(cache_key, results, ttl_seconds=self.search_ttl_seconds)
 		return results
 
 	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
-		"""Fetch an FX rate, preferring intraday Yahoo data and a stale cache on provider failure."""
+		"""Fetch an FX rate from the dedicated FX provider and fall back to stale cache."""
 		from_code = from_currency.strip().upper()
 		to_code = to_currency.strip().upper()
 		if from_code == to_code:
@@ -881,33 +901,15 @@ class MarketDataClient:
 		if cached_rate is not None:
 			return cached_rate, []
 
-		quote_error_message = ""
-		try:
-			quote, quote_warnings = await self.fetch_quote(build_fx_symbol(from_code, to_code))
-		except (QuoteLookupError, ValueError) as exc:
-			quote_warnings = []
-			quote_error_message = str(exc)
-		else:
-			if quote.price > 0:
-				if not quote_warnings:
-					self.fx_cache.set(cache_key, float(quote.price), ttl_seconds=self.fx_ttl_seconds)
-				return float(quote.price), quote_warnings
-			quote_error_message = f"No FX rate returned for {from_code}/{to_code}."
-
 		try:
 			rate = await self.fx_provider.fetch_rate(from_code, to_code)
-		except QuoteLookupError as exc:
+		except (QuoteLookupError, ValueError) as exc:
 			stale_rate = self.fx_cache.get_stale(cache_key)
-			combined_error = "; ".join(
-				part for part in (quote_error_message, str(exc)) if part
-			)
 			if stale_rate is not None:
 				return stale_rate, [
-					f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {combined_error}",
+					f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {exc}",
 				]
-			raise QuoteLookupError(
-				combined_error or f"No FX rate returned for {from_code}/{to_code}.",
-			) from exc
+			raise
 
 		self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
 		return rate, []

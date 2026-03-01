@@ -195,7 +195,7 @@ def test_fetch_quote_returns_stale_cache_when_provider_fails() -> None:
 	assert provider.calls == 2
 
 
-def test_fetch_quote_uses_fallback_provider_when_primary_fails() -> None:
+def test_fetch_quote_prefers_china_provider_for_hk_symbols() -> None:
 	primary_provider = SequenceQuoteProvider([QuoteLookupError("rate limited")])
 	fallback_provider = SequenceQuoteProvider([
 		_make_quote(symbol="0700.HK", price=518.0, currency="HKD"),
@@ -211,7 +211,7 @@ def test_fetch_quote_uses_fallback_provider_when_primary_fails() -> None:
 	assert quote.price == 518.0
 	assert quote.currency == "HKD"
 	assert warnings == []
-	assert primary_provider.calls == 1
+	assert primary_provider.calls == 0
 	assert fallback_provider.calls == 1
 
 
@@ -228,7 +228,7 @@ def test_clear_runtime_caches_clears_quote_and_fx_but_keeps_search_by_default() 
 	assert client.search_cache.get("aapl") == []
 
 
-def test_fetch_quote_uses_crypto_fallback_provider_when_primary_fails() -> None:
+def test_fetch_quote_prefers_crypto_provider_for_crypto_symbols() -> None:
 	primary_provider = SequenceQuoteProvider([QuoteLookupError("rate limited")])
 	crypto_provider = SequenceQuoteProvider([
 		_make_quote(symbol="BTC-USD", price=84500.0, currency="USD"),
@@ -244,7 +244,7 @@ def test_fetch_quote_uses_crypto_fallback_provider_when_primary_fails() -> None:
 	assert quote.price == 84500.0
 	assert quote.currency == "USD"
 	assert warnings == []
-	assert primary_provider.calls == 1
+	assert primary_provider.calls == 0
 	assert crypto_provider.calls == 1
 
 
@@ -309,26 +309,28 @@ def test_build_local_search_results_supports_crypto_aliases() -> None:
 	assert results[0].source == "Bitget"
 
 
-def test_search_securities_keeps_distinct_crypto_providers() -> None:
+def test_search_securities_skips_global_provider_when_local_matches_exist() -> None:
 	local_query = "btc"
+	global_provider = SequenceSearchProvider([[
+		SecuritySearchResult(
+			symbol="BTC-USD",
+			name="Bitcoin",
+			market="CRYPTO",
+			currency="USD",
+			exchange="CCC",
+			source="Yahoo Finance",
+		),
+	]])
 	client = MarketDataClient(
 		china_search_provider=SequenceSearchProvider([[]]),
-		search_provider=SequenceSearchProvider([[
-			SecuritySearchResult(
-				symbol="BTC-USD",
-				name="Bitcoin",
-				market="CRYPTO",
-				currency="USD",
-				exchange="CCC",
-				source="Yahoo Finance",
-			),
-		]]),
+		search_provider=global_provider,
 	)
 
 	results = asyncio.run(client.search_securities(local_query))
 
-	assert len(results) == 2
-	assert {result.source for result in results} == {"Bitget", "Yahoo Finance"}
+	assert len(results) == 1
+	assert results[0].source == "Bitget"
+	assert global_provider.calls == 0
 
 
 def test_build_local_search_results_supports_usdt_alias() -> None:
@@ -396,7 +398,7 @@ def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:
 
 	assert rate == 7.2
 	assert warnings == [
-		"USD/CNY 汇率源不可用，已回退到最近缓存值: quote down; fx down",
+		"USD/CNY 汇率源不可用，已回退到最近缓存值: fx down",
 	]
 
 
@@ -406,7 +408,7 @@ def test_fetch_fx_rate_raises_when_no_cache_and_providers_fail() -> None:
 		fx_provider=SequenceRateProvider([QuoteLookupError("fx down")]),
 	)
 
-	with pytest.raises(QuoteLookupError, match="quote down; fx down"):
+	with pytest.raises(QuoteLookupError, match="fx down"):
 		asyncio.run(client.fetch_fx_rate("USD", "CNY"))
 
 
