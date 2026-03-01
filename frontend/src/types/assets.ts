@@ -99,6 +99,7 @@ export interface CashAccountInput {
 	currency: string;
 	balance: number;
 	account_type: CashAccountType;
+	started_on?: string;
 	note?: string;
 }
 
@@ -107,6 +108,7 @@ export interface CashAccountFormDraft {
 	currency: string;
 	balance: string;
 	account_type: CashAccountType;
+	started_on: string;
 	note: string;
 }
 
@@ -121,6 +123,7 @@ export const DEFAULT_CASH_ACCOUNT_FORM_DRAFT: CashAccountFormDraft = {
 	currency: "CNY",
 	balance: "",
 	account_type: "ALIPAY",
+	started_on: "",
 	note: "",
 };
 
@@ -132,6 +135,7 @@ export interface HoldingInput {
 	cost_basis_price?: number;
 	market: SecurityMarket;
 	broker?: string;
+	started_on?: string;
 	note?: string;
 }
 
@@ -143,6 +147,7 @@ export interface HoldingFormDraft {
 	cost_basis_price: string;
 	market: SecurityMarket;
 	broker: string;
+	started_on: string;
 	note: string;
 }
 
@@ -160,6 +165,7 @@ export interface FixedAssetInput {
 	category: FixedAssetCategory;
 	current_value_cny: number;
 	purchase_value_cny?: number;
+	started_on?: string;
 	note?: string;
 }
 
@@ -168,6 +174,7 @@ export interface FixedAssetFormDraft {
 	category: FixedAssetCategory;
 	current_value_cny: string;
 	purchase_value_cny: string;
+	started_on: string;
 	note: string;
 }
 
@@ -182,6 +189,7 @@ export const DEFAULT_FIXED_ASSET_FORM_DRAFT: FixedAssetFormDraft = {
 	category: "REAL_ESTATE",
 	current_value_cny: "",
 	purchase_value_cny: "",
+	started_on: "",
 	note: "",
 };
 
@@ -190,6 +198,7 @@ export interface LiabilityInput {
 	category: LiabilityCategory;
 	currency: string;
 	balance: number;
+	started_on?: string;
 	note?: string;
 }
 
@@ -198,6 +207,7 @@ export interface LiabilityFormDraft {
 	category: LiabilityCategory;
 	currency: string;
 	balance: string;
+	started_on: string;
 	note: string;
 }
 
@@ -212,6 +222,7 @@ export const DEFAULT_LIABILITY_FORM_DRAFT: LiabilityFormDraft = {
 	category: "MORTGAGE",
 	currency: "CNY",
 	balance: "",
+	started_on: "",
 	note: "",
 };
 
@@ -220,6 +231,7 @@ export interface OtherAssetInput {
 	category: OtherAssetCategory;
 	current_value_cny: number;
 	original_value_cny?: number;
+	started_on?: string;
 	note?: string;
 }
 
@@ -228,6 +240,7 @@ export interface OtherAssetFormDraft {
 	category: OtherAssetCategory;
 	current_value_cny: string;
 	original_value_cny: string;
+	started_on: string;
 	note: string;
 }
 
@@ -242,6 +255,7 @@ export const DEFAULT_OTHER_ASSET_FORM_DRAFT: OtherAssetFormDraft = {
 	category: "RECEIVABLE",
 	current_value_cny: "",
 	original_value_cny: "",
+	started_on: "",
 	note: "",
 };
 
@@ -262,6 +276,7 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	cost_basis_price: "",
 	market: "HK",
 	broker: "",
+	started_on: "",
 	note: "",
 };
 

@@ -13,6 +13,7 @@ export type ValuedCashAccount = {
 	balance: number;
 	currency: string;
 	account_type: CashAccountType;
+	started_on?: string | null;
 	note?: string | null;
 	fx_to_cny: number;
 	value_cny: number;
@@ -27,6 +28,7 @@ export type ValuedHolding = {
 	cost_basis_price?: number | null;
 	market: SecurityMarket;
 	broker?: string | null;
+	started_on?: string | null;
 	note?: string | null;
 	price: number;
 	price_currency: string;
@@ -42,6 +44,7 @@ export type ValuedFixedAsset = {
 	category: FixedAssetCategory;
 	current_value_cny: number;
 	purchase_value_cny?: number | null;
+	started_on?: string | null;
 	note?: string | null;
 	value_cny: number;
 	return_pct?: number | null;
@@ -53,6 +56,7 @@ export type ValuedLiability = {
 	category: LiabilityCategory;
 	currency: string;
 	balance: number;
+	started_on?: string | null;
 	note?: string | null;
 	fx_to_cny: number;
 	value_cny: number;
@@ -64,6 +68,7 @@ export type ValuedOtherAsset = {
 	category: OtherAssetCategory;
 	current_value_cny: number;
 	original_value_cny?: number | null;
+	started_on?: string | null;
 	note?: string | null;
 	value_cny: number;
 	return_pct?: number | null;

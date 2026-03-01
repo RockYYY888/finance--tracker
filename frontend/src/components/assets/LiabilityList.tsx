@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./asset-components.css";
 import {
 	formatCnyAmount,
+	formatDateValue,
 	formatLiabilityCategory,
 	formatMoneyAmount,
 } from "../../lib/assetFormatting";
@@ -135,6 +136,10 @@ export function LiabilityList({
 								<div className="asset-manager__metric">
 									<span>折算人民币</span>
 									<strong>{formatCnyAmount(entry.value_cny)}</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>起贷日</span>
+									<strong>{formatDateValue(entry.started_on)}</strong>
 								</div>
 							</div>
 						</li>

@@ -48,6 +48,7 @@ function toFixedAssetInput(draft: FixedAssetFormDraft): FixedAssetInput {
 		category: draft.category,
 		current_value_cny: Number(draft.current_value_cny),
 		purchase_value_cny: purchaseValue,
+		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
 	};
 }
@@ -210,6 +211,15 @@ export function FixedAssetForm({
 							value={draft.purchase_value_cny}
 							onChange={(event) => updateDraft("purchase_value_cny", event.target.value)}
 							placeholder="450000"
+						/>
+					</label>
+
+					<label className="asset-manager__field">
+						<span>购入日</span>
+						<input
+							type="date"
+							value={draft.started_on}
+							onChange={(event) => updateDraft("started_on", event.target.value)}
 						/>
 					</label>
 				</div>

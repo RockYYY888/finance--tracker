@@ -100,6 +100,23 @@ export function formatTimestamp(value?: string | null): string {
 	}).format(parsedValue);
 }
 
+export function formatDateValue(value?: string | null): string {
+	if (!value) {
+		return "未填写";
+	}
+
+	const parsedValue = new Date(`${value}T00:00:00`);
+	if (Number.isNaN(parsedValue.getTime())) {
+		return value;
+	}
+
+	return new Intl.DateTimeFormat("zh-CN", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).format(parsedValue);
+}
+
 export function formatCashAccountType(value?: string | null): string {
 	if (!value) {
 		return "其他";

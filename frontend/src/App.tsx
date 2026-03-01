@@ -67,6 +67,7 @@ function formatSummaryCny(value: number): string {
 function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number]): CashAccountRecord {
 	return {
 		...record,
+		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 	};
 }
@@ -76,6 +77,7 @@ function toHoldingRecord(record: DashboardResponse["holdings"][number]): Holding
 		...record,
 		cost_basis_price: record.cost_basis_price ?? undefined,
 		broker: record.broker ?? undefined,
+		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 		last_updated: record.last_updated ?? undefined,
 	};
@@ -87,6 +89,7 @@ function toFixedAssetRecord(
 	return {
 		...record,
 		purchase_value_cny: record.purchase_value_cny ?? undefined,
+		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 		return_pct: record.return_pct ?? undefined,
 	};
@@ -97,6 +100,7 @@ function toLiabilityRecord(
 ): LiabilityRecord {
 	return {
 		...record,
+		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 	};
 }
@@ -107,6 +111,7 @@ function toOtherAssetRecord(
 	return {
 		...record,
 		original_value_cny: record.original_value_cny ?? undefined,
+		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 		return_pct: record.return_pct ?? undefined,
 	};

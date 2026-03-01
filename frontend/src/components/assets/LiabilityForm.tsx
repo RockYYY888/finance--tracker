@@ -42,6 +42,7 @@ function toLiabilityInput(draft: LiabilityFormDraft): LiabilityInput {
 		category: draft.category,
 		currency: draft.currency.trim().toUpperCase(),
 		balance: Number(draft.balance),
+		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
 	};
 }
@@ -196,6 +197,15 @@ export function LiabilityForm({
 							value={draft.balance}
 							onChange={(event) => updateDraft("balance", event.target.value)}
 							placeholder="100000"
+						/>
+					</label>
+
+					<label className="asset-manager__field">
+						<span>起贷日</span>
+						<input
+							type="date"
+							value={draft.started_on}
+							onChange={(event) => updateDraft("started_on", event.target.value)}
 						/>
 					</label>
 				</div>

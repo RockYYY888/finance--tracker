@@ -61,6 +61,7 @@ function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
 		currency: record.currency,
 		balance: String(record.balance),
 		account_type: record.account_type,
+		started_on: record.started_on ?? "",
 		note: record.note ?? "",
 	};
 }
@@ -74,6 +75,7 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		cost_basis_price: record.cost_basis_price != null ? String(record.cost_basis_price) : "",
 		market: record.market,
 		broker: record.broker ?? "",
+		started_on: record.started_on ?? "",
 		note: record.note ?? "",
 	};
 }
@@ -84,6 +86,7 @@ function toFixedAssetDraft(record: FixedAssetRecord): FixedAssetFormDraft {
 		category: record.category,
 		current_value_cny: String(record.current_value_cny),
 		purchase_value_cny: record.purchase_value_cny != null ? String(record.purchase_value_cny) : "",
+		started_on: record.started_on ?? "",
 		note: record.note ?? "",
 	};
 }
@@ -94,6 +97,7 @@ function toLiabilityDraft(record: LiabilityRecord): LiabilityFormDraft {
 		category: record.category,
 		currency: record.currency,
 		balance: String(record.balance),
+		started_on: record.started_on ?? "",
 		note: record.note ?? "",
 	};
 }
@@ -104,6 +108,7 @@ function toOtherAssetDraft(record: OtherAssetRecord): OtherAssetFormDraft {
 		category: record.category,
 		current_value_cny: String(record.current_value_cny),
 		original_value_cny: record.original_value_cny != null ? String(record.original_value_cny) : "",
+		started_on: record.started_on ?? "",
 		note: record.note ?? "",
 	};
 }

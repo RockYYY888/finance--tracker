@@ -3,6 +3,7 @@ import "./asset-components.css";
 import {
 	formatCashAccountType,
 	formatCnyAmount,
+	formatDateValue,
 	formatMoneyAmount,
 } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
@@ -138,6 +139,10 @@ export function CashAccountList({
 								<div className="asset-manager__metric">
 									<span>折算人民币</span>
 									<strong>{formatCnyAmount(account.value_cny)}</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>存入日</span>
+									<strong>{formatDateValue(account.started_on)}</strong>
 								</div>
 							</div>
 						</li>

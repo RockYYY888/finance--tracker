@@ -48,6 +48,7 @@ function toCashAccountInput(draft: CashAccountFormDraft): CashAccountInput {
 		currency: draft.currency.trim().toUpperCase(),
 		balance: Number(draft.balance),
 		account_type: draft.account_type,
+		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
 	};
 }
@@ -203,6 +204,15 @@ export function CashAccountForm({
 							value={draft.balance}
 							onChange={(event) => updateDraft("balance", event.target.value)}
 							placeholder="10000"
+						/>
+					</label>
+
+					<label className="asset-manager__field">
+						<span>存入日</span>
+						<input
+							type="date"
+							value={draft.started_on}
+							onChange={(event) => updateDraft("started_on", event.target.value)}
 						/>
 					</label>
 				</div>

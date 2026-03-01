@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./asset-components.css";
 import {
 	formatCnyAmount,
+	formatDateValue,
 	formatOtherAssetCategory,
 	formatPercentValue,
 } from "../../lib/assetFormatting";
@@ -147,6 +148,10 @@ export function OtherAssetList({
 											? formatPercentValue(asset.return_pct)
 											: "待计算"}
 									</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>形成日</span>
+									<strong>{formatDateValue(asset.started_on)}</strong>
 								</div>
 							</div>
 						</li>

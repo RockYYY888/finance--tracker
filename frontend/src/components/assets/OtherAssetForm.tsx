@@ -46,6 +46,7 @@ function toOtherAssetInput(draft: OtherAssetFormDraft): OtherAssetInput {
 		category: draft.category,
 		current_value_cny: Number(draft.current_value_cny),
 		original_value_cny: originalValue,
+		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
 	};
 }
@@ -208,6 +209,15 @@ export function OtherAssetForm({
 							value={draft.original_value_cny}
 							onChange={(event) => updateDraft("original_value_cny", event.target.value)}
 							placeholder="9500"
+						/>
+					</label>
+
+					<label className="asset-manager__field">
+						<span>形成日</span>
+						<input
+							type="date"
+							value={draft.started_on}
+							onChange={(event) => updateDraft("started_on", event.target.value)}
 						/>
 					</label>
 				</div>

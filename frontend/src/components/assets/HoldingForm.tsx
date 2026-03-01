@@ -52,6 +52,7 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 			: undefined,
 		market: draft.market,
 		broker: normalizedBroker || undefined,
+		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
 	};
 }
@@ -450,6 +451,15 @@ export function HoldingForm({
 						value={draft.broker}
 						onChange={(event) => updateDraft("broker", event.target.value)}
 						placeholder="搜索后自动填入，可手动修改"
+					/>
+				</label>
+
+				<label className="asset-manager__field">
+					<span>持仓日</span>
+					<input
+						type="date"
+						value={draft.started_on}
+						onChange={(event) => updateDraft("started_on", event.target.value)}
 					/>
 				</label>
 

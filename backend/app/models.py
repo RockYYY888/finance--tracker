@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -45,6 +45,7 @@ class CashAccount(SQLModel, table=True):
 	currency: str = Field(default="CNY", max_length=8)
 	balance: float = Field(default=0)
 	account_type: str = Field(default="OTHER", max_length=20)
+	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -60,6 +61,7 @@ class SecurityHolding(SQLModel, table=True):
 	cost_basis_price: Optional[float] = Field(default=None)
 	market: str = Field(default="OTHER", max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
+	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -72,6 +74,7 @@ class FixedAsset(SQLModel, table=True):
 	category: str = Field(default="OTHER", max_length=24)
 	current_value_cny: float = Field(default=0)
 	purchase_value_cny: Optional[float] = Field(default=None)
+	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -84,6 +87,7 @@ class LiabilityEntry(SQLModel, table=True):
 	category: str = Field(default="OTHER", max_length=24)
 	currency: str = Field(default="CNY", max_length=8)
 	balance: float = Field(default=0)
+	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -96,6 +100,7 @@ class OtherAsset(SQLModel, table=True):
 	category: str = Field(default="OTHER", max_length=24)
 	current_value_cny: float = Field(default=0)
 	original_value_cny: Optional[float] = Field(default=None)
+	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)

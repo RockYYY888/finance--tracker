@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -44,6 +44,7 @@ class CashAccountCreate(BaseModel):
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
 	balance: float = Field(ge=0)
 	account_type: str = Field(default="OTHER", min_length=4, max_length=20)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("account_type", mode="before")
@@ -63,6 +64,7 @@ class CashAccountUpdate(BaseModel):
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
 	balance: float = Field(ge=0)
 	account_type: Optional[str] = Field(default=None, min_length=4, max_length=20)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("account_type", mode="before")
@@ -83,6 +85,7 @@ class CashAccountRead(BaseModel):
 	currency: str
 	balance: float
 	account_type: str
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	fx_to_cny: Optional[float] = None
 	value_cny: Optional[float] = None
@@ -92,6 +95,7 @@ class FixedAssetBase(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	category: str = Field(default="OTHER", min_length=4, max_length=24)
 	current_value_cny: float = Field(gt=0)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("category", mode="before")
@@ -119,6 +123,7 @@ class FixedAssetRead(BaseModel):
 	category: str
 	current_value_cny: float
 	purchase_value_cny: Optional[float] = None
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	value_cny: float
 	return_pct: Optional[float] = None
@@ -129,6 +134,7 @@ class LiabilityEntryCreate(BaseModel):
 	category: str = Field(default="OTHER", min_length=4, max_length=24)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
 	balance: float = Field(ge=0)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("category", mode="before")
@@ -147,6 +153,7 @@ class LiabilityEntryUpdate(BaseModel):
 	category: Optional[str] = Field(default=None, min_length=4, max_length=24)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
 	balance: float = Field(ge=0)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("category", mode="before")
@@ -166,6 +173,7 @@ class LiabilityEntryRead(BaseModel):
 	category: str
 	currency: str
 	balance: float
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	fx_to_cny: Optional[float] = None
 	value_cny: Optional[float] = None
@@ -175,6 +183,7 @@ class OtherAssetBase(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	category: str = Field(default="OTHER", min_length=4, max_length=24)
 	current_value_cny: float = Field(gt=0)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("category", mode="before")
@@ -202,6 +211,7 @@ class OtherAssetRead(BaseModel):
 	category: str
 	current_value_cny: float
 	original_value_cny: Optional[float] = None
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	value_cny: float
 	return_pct: Optional[float] = None
@@ -234,6 +244,7 @@ class SecurityHoldingCreate(BaseModel):
 	cost_basis_price: Optional[float] = Field(default=None, gt=0)
 	market: str = Field(default="OTHER", min_length=2, max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("market", mode="before")
@@ -261,6 +272,7 @@ class SecurityHoldingUpdate(BaseModel):
 	cost_basis_price: Optional[float] = Field(default=None, gt=0)
 	market: Optional[str] = Field(default=None, min_length=2, max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
+	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("market", mode="before")
@@ -289,6 +301,7 @@ class SecurityHoldingRead(BaseModel):
 	cost_basis_price: Optional[float] = None
 	market: str
 	broker: Optional[str] = None
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	price: Optional[float] = None
 	price_currency: Optional[str] = None
@@ -313,6 +326,7 @@ class ValuedCashAccount(BaseModel):
 	balance: float
 	currency: str
 	account_type: str
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	fx_to_cny: float
 	value_cny: float
@@ -327,6 +341,7 @@ class ValuedHolding(BaseModel):
 	cost_basis_price: Optional[float] = None
 	market: str
 	broker: Optional[str] = None
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	price: float
 	price_currency: str
@@ -342,6 +357,7 @@ class ValuedFixedAsset(BaseModel):
 	category: str
 	current_value_cny: float
 	purchase_value_cny: Optional[float] = None
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	value_cny: float
 	return_pct: Optional[float] = None
@@ -353,6 +369,7 @@ class ValuedLiabilityEntry(BaseModel):
 	category: str
 	currency: str
 	balance: float
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	fx_to_cny: float
 	value_cny: float
@@ -364,6 +381,7 @@ class ValuedOtherAsset(BaseModel):
 	category: str
 	current_value_cny: float
 	original_value_cny: Optional[float] = None
+	started_on: Optional[date] = None
 	note: Optional[str] = None
 	value_cny: float
 	return_pct: Optional[float] = None

@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./asset-components.css";
 import {
 	formatCnyAmount,
+	formatDateValue,
 	formatPercentValue,
 	formatPriceAmount,
 	formatQuantity,
@@ -184,6 +185,10 @@ export function HoldingList({
 								<div className="asset-manager__metric">
 									<span>市场</span>
 									<strong>{formatSecurityMarket(holding.market)}</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>持仓日</span>
+									<strong>{formatDateValue(holding.started_on)}</strong>
 								</div>
 							</div>
 						</li>

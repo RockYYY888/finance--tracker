@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -97,6 +97,7 @@ def test_create_account_persists_account_type_and_note(session: Session) -> None
 			currency="cny",
 			balance=1280.5,
 			account_type="alipay",
+			started_on=date(2026, 3, 1),
 			note="  spare cash  ",
 		),
 		current_user,
@@ -106,11 +107,13 @@ def test_create_account_persists_account_type_and_note(session: Session) -> None
 	assert account.id is not None
 	assert account.currency == "CNY"
 	assert account.account_type == "ALIPAY"
+	assert account.started_on == date(2026, 3, 1)
 	assert account.note == "spare cash"
 
 	stored_account = session.get(CashAccount, account.id)
 	assert stored_account is not None
 	assert stored_account.user_id == current_user.username
+	assert stored_account.started_on == date(2026, 3, 1)
 	assert stored_account.account_type == "ALIPAY"
 	assert stored_account.note == "spare cash"
 
@@ -371,6 +374,7 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 			cost_basis_price=92.5,
 			market="us",
 			broker="  IBKR  ",
+			started_on=date(2026, 2, 14),
 			note="  long term  ",
 		),
 		current_user,
@@ -383,11 +387,13 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 	assert holding.cost_basis_price == 92.5
 	assert holding.market == "US"
 	assert holding.broker == "IBKR"
+	assert holding.started_on == date(2026, 2, 14)
 	assert holding.note == "long term"
 
 	stored_holding = session.get(SecurityHolding, holding.id)
 	assert stored_holding is not None
 	assert stored_holding.user_id == current_user.username
+	assert stored_holding.started_on == date(2026, 2, 14)
 	assert stored_holding.cost_basis_price == 92.5
 	assert stored_holding.market == "US"
 	assert stored_holding.broker == "IBKR"
@@ -572,6 +578,7 @@ def test_create_new_asset_categories_persists_records(session: Session) -> None:
 			category="real_estate",
 			current_value_cny=2_000_000,
 			purchase_value_cny=1_800_000,
+			started_on=date(2024, 1, 1),
 			note="  family use  ",
 		),
 		current_user,
@@ -583,6 +590,7 @@ def test_create_new_asset_categories_persists_records(session: Session) -> None:
 			category="mortgage",
 			currency="cny",
 			balance=500_000,
+			started_on=date(2024, 1, 2),
 			note="  monthly repayment  ",
 		),
 		current_user,
@@ -594,6 +602,7 @@ def test_create_new_asset_categories_persists_records(session: Session) -> None:
 			category="receivable",
 			current_value_cny=20_000,
 			original_value_cny=18_000,
+			started_on=date(2025, 5, 6),
 			note="  due next quarter  ",
 		),
 		current_user,
@@ -602,8 +611,11 @@ def test_create_new_asset_categories_persists_records(session: Session) -> None:
 
 	assert fixed_asset.category == "REAL_ESTATE"
 	assert fixed_asset.return_pct == 11.11
+	assert fixed_asset.started_on == date(2024, 1, 1)
 	assert liability.category == "MORTGAGE"
+	assert liability.started_on == date(2024, 1, 2)
 	assert other_asset.category == "RECEIVABLE"
+	assert other_asset.started_on == date(2025, 5, 6)
 	assert other_asset.return_pct == 11.11
 
 	assert session.exec(select(FixedAsset)).one().user_id == current_user.username

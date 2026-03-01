@@ -353,6 +353,7 @@ def _ensure_legacy_schema() -> None:
 			{
 				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
 				"account_type": "TEXT NOT NULL DEFAULT 'OTHER'",
+				"started_on": "TEXT",
 				"note": "TEXT",
 			},
 		),
@@ -363,7 +364,29 @@ def _ensure_legacy_schema() -> None:
 				"cost_basis_price": "REAL",
 				"market": "TEXT NOT NULL DEFAULT 'OTHER'",
 				"broker": "TEXT",
+				"started_on": "TEXT",
 				"note": "TEXT",
+			},
+		),
+		(
+			FixedAsset.__table__.name,
+			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"started_on": "TEXT",
+			},
+		),
+		(
+			LiabilityEntry.__table__.name,
+			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"started_on": "TEXT",
+			},
+		),
+		(
+			OtherAsset.__table__.name,
+			{
+				"user_id": "TEXT NOT NULL DEFAULT 'admin'",
+				"started_on": "TEXT",
 			},
 		),
 		(
@@ -425,6 +448,7 @@ async def _value_cash_accounts(
 				balance=round(account.balance, 2),
 				currency=account.currency,
 				account_type=account.account_type,
+				started_on=account.started_on,
 				note=account.note,
 				fx_to_cny=round(fx_rate, 6),
 				value_cny=value_cny,
@@ -472,6 +496,7 @@ async def _value_holdings(
 				else None,
 				market=holding.market,
 				broker=holding.broker,
+				started_on=holding.started_on,
 				note=holding.note,
 				price=price,
 				price_currency=price_currency,
@@ -505,6 +530,7 @@ def _value_fixed_assets(
 				purchase_value_cny=round(asset.purchase_value_cny, 2)
 				if asset.purchase_value_cny is not None
 				else None,
+				started_on=asset.started_on,
 				note=asset.note,
 				value_cny=value_cny,
 				return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
@@ -539,6 +565,7 @@ async def _value_liabilities(
 				category=entry.category,
 				currency=entry.currency,
 				balance=round(entry.balance, 2),
+				started_on=entry.started_on,
 				note=entry.note,
 				fx_to_cny=round(fx_rate, 6),
 				value_cny=value_cny,
@@ -566,6 +593,7 @@ def _value_other_assets(
 				original_value_cny=round(asset.original_value_cny, 2)
 				if asset.original_value_cny is not None
 				else None,
+				started_on=asset.started_on,
 				note=asset.note,
 				value_cny=value_cny,
 				return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
@@ -586,6 +614,7 @@ def _to_cash_account_read(account: CashAccount) -> CashAccountRead:
 		currency=account.currency,
 		balance=account.balance,
 		account_type=account.account_type,
+		started_on=account.started_on,
 		note=account.note,
 		fx_to_cny=valued_account.fx_to_cny if valued_account else None,
 		value_cny=valued_account.value_cny if valued_account else None,
@@ -604,6 +633,7 @@ def _to_holding_read(holding: SecurityHolding) -> SecurityHoldingRead:
 		cost_basis_price=holding.cost_basis_price,
 		market=holding.market,
 		broker=holding.broker,
+		started_on=holding.started_on,
 		note=holding.note,
 		price=valued_holding.price if valued_holding else None,
 		price_currency=valued_holding.price_currency if valued_holding else None,
@@ -622,6 +652,7 @@ def _to_liability_read(entry: LiabilityEntry) -> LiabilityEntryRead:
 		category=entry.category,
 		currency=entry.currency,
 		balance=round(entry.balance, 2),
+		started_on=entry.started_on,
 		note=entry.note,
 		fx_to_cny=valued_entry.fx_to_cny if valued_entry else None,
 		value_cny=valued_entry.value_cny if valued_entry else None,
@@ -1366,6 +1397,7 @@ async def list_accounts(
 				currency=account.currency,
 				balance=account.balance,
 				account_type=account.account_type,
+				started_on=account.started_on,
 				note=account.note,
 				fx_to_cny=valued_account.fx_to_cny if valued_account else None,
 				value_cny=valued_account.value_cny if valued_account else None,
@@ -1388,6 +1420,7 @@ def create_account(
 		currency=_normalize_currency(payload.currency),
 		balance=payload.balance,
 		account_type=payload.account_type,
+		started_on=payload.started_on,
 		note=payload.note,
 	)
 	session.add(account)
@@ -1414,6 +1447,8 @@ def update_account(
 	account.balance = payload.balance
 	if payload.account_type is not None:
 		account.account_type = payload.account_type
+	if "started_on" in payload.model_fields_set:
+		account.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		account.note = _normalize_optional_text(payload.note)
 	_touch_model(account)
@@ -1467,6 +1502,7 @@ async def list_fixed_assets(
 				purchase_value_cny=round(asset.purchase_value_cny, 2)
 				if asset.purchase_value_cny is not None
 				else None,
+				started_on=asset.started_on,
 				note=asset.note,
 				value_cny=valued_asset.value_cny if valued_asset else round(asset.current_value_cny, 2),
 				return_pct=valued_asset.return_pct if valued_asset else None,
@@ -1488,6 +1524,7 @@ def create_fixed_asset(
 		category=payload.category,
 		current_value_cny=payload.current_value_cny,
 		purchase_value_cny=payload.purchase_value_cny,
+		started_on=payload.started_on,
 		note=payload.note,
 	)
 	session.add(asset)
@@ -1503,6 +1540,7 @@ def create_fixed_asset(
 		purchase_value_cny=round(asset.purchase_value_cny, 2)
 		if asset.purchase_value_cny is not None
 		else None,
+		started_on=asset.started_on,
 		note=asset.note,
 		value_cny=value_cny,
 		return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
@@ -1524,6 +1562,8 @@ def update_fixed_asset(
 	asset.category = payload.category
 	asset.current_value_cny = payload.current_value_cny
 	asset.purchase_value_cny = payload.purchase_value_cny
+	if "started_on" in payload.model_fields_set:
+		asset.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		asset.note = _normalize_optional_text(payload.note)
 	_touch_model(asset)
@@ -1540,6 +1580,7 @@ def update_fixed_asset(
 		purchase_value_cny=round(asset.purchase_value_cny, 2)
 		if asset.purchase_value_cny is not None
 		else None,
+		started_on=asset.started_on,
 		note=asset.note,
 		value_cny=value_cny,
 		return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
@@ -1587,6 +1628,7 @@ async def list_liabilities(
 				category=entry.category,
 				currency=entry.currency,
 				balance=round(entry.balance, 2),
+				started_on=entry.started_on,
 				note=entry.note,
 				fx_to_cny=valued_entry.fx_to_cny if valued_entry else None,
 				value_cny=valued_entry.value_cny if valued_entry else None,
@@ -1608,6 +1650,7 @@ def create_liability(
 		category=payload.category,
 		currency=_normalize_currency(payload.currency),
 		balance=payload.balance,
+		started_on=payload.started_on,
 		note=payload.note,
 	)
 	session.add(entry)
@@ -1633,6 +1676,8 @@ def update_liability(
 	entry.balance = payload.balance
 	if payload.category is not None:
 		entry.category = payload.category
+	if "started_on" in payload.model_fields_set:
+		entry.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		entry.note = _normalize_optional_text(payload.note)
 	_touch_model(entry)
@@ -1686,6 +1731,7 @@ async def list_other_assets(
 				original_value_cny=round(asset.original_value_cny, 2)
 				if asset.original_value_cny is not None
 				else None,
+				started_on=asset.started_on,
 				note=asset.note,
 				value_cny=valued_asset.value_cny if valued_asset else round(asset.current_value_cny, 2),
 				return_pct=valued_asset.return_pct if valued_asset else None,
@@ -1707,6 +1753,7 @@ def create_other_asset(
 		category=payload.category,
 		current_value_cny=payload.current_value_cny,
 		original_value_cny=payload.original_value_cny,
+		started_on=payload.started_on,
 		note=payload.note,
 	)
 	session.add(asset)
@@ -1722,6 +1769,7 @@ def create_other_asset(
 		original_value_cny=round(asset.original_value_cny, 2)
 		if asset.original_value_cny is not None
 		else None,
+		started_on=asset.started_on,
 		note=asset.note,
 		value_cny=value_cny,
 		return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
@@ -1743,6 +1791,8 @@ def update_other_asset(
 	asset.category = payload.category
 	asset.current_value_cny = payload.current_value_cny
 	asset.original_value_cny = payload.original_value_cny
+	if "started_on" in payload.model_fields_set:
+		asset.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		asset.note = _normalize_optional_text(payload.note)
 	_touch_model(asset)
@@ -1759,6 +1809,7 @@ def update_other_asset(
 		original_value_cny=round(asset.original_value_cny, 2)
 		if asset.original_value_cny is not None
 		else None,
+		started_on=asset.started_on,
 		note=asset.note,
 		value_cny=value_cny,
 		return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
@@ -1809,6 +1860,7 @@ async def list_holdings(
 				cost_basis_price=holding.cost_basis_price,
 				market=holding.market,
 				broker=holding.broker,
+				started_on=holding.started_on,
 				note=holding.note,
 				price=valued_holding.price if valued_holding else None,
 				price_currency=valued_holding.price_currency if valued_holding else None,
@@ -1836,6 +1888,7 @@ def create_holding(
 		cost_basis_price=payload.cost_basis_price,
 		market=payload.market,
 		broker=payload.broker,
+		started_on=payload.started_on,
 		note=payload.note,
 	)
 	session.add(holding)
@@ -1866,6 +1919,8 @@ def update_holding(
 		holding.market = payload.market
 	if "broker" in payload.model_fields_set:
 		holding.broker = _normalize_optional_text(payload.broker)
+	if "started_on" in payload.model_fields_set:
+		holding.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		holding.note = _normalize_optional_text(payload.note)
 	_touch_model(holding)
