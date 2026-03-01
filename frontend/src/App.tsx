@@ -75,6 +75,84 @@ function formatFxRate(rate: number | null | undefined): string {
 	return rate.toFixed(4);
 }
 
+function roundCnyValue(value: number): number {
+	return Number(value.toFixed(2));
+}
+
+function upsertRecordById<T extends { id: number }>(records: T[], nextRecord: T): T[] {
+	const existingIndex = records.findIndex((record) => record.id === nextRecord.id);
+	if (existingIndex === -1) {
+		return [nextRecord, ...records];
+	}
+
+	return records.map((record) => (record.id === nextRecord.id ? nextRecord : record));
+}
+
+function removeRecordById<T extends { id: number }>(records: T[], recordId: number): T[] {
+	return records.filter((record) => record.id !== recordId);
+}
+
+function sumValuedRecords<T extends { value_cny?: number | null }>(records: T[]): number {
+	return roundCnyValue(
+		records.reduce((total, record) => total + (record.value_cny ?? 0), 0),
+	);
+}
+
+function rebuildAllocation(
+	cashValueCny: number,
+	holdingsValueCny: number,
+	fixedAssetsValueCny: number,
+	otherAssetsValueCny: number,
+): DashboardResponse["allocation"] {
+	const slices: DashboardResponse["allocation"] = [];
+
+	if (cashValueCny > 0) {
+		slices.push({ label: "现金", value: cashValueCny });
+	}
+	if (holdingsValueCny > 0) {
+		slices.push({ label: "投资类", value: holdingsValueCny });
+	}
+	if (fixedAssetsValueCny > 0) {
+		slices.push({ label: "固定资产", value: fixedAssetsValueCny });
+	}
+	if (otherAssetsValueCny > 0) {
+		slices.push({ label: "其他", value: otherAssetsValueCny });
+	}
+
+	return slices;
+}
+
+function finalizeDashboardState(nextDashboard: DashboardResponse): DashboardResponse {
+	const cashValueCny = sumValuedRecords(nextDashboard.cash_accounts);
+	const holdingsValueCny = sumValuedRecords(nextDashboard.holdings);
+	const fixedAssetsValueCny = sumValuedRecords(nextDashboard.fixed_assets);
+	const liabilitiesValueCny = sumValuedRecords(nextDashboard.liabilities);
+	const otherAssetsValueCny = sumValuedRecords(nextDashboard.other_assets);
+	const totalValueCny = roundCnyValue(
+		cashValueCny +
+		holdingsValueCny +
+		fixedAssetsValueCny +
+		otherAssetsValueCny -
+		liabilitiesValueCny,
+	);
+
+	return {
+		...nextDashboard,
+		total_value_cny: totalValueCny,
+		cash_value_cny: cashValueCny,
+		holdings_value_cny: holdingsValueCny,
+		fixed_assets_value_cny: fixedAssetsValueCny,
+		liabilities_value_cny: liabilitiesValueCny,
+		other_assets_value_cny: otherAssetsValueCny,
+		allocation: rebuildAllocation(
+			cashValueCny,
+			holdingsValueCny,
+			fixedAssetsValueCny,
+			otherAssetsValueCny,
+		),
+	};
+}
+
 function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number]): CashAccountRecord {
 	return {
 		...record,
@@ -128,6 +206,72 @@ function toOtherAssetRecord(
 		started_on: record.started_on ?? undefined,
 		note: record.note ?? undefined,
 		return_pct: record.return_pct ?? undefined,
+	};
+}
+
+function toDashboardCashAccount(
+	record: CashAccountRecord,
+): DashboardResponse["cash_accounts"][number] {
+	return {
+		...record,
+		started_on: record.started_on ?? null,
+		note: record.note ?? null,
+		fx_to_cny: record.fx_to_cny ?? 0,
+		value_cny: record.value_cny ?? 0,
+	};
+}
+
+function toDashboardHolding(
+	record: HoldingRecord,
+): DashboardResponse["holdings"][number] {
+	return {
+		...record,
+		cost_basis_price: record.cost_basis_price ?? null,
+		broker: record.broker ?? null,
+		started_on: record.started_on ?? null,
+		note: record.note ?? null,
+		price: record.price ?? 0,
+		price_currency: record.price_currency ?? record.fallback_currency,
+		fx_to_cny: 0,
+		value_cny: record.value_cny ?? 0,
+		return_pct: record.return_pct ?? null,
+		last_updated: record.last_updated ?? null,
+	};
+}
+
+function toDashboardFixedAsset(
+	record: FixedAssetRecord,
+): DashboardResponse["fixed_assets"][number] {
+	return {
+		...record,
+		purchase_value_cny: record.purchase_value_cny ?? null,
+		started_on: record.started_on ?? null,
+		note: record.note ?? null,
+		return_pct: record.return_pct ?? null,
+	};
+}
+
+function toDashboardLiability(
+	record: LiabilityRecord,
+): DashboardResponse["liabilities"][number] {
+	return {
+		...record,
+		started_on: record.started_on ?? null,
+		note: record.note ?? null,
+		fx_to_cny: record.fx_to_cny ?? 0,
+		value_cny: record.value_cny ?? 0,
+	};
+}
+
+function toDashboardOtherAsset(
+	record: OtherAssetRecord,
+): DashboardResponse["other_assets"][number] {
+	return {
+		...record,
+		original_value_cny: record.original_value_cny ?? null,
+		started_on: record.started_on ?? null,
+		note: record.note ?? null,
+		return_pct: record.return_pct ?? null,
 	};
 }
 
@@ -351,6 +495,12 @@ function App() {
 		}
 	}
 
+	function patchDashboard(
+		mutator: (currentDashboard: DashboardResponse) => DashboardResponse,
+	): void {
+		setDashboard((currentDashboard) => finalizeDashboardState(mutator(currentDashboard)));
+	}
+
 	if (authStatus !== "authenticated" || !currentUserId) {
 		return (
 			<LoginScreen
@@ -379,32 +529,68 @@ function App() {
 		cashAccounts: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createCashAccount(payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					cash_accounts: upsertRecordById(
+						currentDashboard.cash_accounts,
+						toDashboardCashAccount(createdRecord),
+					),
+				}));
 				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateCashAccount(recordId, payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					cash_accounts: upsertRecordById(
+						currentDashboard.cash_accounts,
+						toDashboardCashAccount(updatedRecord),
+					),
+				}));
 				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteCashAccount(recordId);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					cash_accounts: removeRecordById(currentDashboard.cash_accounts, recordId),
+				}));
 				void loadDashboard();
 			},
 		},
 		holdings: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createHolding(payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					holdings: upsertRecordById(
+						currentDashboard.holdings,
+						toDashboardHolding(createdRecord),
+					),
+				}));
 				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateHolding(recordId, payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					holdings: upsertRecordById(
+						currentDashboard.holdings,
+						toDashboardHolding(updatedRecord),
+					),
+				}));
 				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteHolding(recordId);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					holdings: removeRecordById(currentDashboard.holdings, recordId),
+				}));
 				void loadDashboard();
 			},
 			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
@@ -412,48 +598,102 @@ function App() {
 		fixedAssets: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createFixedAsset(payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					fixed_assets: upsertRecordById(
+						currentDashboard.fixed_assets,
+						toDashboardFixedAsset(createdRecord),
+					),
+				}));
 				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateFixedAsset(recordId, payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					fixed_assets: upsertRecordById(
+						currentDashboard.fixed_assets,
+						toDashboardFixedAsset(updatedRecord),
+					),
+				}));
 				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteFixedAsset(recordId);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					fixed_assets: removeRecordById(currentDashboard.fixed_assets, recordId),
+				}));
 				void loadDashboard();
 			},
 		},
 		liabilities: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createLiability(payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					liabilities: upsertRecordById(
+						currentDashboard.liabilities,
+						toDashboardLiability(createdRecord),
+					),
+				}));
 				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateLiability(recordId, payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					liabilities: upsertRecordById(
+						currentDashboard.liabilities,
+						toDashboardLiability(updatedRecord),
+					),
+				}));
 				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteLiability(recordId);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					liabilities: removeRecordById(currentDashboard.liabilities, recordId),
+				}));
 				void loadDashboard();
 			},
 		},
 		otherAssets: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createOtherAsset(payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					other_assets: upsertRecordById(
+						currentDashboard.other_assets,
+						toDashboardOtherAsset(createdRecord),
+					),
+				}));
 				void loadDashboard();
 				return createdRecord;
 			},
 			onEdit: async (recordId, payload) => {
 				const updatedRecord = await defaultAssetApiClient.updateOtherAsset(recordId, payload);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					other_assets: upsertRecordById(
+						currentDashboard.other_assets,
+						toDashboardOtherAsset(updatedRecord),
+					),
+				}));
 				void loadDashboard();
 				return updatedRecord;
 			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteOtherAsset(recordId);
+				patchDashboard((currentDashboard) => ({
+					...currentDashboard,
+					other_assets: removeRecordById(currentDashboard.other_assets, recordId),
+				}));
 				void loadDashboard();
 			},
 		},
