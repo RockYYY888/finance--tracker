@@ -1,5 +1,11 @@
 # Personal Asset Tracker
 
+## Authorship
+
+- Author: `Yiwei LI`
+- Contact: `lywyoyo0318@gmail.com`
+- Copyright (c) 2026 `Yiwei LI`
+
 ## Docker Compose
 
 Local development does not assume a host proxy:
@@ -35,3 +41,10 @@ set -a
 source /Users/lyw/Desktop/finance/.env.codex-feedback-automation.local
 set +a
 ```
+
+## License
+
+This project is licensed under **GNU Affero General Public License v3.0** (`AGPL-3.0-only`).
+Closed-source commercial use is not permitted unless separately authorized by the author.
+
+See [LICENSE](./LICENSE) for the full license text.
