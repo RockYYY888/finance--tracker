@@ -162,6 +162,40 @@ function trimLeadingInactivePoints(series: TimelinePoint[]): TimelinePoint[] {
 	return series.slice(firstActiveIndex);
 }
 
+function trimLeadingDiscontinuityPoints(series: TimelinePoint[]): TimelinePoint[] {
+	if (series.length <= 2) {
+		return series;
+	}
+
+	for (let index = 1; index < series.length; index += 1) {
+		const previousMagnitude = Math.max(Math.abs(series[index - 1].value), 1e-6);
+		const currentMagnitude = Math.abs(series[index].value);
+		if (currentMagnitude < 10_000) {
+			continue;
+		}
+
+		const jumpRatio = currentMagnitude / previousMagnitude;
+		if (jumpRatio < 20) {
+			continue;
+		}
+
+		const leadingPoints = series.slice(0, index);
+		if (leadingPoints.length === 0 || series.length - index < 2) {
+			continue;
+		}
+
+		const lowValueThreshold = Math.max(currentMagnitude * 0.05, 1_000);
+		const areLeadingPointsLowValue = leadingPoints.every(
+			(point) => Math.abs(point.value) < lowValueThreshold,
+		);
+		if (areLeadingPointsLowValue) {
+			return series.slice(index);
+		}
+	}
+
+	return series;
+}
+
 export function prepareTimelineSeries(series: TimelinePoint[]): TimelinePoint[] {
 	const normalizedPoints = series
 		.filter((point) => Number.isFinite(point.value))
@@ -172,7 +206,8 @@ export function prepareTimelineSeries(series: TimelinePoint[]): TimelinePoint[] 
 			toSortableTimestamp(left.point, left.index) - toSortableTimestamp(right.point, right.index),
 	);
 
-	return trimLeadingInactivePoints(indexedPoints.map((entry) => entry.point));
+	const chronologicallySorted = indexedPoints.map((entry) => entry.point);
+	return trimLeadingDiscontinuityPoints(trimLeadingInactivePoints(chronologicallySorted));
 }
 
 export function getBarChartHeight(itemCount: number): number {

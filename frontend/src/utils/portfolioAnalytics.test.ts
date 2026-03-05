@@ -107,6 +107,20 @@ describe("prepareTimelineSeries", () => {
 
 		expect(normalized.map((point) => point.label)).toEqual(["03-01", "03-02"]);
 	});
+
+	it("trims low-value leading discontinuity points before a large jump", () => {
+		const normalized = prepareTimelineSeries([
+			{ label: "02-28 18:00", value: 111, timestamp_utc: "2026-02-28T10:00:00Z" },
+			{ label: "02-28 19:00", value: 111, timestamp_utc: "2026-02-28T11:00:00Z" },
+			{ label: "03-01 03:00", value: 243_088, timestamp_utc: "2026-02-28T19:00:00Z" },
+			{ label: "03-01 04:00", value: 241_577, timestamp_utc: "2026-02-28T20:00:00Z" },
+		]);
+
+		expect(normalized.map((point) => point.label)).toEqual([
+			"03-01 03:00",
+			"03-01 04:00",
+		]);
+	});
 });
 
 describe("summarizeTimeline", () => {
