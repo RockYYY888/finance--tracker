@@ -1,5 +1,23 @@
 # Personal Asset Tracker
 
+## Project Description
+
+Language: [English](#english) | [中文](#chinese)
+
+### English
+
+<a id="english"></a>
+A personal asset tracker for recording holdings and monitoring portfolio performance in CNY.
+It helps you organize assets across accounts and keep positions up to date.
+It provides a clear view of portfolio changes over time.
+
+### 中文
+
+<a id="chinese"></a>
+一个个人资产追踪工具，用于记录持仓并以人民币（CNY）监控组合表现。
+它帮助你按账户整理资产，并持续更新持仓信息。
+它让你更清晰地查看投资组合随时间的变化。
+
 ## Docker Compose
 
 Local development does not assume a host proxy:
