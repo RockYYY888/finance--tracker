@@ -63,18 +63,28 @@
   - [x] User release-note content returns cumulative markdown history
   - [x] Add backend test for multi-publish single-message behavior
   - [x] Add repository `CHANGELOG.md` as persistent update history file
+- [x] Execute approved workflow for feedback `#3`:
+  - [x] Commit/push historical backfill queue refactor and request-minimization changes
+  - [x] Reply and close feedback ticket `#3`
+- [x] Execute approved workflow for feedback `#4`:
+  - [x] Commit/push dynamic axis readability enhancements
+  - [x] Reply and close feedback ticket `#4`
+- [x] Merge active codex branch into `main` and clean up local/remote temp branches
+- [x] Upgrade feedback ticket model for maintainability:
+  - [x] Add ticket classification fields (`category`, `priority`, `source`, `status`)
+  - [x] Add admin classify API (`/api/admin/feedback/{id}/classify`)
+  - [x] Add admin/user front-end badge display (non-clickable labels)
+  - [x] Add shared front-end feedback metadata module (`feedbackMeta.ts`)
+  - [x] Update feedback approval script to exclude system tickets by default
+  - [x] Update API drift message publisher to write typed admin-only system tickets
+  - [x] Run backend/frontend full regression and build checks
+- [x] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)
+- [x] Create and activate API drift automation `API Drift DB Alert` (15:00 Asia/Shanghai)
 
 ### Pending
-- [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)
-- [ ] Create `.env.codex-feedback-automation.local` from example and fill secrets:
-  - [ ] `FEEDBACK_API_BASE_URL=http://117.72.217.15:8080`
-  - [ ] `FEEDBACK_ADMIN_USER=<admin_user>`
-  - [ ] `FEEDBACK_ADMIN_PASSWORD=<admin_password>`
-  - [ ] `FEEDBACK_API_TOKEN=<api-token-if-required>`
-  - [ ] `http_proxy=http://127.0.0.1:10808`
-  - [ ] `https_proxy=http://127.0.0.1:10808`
-- [ ] Run first live dry-run against production endpoint and verify approval loop behavior
+- [ ] Add admin UI controls for manual category/priority/source/status editing (uses classify API)
+- [ ] Add Trading Agent ingestion path to create `SYSTEM_TASK` tickets with structured payload
+- [ ] Add dashboard-level filter tabs for ticket status/priority in admin inbox
 
 ### Risks / Notes
 - Skill validator requires `PyYAML`; local system python is externally managed, so validation was executed with `/tmp/skill-validate-venv`.
-- Automation creation requires Codex automation directive/application-level confirmation.
