@@ -25,6 +25,7 @@ import {
 	formatPercentMetric,
 	formatPercentage,
 	getTimelineSeries,
+	prepareTimelineSeries,
 	summarizeCompoundedStepRate,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
@@ -91,6 +92,12 @@ function formatSignedRatio(ratio: number): string {
 	return `${prefix}${formatPercentage(ratio)}`;
 }
 
+type TooltipPayloadEntry = {
+	dataKey?: string;
+	value?: number;
+	payload?: { value?: number };
+};
+
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
 	return items.map((item) => ({
 		key: item.symbol,
@@ -146,7 +153,7 @@ export function ReturnTrendChart({
 		return seriesOptions.find((option) => option.key === selectedKey) ?? seriesOptions[0];
 	}, [selectedKey, seriesOptions]);
 
-	const series = selectedOption
+	const rawSeries = selectedOption
 		? getTimelineSeries(
 			range,
 			selectedOption.hour_series,
@@ -155,6 +162,7 @@ export function ReturnTrendChart({
 			selectedOption.year_series,
 		)
 		: [];
+	const series = prepareTimelineSeries(rawSeries);
 	const summary = summarizeTimeline(series);
 	const compoundedStepRate = summarizeCompoundedStepRate(series);
 	const axisLayout = useMemo(
@@ -170,8 +178,8 @@ export function ReturnTrendChart({
 	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
 		Math.abs(axisLayout.centerValue),
-		Math.abs(axisLayout.maxValue - axisLayout.minValue),
-		1,
+		Math.abs(axisLayout.maxValue - axisLayout.minValue) * 0.6,
+		1e-6,
 	);
 	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
 
@@ -224,7 +232,11 @@ export function ReturnTrendChart({
 				</div>
 				<div className="analytics-pill">
 					<span>周期变化</span>
-					<strong>{formatPercentMetric(summary.changeValue, true)}</strong>
+					<strong>
+						{summary.changeRatio === null
+							? `${formatPercentMetric(summary.changeValue, true)} / --`
+							: `${formatPercentMetric(summary.changeValue, true)} / ${formatSignedRatio(summary.changeRatio)}`}
+					</strong>
 				</div>
 				<div className="analytics-pill">
 					<span>相对中线偏离</span>
@@ -271,11 +283,31 @@ export function ReturnTrendChart({
 							/>
 							<ReferenceLine y={0} stroke="rgba(214, 212, 203, 0.38)" strokeDasharray="4 4" />
 							<Tooltip
-								formatter={(value) => [
-									formatPercentMetric(Number(value ?? 0)),
-									"收益率",
-								]}
-								labelFormatter={(label) => `周期: ${String(label ?? "")}`}
+								content={({ active, payload, label }) => {
+									if (!active || !payload || payload.length === 0) {
+										return null;
+									}
+
+									const entries = payload as TooltipPayloadEntry[];
+									const primaryEntry = entries.find((entry) => entry.dataKey === "value");
+									const rawValue = Number(
+										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
+									);
+
+									return (
+										<div style={ANALYTICS_TOOLTIP_STYLE}>
+											<p style={ANALYTICS_TOOLTIP_LABEL_STYLE}>
+												周期: {String(label ?? "")}
+											</p>
+											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
+												收益率: {formatPercentMetric(rawValue)}
+											</p>
+											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
+												中位中线: {formatPercentMetric(axisLayout.centerValue)}
+											</p>
+										</div>
+									);
+								}}
 								contentStyle={ANALYTICS_TOOLTIP_STYLE}
 								itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
 								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}

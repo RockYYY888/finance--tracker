@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateDynamicAxisLayout } from "./portfolioAnalytics";
+import {
+	calculateDynamicAxisLayout,
+	prepareTimelineSeries,
+	summarizeTimeline,
+} from "./portfolioAnalytics";
 
 describe("calculateDynamicAxisLayout", () => {
 	it("uses the median as center and symmetric padded domain", () => {
@@ -81,5 +85,51 @@ describe("calculateDynamicAxisLayout", () => {
 			outlierCenteredSpread * 2 * 1.18,
 		);
 		expect(layout.tickCount).toBeGreaterThanOrEqual(5);
+	});
+});
+
+describe("prepareTimelineSeries", () => {
+	it("sorts timeline points by timestamp_utc", () => {
+		const sorted = prepareTimelineSeries([
+			{ label: "03-02", value: 120, timestamp_utc: "2026-03-02T00:00:00Z" },
+			{ label: "03-01", value: 100, timestamp_utc: "2026-03-01T00:00:00Z" },
+		]);
+
+		expect(sorted.map((point) => point.label)).toEqual(["03-01", "03-02"]);
+	});
+
+	it("trims leading inactive zero points when active data follows", () => {
+		const normalized = prepareTimelineSeries([
+			{ label: "02-28", value: 0, timestamp_utc: "2026-02-28T00:00:00Z" },
+			{ label: "03-01", value: 215_000, timestamp_utc: "2026-03-01T00:00:00Z" },
+			{ label: "03-02", value: 220_000, timestamp_utc: "2026-03-02T00:00:00Z" },
+		]);
+
+		expect(normalized.map((point) => point.label)).toEqual(["03-01", "03-02"]);
+	});
+});
+
+describe("summarizeTimeline", () => {
+	it("computes change across the visible period", () => {
+		const summary = summarizeTimeline([
+			{ label: "03-01", value: 100 },
+			{ label: "03-02", value: 120 },
+			{ label: "03-03", value: 150 },
+		]);
+
+		expect(summary.startLabel).toBe("03-01");
+		expect(summary.latestLabel).toBe("03-03");
+		expect(summary.changeValue).toBe(50);
+		expect(summary.changeRatio).toBe(0.5);
+	});
+
+	it("returns null ratio when period start value is zero", () => {
+		const summary = summarizeTimeline([
+			{ label: "2026-02", value: 0 },
+			{ label: "2026-03", value: 239_687.62 },
+		]);
+
+		expect(summary.changeValue).toBe(239_687.62);
+		expect(summary.changeRatio).toBeNull();
 	});
 });

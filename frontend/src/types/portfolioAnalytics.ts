@@ -77,6 +77,8 @@ export type ValuedOtherAsset = {
 export type TimelinePoint = {
 	label: string;
 	value: number;
+	timestamp_utc?: string;
+	corrected?: boolean;
 };
 
 export type HoldingReturnSeries = {

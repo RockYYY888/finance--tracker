@@ -130,6 +130,51 @@ export function getTimelineSeries(
 	return daySeries;
 }
 
+function toSortableTimestamp(point: TimelinePoint, fallbackIndex: number): number {
+	if (!point.timestamp_utc) {
+		return fallbackIndex;
+	}
+
+	const parsedTimestamp = Date.parse(point.timestamp_utc);
+	if (!Number.isFinite(parsedTimestamp)) {
+		return fallbackIndex;
+	}
+
+	return parsedTimestamp;
+}
+
+function trimLeadingInactivePoints(series: TimelinePoint[]): TimelinePoint[] {
+	if (series.length <= 2) {
+		return series;
+	}
+
+	const firstActiveIndex = series.findIndex((point) => Math.abs(point.value) > 1e-6);
+	if (firstActiveIndex <= 0) {
+		return series;
+	}
+
+	const leadingPoints = series.slice(0, firstActiveIndex);
+	const areLeadingPointsInactive = leadingPoints.every((point) => Math.abs(point.value) <= 1e-6);
+	if (!areLeadingPointsInactive) {
+		return series;
+	}
+
+	return series.slice(firstActiveIndex);
+}
+
+export function prepareTimelineSeries(series: TimelinePoint[]): TimelinePoint[] {
+	const normalizedPoints = series
+		.filter((point) => Number.isFinite(point.value))
+		.map((point) => ({ ...point }));
+	const indexedPoints = normalizedPoints.map((point, index) => ({ point, index }));
+	indexedPoints.sort(
+		(left, right) =>
+			toSortableTimestamp(left.point, left.index) - toSortableTimestamp(right.point, right.index),
+	);
+
+	return trimLeadingInactivePoints(indexedPoints.map((entry) => entry.point));
+}
+
 export function getBarChartHeight(itemCount: number): number {
 	return Math.max(260, itemCount * 52);
 }
@@ -142,22 +187,25 @@ export function truncateLabel(label: string, maxLength = 10): string {
 }
 
 export function summarizeTimeline(series: TimelinePoint[]): {
+	startLabel: string | null;
 	latestLabel: string | null;
 	latestValue: number;
 	changeValue: number;
-	changeRatio: number;
+	changeRatio: number | null;
 } {
 	const latestPoint = series[series.length - 1];
-	const previousPoint = series[series.length - 2];
+	const startPoint = series[0];
 	const latestValue = latestPoint?.value ?? 0;
-	const previousValue = previousPoint?.value ?? 0;
-	const changeValue = latestValue - previousValue;
+	const startValue = startPoint?.value ?? latestValue;
+	const changeValue = latestValue - startValue;
+	const changeRatio = Math.abs(startValue) > 1e-6 ? changeValue / startValue : null;
 
 	return {
+		startLabel: startPoint?.label ?? null,
 		latestLabel: latestPoint?.label ?? null,
 		latestValue,
 		changeValue,
-		changeRatio: previousValue > 0 ? changeValue / previousValue : 0,
+		changeRatio,
 	};
 }
 

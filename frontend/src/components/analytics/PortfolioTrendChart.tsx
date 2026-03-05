@@ -21,6 +21,7 @@ import {
 	formatCny,
 	formatPercentage,
 	getTimelineSeries,
+	prepareTimelineSeries,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
@@ -65,7 +66,17 @@ export function buildPortfolioTrendChartData(
 	}));
 }
 
-function formatSignedRatio(ratio: number): string {
+type TooltipPayloadEntry = {
+	dataKey?: string;
+	value?: number;
+	payload?: { value?: number };
+};
+
+function formatSignedRatio(ratio: number | null): string {
+	if (ratio === null || !Number.isFinite(ratio)) {
+		return "--";
+	}
+
 	const prefix = ratio > 0 ? "+" : "";
 	return `${prefix}${formatPercentage(ratio)}`;
 }
@@ -81,7 +92,8 @@ export function PortfolioTrendChart({
 	description = "查看 24 小时、30 天、12 个月和年度变化。",
 }: PortfolioTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
-	const series = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
+	const rawSeries = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
+	const series = prepareTimelineSeries(rawSeries);
 	const summary = summarizeTimeline(series);
 	const axisLayout = useMemo(
 		() =>
@@ -92,12 +104,15 @@ export function PortfolioTrendChart({
 	);
 	const chartData = buildPortfolioTrendChartData(series, axisLayout.centerValue);
 	const hasData = chartData.length > 0;
-	const changeDirection = summary.changeValue >= 0 ? "增加" : "减少";
+	const changeDirection = summary.changeValue > 0 ? "增加" : summary.changeValue < 0 ? "减少" : "变化";
+	const periodLabel = summary.startLabel && summary.latestLabel
+		? `${summary.startLabel}→${summary.latestLabel}`
+		: (summary.latestLabel ?? "最新周期");
 	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
 		Math.abs(axisLayout.centerValue),
-		Math.abs(axisLayout.maxValue - axisLayout.minValue),
-		1,
+		Math.abs(axisLayout.maxValue - axisLayout.minValue) * 0.6,
+		1e-6,
 	);
 	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
 
@@ -129,7 +144,7 @@ export function PortfolioTrendChart({
 					<strong>{formatCny(summary.latestValue)}</strong>
 				</div>
 				<div className="analytics-pill">
-					<span>{summary.latestLabel ?? "最新周期"}</span>
+					<span>{periodLabel}</span>
 					<strong>
 						{changeDirection}
 						{formatCny(Math.abs(summary.changeValue))}
@@ -177,11 +192,31 @@ export function PortfolioTrendChart({
 								strokeDasharray="5 5"
 							/>
 							<Tooltip
-								formatter={(value) => [
-									formatCny(Number(value ?? 0)),
-									"资产总额",
-								]}
-								labelFormatter={(label) => `周期: ${String(label ?? "")}`}
+								content={({ active, payload, label }) => {
+									if (!active || !payload || payload.length === 0) {
+										return null;
+									}
+
+									const entries = payload as TooltipPayloadEntry[];
+									const primaryEntry = entries.find((entry) => entry.dataKey === "value");
+									const rawValue = Number(
+										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
+									);
+
+									return (
+										<div style={ANALYTICS_TOOLTIP_STYLE}>
+											<p style={ANALYTICS_TOOLTIP_LABEL_STYLE}>
+												周期: {String(label ?? "")}
+											</p>
+											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
+												资产总额: {formatCny(rawValue)}
+											</p>
+											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
+												中位中线: {formatCny(axisLayout.centerValue)}
+											</p>
+										</div>
+									);
+								}}
 								contentStyle={ANALYTICS_TOOLTIP_STYLE}
 								itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
 								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
