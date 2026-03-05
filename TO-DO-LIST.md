@@ -15,13 +15,16 @@
 - [x] Add `references/reply_template.md`
 - [x] Validate all 3 skills with `quick_validate.py` (via temp venv)
 - [x] Compile-check all Python scripts with `python3 -m py_compile`
+- [x] Add project-local env template `.env.codex-feedback-automation.example`
+- [x] Document project-local env loading in `README.md`
 
 ### Pending
 - [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)
-- [ ] Set runtime env vars for automation host:
+- [ ] Create `.env.codex-feedback-automation.local` from example and fill secrets:
   - [ ] `FEEDBACK_API_BASE_URL=http://117.72.217.15:8080`
   - [ ] `FEEDBACK_ADMIN_USER=<admin_user>`
   - [ ] `FEEDBACK_ADMIN_PASSWORD=<admin_password>`
+  - [ ] `FEEDBACK_API_TOKEN=<api-token-if-required>`
   - [ ] `http_proxy=http://127.0.0.1:10808`
   - [ ] `https_proxy=http://127.0.0.1:10808`
 - [ ] Run first live dry-run against production endpoint and verify approval loop behavior

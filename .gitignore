@@ -11,3 +11,4 @@ frontend/dist/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+.env.codex-feedback-automation.local
