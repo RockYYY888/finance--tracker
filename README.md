@@ -2,7 +2,7 @@
 
 ## Project Description
 
-A personal asset tracker for recording holdings and monitoring portfolio performance in CNY.
+A personal asset tracker for recording holdings and monitoring portfolio performance.
 It helps you organize assets across accounts and keep positions up to date.
 It provides a clear view of portfolio changes over time.
 
