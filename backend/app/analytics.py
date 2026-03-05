@@ -32,30 +32,64 @@ def _bucket_label(timestamp: datetime, granularity: str) -> str:
 	raise ValueError(msg)
 
 
+def bucket_start_utc(timestamp: datetime, granularity: str) -> datetime:
+	normalized_timestamp = _coerce_utc_datetime(timestamp).astimezone(DISPLAY_TIMEZONE)
+	if granularity == "hour":
+		bucket_start_local = normalized_timestamp.replace(minute=0, second=0, microsecond=0)
+	elif granularity == "day":
+		bucket_start_local = normalized_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+	elif granularity == "month":
+		bucket_start_local = normalized_timestamp.replace(
+			day=1,
+			hour=0,
+			minute=0,
+			second=0,
+			microsecond=0,
+		)
+	elif granularity == "year":
+		bucket_start_local = normalized_timestamp.replace(
+			month=1,
+			day=1,
+			hour=0,
+			minute=0,
+			second=0,
+			microsecond=0,
+		)
+	else:
+		msg = f"Unsupported granularity: {granularity}"
+		raise ValueError(msg)
+	return bucket_start_local.astimezone(timezone.utc)
+
+
 def _build_timeline_from_snapshots(
 	snapshots: Iterable[SeriesSnapshot],
 	granularity: str,
 	get_created_at: Callable[[SeriesSnapshot], datetime],
 	get_value: Callable[[SeriesSnapshot], float],
 ) -> list[TimelinePoint]:
-	buckets: dict[str, SeriesSnapshot] = {}
+	buckets: dict[datetime, SeriesSnapshot] = {}
 	for snapshot in snapshots:
 		snapshot_created_at = _coerce_utc_datetime(get_created_at(snapshot))
-		label = _bucket_label(snapshot_created_at, granularity)
-		current = buckets.get(label)
+		bucket_utc = bucket_start_utc(snapshot_created_at, granularity)
+		current = buckets.get(bucket_utc)
 		current_created_at = (
 			_coerce_utc_datetime(get_created_at(current)) if current is not None else None
 		)
 		if current is None or (
 			current_created_at is not None and snapshot_created_at >= current_created_at
 		):
-			buckets[label] = snapshot
+			buckets[bucket_utc] = snapshot
 
 	return [
-		TimelinePoint(label=label, value=round(get_value(snapshot), 2))
-		for label, snapshot in sorted(
+		TimelinePoint(
+			label=_bucket_label(bucket_utc, granularity),
+			value=round(get_value(snapshot), 2),
+			timestamp_utc=bucket_utc,
+			corrected=False,
+		)
+		for bucket_utc, snapshot in sorted(
 			buckets.items(),
-			key=lambda item: _coerce_utc_datetime(get_created_at(item[1])),
+			key=lambda item: item[0],
 		)
 	]
 

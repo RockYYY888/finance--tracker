@@ -17,6 +17,11 @@
 - [x] Compile-check all Python scripts with `python3 -m py_compile`
 - [x] Add project-local env template `.env.codex-feedback-automation.example`
 - [x] Document project-local env loading in `README.md`
+- [x] Implement dashboard correction model/API for historical point override/delete
+- [x] Implement asset mutation audit model/API for CRUD operations
+- [x] Update timeline schema/analytics to include `timestamp_utc` and `corrected`
+- [x] Add backend tests for correction application and audit log generation
+- [x] Run backend regression tests (55 passed)
 
 ### Pending
 - [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)

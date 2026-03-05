@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field, field_serializer, field_validator, model_
 
 from app.models import (
 	CASH_ACCOUNT_TYPES,
+	DASHBOARD_CORRECTION_ACTIONS,
+	DASHBOARD_CORRECTION_GRANULARITIES,
+	DASHBOARD_SERIES_SCOPES,
 	FIXED_ASSET_CATEGORIES,
 	LIABILITY_CATEGORIES,
 	LIABILITY_CURRENCIES,
@@ -522,6 +525,81 @@ class AllocationSlice(BaseModel):
 class TimelinePoint(BaseModel):
 	label: str
 	value: float
+	timestamp_utc: datetime
+	corrected: bool = False
+
+
+class DashboardCorrectionCreate(BaseModel):
+	series_scope: str = Field(min_length=1, max_length=32)
+	symbol: str | None = Field(default=None, max_length=64)
+	granularity: str = Field(min_length=3, max_length=8)
+	bucket_utc: datetime
+	action: str = Field(min_length=6, max_length=16)
+	corrected_value: float | None = None
+	reason: str = Field(min_length=1, max_length=500)
+
+	@field_validator("series_scope", mode="before")
+	@classmethod
+	def validate_series_scope(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, DASHBOARD_SERIES_SCOPES, "series_scope")
+
+	@field_validator("granularity", mode="before")
+	@classmethod
+	def validate_granularity(cls, value: str | None) -> str | None:
+		if value is None:
+			return None
+		normalized = value.strip().lower()
+		if normalized not in DASHBOARD_CORRECTION_GRANULARITIES:
+			raise ValueError(
+				f"granularity must be one of: {', '.join(DASHBOARD_CORRECTION_GRANULARITIES)}.",
+			)
+		return normalized
+
+	@field_validator("action", mode="before")
+	@classmethod
+	def validate_action(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, DASHBOARD_CORRECTION_ACTIONS, "action")
+
+	@field_validator("symbol", "reason", mode="before")
+	@classmethod
+	def normalize_optional_fields(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+	@model_validator(mode="after")
+	def validate_corrected_value(self) -> DashboardCorrectionCreate:
+		if self.action == "OVERRIDE" and self.corrected_value is None:
+			raise ValueError("corrected_value is required when action is OVERRIDE.")
+		if self.action == "DELETE" and self.corrected_value is not None:
+			raise ValueError("corrected_value must be omitted when action is DELETE.")
+		if self.series_scope != "HOLDING_RETURN":
+			self.symbol = None
+		elif self.symbol is None:
+			raise ValueError("symbol is required for HOLDING_RETURN corrections.")
+		return self
+
+
+class DashboardCorrectionRead(UtcTimestampResponseModel):
+	id: int
+	series_scope: str
+	symbol: str | None = None
+	granularity: str
+	bucket_utc: datetime
+	action: str
+	corrected_value: float | None = None
+	reason: str
+	created_at: datetime
+	updated_at: datetime
+
+
+class AssetMutationAuditRead(UtcTimestampResponseModel):
+	id: int
+	entity_type: str
+	entity_id: int | None = None
+	operation: str
+	before_state: str | None = None
+	after_state: str | None = None
+	reason: str | None = None
+	created_at: datetime
 
 
 class HoldingReturnSeries(BaseModel):

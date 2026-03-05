@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+import json
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -16,16 +17,19 @@ from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.analytics import build_return_timeline, build_timeline
+from app.analytics import bucket_start_utc, build_return_timeline, build_timeline
 from app.database import engine, get_session, init_db
 from app.models import (
+	ASSET_MUTATION_OPERATIONS,
 	CashAccount,
+	DashboardCorrection,
 	FixedAsset,
 	HoldingPerformanceSnapshot,
 	LiabilityEntry,
 	OtherAsset,
 	PortfolioSnapshot,
 	SecurityHolding,
+	AssetMutationAudit,
 	UserFeedback,
 	UserAccount,
 	utc_now,
@@ -34,12 +38,15 @@ from app.schemas import (
 	ActionMessageRead,
 	AdminFeedbackReplyUpdate,
 	AllocationSlice,
+	AssetMutationAuditRead,
 	AuthLoginCredentials,
 	AuthRegisterCredentials,
 	AuthSessionRead,
 	CashAccountCreate,
 	CashAccountRead,
 	CashAccountUpdate,
+	DashboardCorrectionCreate,
+	DashboardCorrectionRead,
 	DashboardResponse,
 	FixedAssetCreate,
 	FixedAssetRead,
@@ -92,6 +99,9 @@ logger = logging.getLogger(__name__)
 FEEDBACK_TIMEZONE = ZoneInfo("Asia/Shanghai")
 MAX_DAILY_FEEDBACK_SUBMISSIONS = 3
 GLOBAL_FORCE_REFRESH_INTERVAL = timedelta(seconds=60)
+DASHBOARD_SERIES_SCOPES = ("PORTFOLIO_TOTAL", "HOLDINGS_RETURN_TOTAL", "HOLDING_RETURN")
+DASHBOARD_CORRECTION_ACTIONS = ("OVERRIDE", "DELETE")
+DASHBOARD_CORRECTION_GRANULARITIES = ("hour", "day", "month", "year")
 
 
 @dataclass(slots=True)
@@ -227,6 +237,57 @@ def _normalize_optional_text(value: str | None) -> str | None:
 
 	stripped = value.strip()
 	return stripped or None
+
+
+def _json_ready(value: Any) -> Any:
+	if isinstance(value, datetime):
+		return _coerce_utc_datetime(value).isoformat().replace("+00:00", "Z")
+	if isinstance(value, date):
+		return value.isoformat()
+	if isinstance(value, dict):
+		return {str(key): _json_ready(item) for key, item in value.items()}
+	if isinstance(value, (list, tuple)):
+		return [_json_ready(item) for item in value]
+	return value
+
+
+def _capture_model_state(
+	model: CashAccount | SecurityHolding | FixedAsset | LiabilityEntry | OtherAsset,
+) -> dict[str, Any]:
+	return _json_ready(model.model_dump())
+
+
+def _serialize_audit_state(state: dict[str, Any] | None) -> str | None:
+	if state is None:
+		return None
+	return json.dumps(_json_ready(state), ensure_ascii=False, sort_keys=True)
+
+
+def _record_asset_mutation(
+	session: Session,
+	current_user: UserAccount,
+	entity_type: str,
+	entity_id: int | None,
+	operation: str,
+	before_state: dict[str, Any] | None,
+	after_state: dict[str, Any] | None,
+	reason: str | None = None,
+) -> None:
+	if operation not in ASSET_MUTATION_OPERATIONS:
+		raise ValueError(f"Unsupported asset mutation operation: {operation}")
+
+	session.add(
+		AssetMutationAudit(
+			user_id=current_user.username,
+			actor_user_id=current_user.username,
+			entity_type=entity_type,
+			entity_id=entity_id,
+			operation=operation,
+			before_state=_serialize_audit_state(before_state),
+			after_state=_serialize_audit_state(after_state),
+			reason=reason,
+		),
+	)
 
 
 def _touch_model(
@@ -1248,24 +1309,50 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		aggregate_holdings_return_pct,
 		holding_return_points,
 	)
+	correction_lookup = _load_dashboard_correction_lookup(session, user_id)
 
-	hour_series = build_timeline(
+	hour_series_raw = build_timeline(
 		_load_series_with_live_snapshot(session, user_id, now - timedelta(hours=24)),
 		"hour",
 	)
-	day_series = build_timeline(
+	day_series_raw = build_timeline(
 		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=30)),
 		"day",
 	)
-	month_series = build_timeline(
+	month_series_raw = build_timeline(
 		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=366)),
 		"month",
 	)
-	year_series = build_timeline(
+	year_series_raw = build_timeline(
 		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=366 * 5)),
 		"year",
 	)
-	holdings_return_hour_series = build_return_timeline(
+	hour_series = _apply_dashboard_corrections(
+		hour_series_raw,
+		correction_lookup,
+		series_scope="PORTFOLIO_TOTAL",
+		granularity="hour",
+	)
+	day_series = _apply_dashboard_corrections(
+		day_series_raw,
+		correction_lookup,
+		series_scope="PORTFOLIO_TOTAL",
+		granularity="day",
+	)
+	month_series = _apply_dashboard_corrections(
+		month_series_raw,
+		correction_lookup,
+		series_scope="PORTFOLIO_TOTAL",
+		granularity="month",
+	)
+	year_series = _apply_dashboard_corrections(
+		year_series_raw,
+		correction_lookup,
+		series_scope="PORTFOLIO_TOTAL",
+		granularity="year",
+	)
+
+	holdings_return_hour_series_raw = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
 			user_id,
@@ -1275,7 +1362,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		),
 		"hour",
 	)
-	holdings_return_day_series = build_return_timeline(
+	holdings_return_day_series_raw = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
 			user_id,
@@ -1285,7 +1372,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		),
 		"day",
 	)
-	holdings_return_month_series = build_return_timeline(
+	holdings_return_month_series_raw = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
 			user_id,
@@ -1295,7 +1382,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		),
 		"month",
 	)
-	holdings_return_year_series = build_return_timeline(
+	holdings_return_year_series_raw = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
 			user_id,
@@ -1305,58 +1392,111 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		),
 		"year",
 	)
+	holdings_return_hour_series = _apply_dashboard_corrections(
+		holdings_return_hour_series_raw,
+		correction_lookup,
+		series_scope="HOLDINGS_RETURN_TOTAL",
+		granularity="hour",
+	)
+	holdings_return_day_series = _apply_dashboard_corrections(
+		holdings_return_day_series_raw,
+		correction_lookup,
+		series_scope="HOLDINGS_RETURN_TOTAL",
+		granularity="day",
+	)
+	holdings_return_month_series = _apply_dashboard_corrections(
+		holdings_return_month_series_raw,
+		correction_lookup,
+		series_scope="HOLDINGS_RETURN_TOTAL",
+		granularity="month",
+	)
+	holdings_return_year_series = _apply_dashboard_corrections(
+		holdings_return_year_series_raw,
+		correction_lookup,
+		series_scope="HOLDINGS_RETURN_TOTAL",
+		granularity="year",
+	)
 	holding_return_series = []
 	for holding in valued_holdings:
 		if holding.cost_basis_price is None:
 			continue
 
+		holding_hour_series_raw = build_return_timeline(
+			_load_holdings_return_series_with_live_snapshot(
+				session,
+				user_id,
+				now - timedelta(hours=24),
+				"HOLDING",
+				symbol=holding.symbol,
+				default_name=holding.name,
+			),
+			"hour",
+		)
+		holding_day_series_raw = build_return_timeline(
+			_load_holdings_return_series_with_live_snapshot(
+				session,
+				user_id,
+				now - timedelta(days=30),
+				"HOLDING",
+				symbol=holding.symbol,
+				default_name=holding.name,
+			),
+			"day",
+		)
+		holding_month_series_raw = build_return_timeline(
+			_load_holdings_return_series_with_live_snapshot(
+				session,
+				user_id,
+				now - timedelta(days=366),
+				"HOLDING",
+				symbol=holding.symbol,
+				default_name=holding.name,
+			),
+			"month",
+		)
+		holding_year_series_raw = build_return_timeline(
+			_load_holdings_return_series_with_live_snapshot(
+				session,
+				user_id,
+				now - timedelta(days=366 * 5),
+				"HOLDING",
+				symbol=holding.symbol,
+				default_name=holding.name,
+			),
+			"year",
+		)
+
 		holding_return_series.append(
 			HoldingReturnSeries(
 				symbol=holding.symbol,
 				name=holding.name,
-				hour_series=build_return_timeline(
-						_load_holdings_return_series_with_live_snapshot(
-							session,
-							user_id,
-							now - timedelta(hours=24),
-							"HOLDING",
-							symbol=holding.symbol,
-						default_name=holding.name,
-					),
-					"hour",
+				hour_series=_apply_dashboard_corrections(
+					holding_hour_series_raw,
+					correction_lookup,
+					series_scope="HOLDING_RETURN",
+					granularity="hour",
+					symbol=holding.symbol,
 				),
-				day_series=build_return_timeline(
-						_load_holdings_return_series_with_live_snapshot(
-							session,
-							user_id,
-							now - timedelta(days=30),
-							"HOLDING",
-							symbol=holding.symbol,
-						default_name=holding.name,
-					),
-					"day",
+				day_series=_apply_dashboard_corrections(
+					holding_day_series_raw,
+					correction_lookup,
+					series_scope="HOLDING_RETURN",
+					granularity="day",
+					symbol=holding.symbol,
 				),
-				month_series=build_return_timeline(
-						_load_holdings_return_series_with_live_snapshot(
-							session,
-							user_id,
-							now - timedelta(days=366),
-							"HOLDING",
-							symbol=holding.symbol,
-						default_name=holding.name,
-					),
-					"month",
+				month_series=_apply_dashboard_corrections(
+					holding_month_series_raw,
+					correction_lookup,
+					series_scope="HOLDING_RETURN",
+					granularity="month",
+					symbol=holding.symbol,
 				),
-				year_series=build_return_timeline(
-						_load_holdings_return_series_with_live_snapshot(
-							session,
-							user_id,
-							now - timedelta(days=366 * 5),
-							"HOLDING",
-							symbol=holding.symbol,
-						default_name=holding.name,
-					),
-					"year",
+				year_series=_apply_dashboard_corrections(
+					holding_year_series_raw,
+					correction_lookup,
+					series_scope="HOLDING_RETURN",
+					granularity="year",
+					symbol=holding.symbol,
 				),
 			),
 		)
@@ -1519,6 +1659,101 @@ def _to_feedback_read(feedback: UserFeedback) -> UserFeedbackRead:
 		closed_by=feedback.closed_by,
 		created_at=feedback.created_at,
 	)
+
+
+def _to_dashboard_correction_read(correction: DashboardCorrection) -> DashboardCorrectionRead:
+	return DashboardCorrectionRead(
+		id=correction.id or 0,
+		series_scope=correction.series_scope,
+		symbol=correction.symbol,
+		granularity=correction.granularity,
+		bucket_utc=correction.bucket_utc,
+		action=correction.action,
+		corrected_value=correction.corrected_value,
+		reason=correction.reason,
+		created_at=correction.created_at,
+		updated_at=correction.updated_at,
+	)
+
+
+def _to_asset_mutation_audit_read(audit: AssetMutationAudit) -> AssetMutationAuditRead:
+	return AssetMutationAuditRead(
+		id=audit.id or 0,
+		entity_type=audit.entity_type,
+		entity_id=audit.entity_id,
+		operation=audit.operation,
+		before_state=audit.before_state,
+		after_state=audit.after_state,
+		reason=audit.reason,
+		created_at=audit.created_at,
+	)
+
+
+def _correction_key(
+	series_scope: str,
+	symbol: str | None,
+	granularity: str,
+	bucket_utc: datetime,
+) -> tuple[str, str, str, datetime]:
+	return (
+		series_scope,
+		(symbol or "").upper(),
+		granularity,
+		_coerce_utc_datetime(bucket_utc),
+	)
+
+
+def _load_dashboard_correction_lookup(
+	session: Session,
+	user_id: str,
+) -> dict[tuple[str, str, str, datetime], DashboardCorrection]:
+	rows = list(
+		session.exec(
+			select(DashboardCorrection)
+			.where(DashboardCorrection.user_id == user_id)
+			.order_by(DashboardCorrection.bucket_utc.asc(), DashboardCorrection.updated_at.asc()),
+		),
+	)
+	lookup: dict[tuple[str, str, str, datetime], DashboardCorrection] = {}
+	for row in rows:
+		lookup[_correction_key(row.series_scope, row.symbol, row.granularity, row.bucket_utc)] = row
+	return lookup
+
+
+def _apply_dashboard_corrections(
+	points: list[Any],
+	correction_lookup: dict[tuple[str, str, str, datetime], DashboardCorrection],
+	*,
+	series_scope: str,
+	granularity: str,
+	symbol: str | None = None,
+) -> list[Any]:
+	corrected_points: list[Any] = []
+	for point in points:
+		point_timestamp = _coerce_utc_datetime(point.timestamp_utc)
+		correction = correction_lookup.get(
+			_correction_key(series_scope, symbol, granularity, point_timestamp),
+		)
+		if correction is None:
+			corrected_points.append(point)
+			continue
+
+		if correction.action == "DELETE":
+			continue
+
+		updated_value = point.value
+		if correction.corrected_value is not None:
+			updated_value = round(correction.corrected_value, 2)
+
+		corrected_points.append(
+			point.model_copy(
+				update={
+					"value": updated_value,
+					"corrected": True,
+				},
+			),
+		)
+	return corrected_points
 
 
 @app.get("/api/auth/session", response_model=AuthSessionRead)
@@ -1766,6 +2001,86 @@ def close_feedback_for_admin(
 	return _to_feedback_read(feedback)
 
 
+@app.post("/api/dashboard/corrections", response_model=DashboardCorrectionRead, status_code=201)
+def create_dashboard_correction(
+	payload: DashboardCorrectionCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> DashboardCorrectionRead:
+	if payload.series_scope not in DASHBOARD_SERIES_SCOPES:
+		raise HTTPException(status_code=422, detail="Unsupported series_scope.")
+	if payload.action not in DASHBOARD_CORRECTION_ACTIONS:
+		raise HTTPException(status_code=422, detail="Unsupported correction action.")
+	if payload.granularity not in DASHBOARD_CORRECTION_GRANULARITIES:
+		raise HTTPException(status_code=422, detail="Unsupported granularity.")
+
+	bucket_utc = bucket_start_utc(payload.bucket_utc, payload.granularity)
+	correction = DashboardCorrection(
+		user_id=current_user.username,
+		series_scope=payload.series_scope,
+		symbol=payload.symbol.upper() if payload.symbol else None,
+		granularity=payload.granularity,
+		bucket_utc=bucket_utc,
+		action=payload.action,
+		corrected_value=payload.corrected_value,
+		reason=payload.reason,
+	)
+	session.add(correction)
+	session.commit()
+	session.refresh(correction)
+	_invalidate_dashboard_cache(current_user.username)
+	return _to_dashboard_correction_read(correction)
+
+
+@app.get("/api/dashboard/corrections", response_model=list[DashboardCorrectionRead])
+def list_dashboard_corrections(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> list[DashboardCorrectionRead]:
+	corrections = list(
+		session.exec(
+			select(DashboardCorrection)
+			.where(DashboardCorrection.user_id == current_user.username)
+			.order_by(DashboardCorrection.bucket_utc.desc(), DashboardCorrection.updated_at.desc()),
+		),
+	)
+	return [_to_dashboard_correction_read(correction) for correction in corrections]
+
+
+@app.delete("/api/dashboard/corrections/{correction_id}", status_code=204)
+def delete_dashboard_correction(
+	correction_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> Response:
+	correction = session.get(DashboardCorrection, correction_id)
+	if correction is None or correction.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Dashboard correction not found.")
+
+	session.delete(correction)
+	session.commit()
+	_invalidate_dashboard_cache(current_user.username)
+	return Response(status_code=204)
+
+
+@app.get("/api/audit-log", response_model=list[AssetMutationAuditRead])
+def list_asset_mutation_audits(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	limit: int = 200,
+) -> list[AssetMutationAuditRead]:
+	clamped_limit = max(1, min(limit, 500))
+	rows = list(
+		session.exec(
+			select(AssetMutationAudit)
+			.where(AssetMutationAudit.user_id == current_user.username)
+			.order_by(AssetMutationAudit.created_at.desc())
+			.limit(clamped_limit),
+		),
+	)
+	return [_to_asset_mutation_audit_read(row) for row in rows]
+
+
 @app.get("/api/accounts", response_model=list[CashAccountRead])
 async def list_accounts(
 	current_user: CurrentUserDependency,
@@ -1819,6 +2134,16 @@ def create_account(
 		note=payload.note,
 	)
 	session.add(account)
+	session.flush()
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(account),
+	)
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
@@ -1836,6 +2161,7 @@ def update_account(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
 
+	before_state = _capture_model_state(account)
 	account.name = payload.name.strip()
 	account.platform = payload.platform.strip()
 	account.currency = _normalize_currency(payload.currency)
@@ -1848,6 +2174,15 @@ def update_account(
 		account.note = _normalize_optional_text(payload.note)
 	_touch_model(account)
 	session.add(account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(account),
+	)
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
@@ -1864,7 +2199,17 @@ def delete_account(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
 
+	before_state = _capture_model_state(account)
 	session.delete(account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account_id,
+		operation="DELETE",
+		before_state=before_state,
+		after_state=None,
+	)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -1923,6 +2268,16 @@ def create_fixed_asset(
 		note=payload.note,
 	)
 	session.add(asset)
+	session.flush()
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="FIXED_ASSET",
+		entity_id=asset.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(asset),
+	)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -1953,6 +2308,7 @@ def update_fixed_asset(
 	if asset is None or asset.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Fixed asset not found.")
 
+	before_state = _capture_model_state(asset)
 	asset.name = payload.name.strip()
 	asset.category = payload.category
 	asset.current_value_cny = payload.current_value_cny
@@ -1963,6 +2319,15 @@ def update_fixed_asset(
 		asset.note = _normalize_optional_text(payload.note)
 	_touch_model(asset)
 	session.add(asset)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="FIXED_ASSET",
+		entity_id=asset.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(asset),
+	)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -1992,7 +2357,17 @@ def delete_fixed_asset(
 	if asset is None or asset.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Fixed asset not found.")
 
+	before_state = _capture_model_state(asset)
 	session.delete(asset)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="FIXED_ASSET",
+		entity_id=asset_id,
+		operation="DELETE",
+		before_state=before_state,
+		after_state=None,
+	)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -2049,6 +2424,16 @@ def create_liability(
 		note=payload.note,
 	)
 	session.add(entry)
+	session.flush()
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="LIABILITY",
+		entity_id=entry.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(entry),
+	)
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
@@ -2066,6 +2451,7 @@ def update_liability(
 	if entry is None or entry.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Liability not found.")
 
+	before_state = _capture_model_state(entry)
 	entry.name = payload.name.strip()
 	entry.currency = _normalize_currency(payload.currency)
 	entry.balance = payload.balance
@@ -2077,6 +2463,15 @@ def update_liability(
 		entry.note = _normalize_optional_text(payload.note)
 	_touch_model(entry)
 	session.add(entry)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="LIABILITY",
+		entity_id=entry.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(entry),
+	)
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
@@ -2093,7 +2488,17 @@ def delete_liability(
 	if entry is None or entry.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Liability not found.")
 
+	before_state = _capture_model_state(entry)
 	session.delete(entry)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="LIABILITY",
+		entity_id=entry_id,
+		operation="DELETE",
+		before_state=before_state,
+		after_state=None,
+	)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -2152,6 +2557,16 @@ def create_other_asset(
 		note=payload.note,
 	)
 	session.add(asset)
+	session.flush()
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="OTHER_ASSET",
+		entity_id=asset.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(asset),
+	)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -2182,6 +2597,7 @@ def update_other_asset(
 	if asset is None or asset.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Other asset not found.")
 
+	before_state = _capture_model_state(asset)
 	asset.name = payload.name.strip()
 	asset.category = payload.category
 	asset.current_value_cny = payload.current_value_cny
@@ -2192,6 +2608,15 @@ def update_other_asset(
 		asset.note = _normalize_optional_text(payload.note)
 	_touch_model(asset)
 	session.add(asset)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="OTHER_ASSET",
+		entity_id=asset.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(asset),
+	)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -2221,7 +2646,17 @@ def delete_other_asset(
 	if asset is None or asset.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Other asset not found.")
 
+	before_state = _capture_model_state(asset)
 	session.delete(asset)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="OTHER_ASSET",
+		entity_id=asset_id,
+		operation="DELETE",
+		before_state=before_state,
+		after_state=None,
+	)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -2287,6 +2722,16 @@ def create_holding(
 		note=payload.note,
 	)
 	session.add(holding)
+	session.flush()
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="HOLDING",
+		entity_id=holding.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(holding),
+	)
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
@@ -2304,6 +2749,7 @@ def update_holding(
 	if holding is None or holding.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
+	before_state = _capture_model_state(holding)
 	holding.symbol = _normalize_symbol(payload.symbol, payload.market or holding.market)
 	holding.name = payload.name.strip()
 	holding.quantity = payload.quantity
@@ -2320,6 +2766,15 @@ def update_holding(
 		holding.note = _normalize_optional_text(payload.note)
 	_touch_model(holding)
 	session.add(holding)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="HOLDING",
+		entity_id=holding.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(holding),
+	)
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
@@ -2336,7 +2791,17 @@ def delete_holding(
 	if holding is None or holding.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
+	before_state = _capture_model_state(holding)
 	session.delete(holding)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="HOLDING",
+		entity_id=holding_id,
+		operation="DELETE",
+		before_state=before_state,
+		after_state=None,
+	)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)

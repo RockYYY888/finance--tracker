@@ -36,6 +36,11 @@ def test_build_timeline_uses_latest_snapshot_per_hour_bucket() -> None:
 
 	assert [point.label for point in series] == ["02-28 17:00", "02-28 18:00"]
 	assert [point.value for point in series] == [1200, 1400]
+	assert [point.corrected for point in series] == [False, False]
+	assert [point.timestamp_utc for point in series] == [
+		datetime(2026, 2, 28, 9, 0, tzinfo=timezone.utc),
+		datetime(2026, 2, 28, 10, 0, tzinfo=timezone.utc),
+	]
 
 
 def test_build_timeline_uses_latest_snapshot_per_day_bucket() -> None:
@@ -100,6 +105,7 @@ def test_build_return_timeline_uses_latest_snapshot_per_hour_bucket() -> None:
 
 	assert [point.label for point in series] == ["03-01 11:00", "03-01 12:00"]
 	assert [point.value for point in series] == [2.25, -0.75]
+	assert [point.corrected for point in series] == [False, False]
 
 
 def test_is_current_minute_matches_same_bucket() -> None:

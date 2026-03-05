@@ -24,6 +24,10 @@ LIABILITY_CATEGORIES = (
 )
 LIABILITY_CURRENCIES = ("CNY", "USD")
 OTHER_ASSET_CATEGORIES = ("RECEIVABLE", "OTHER")
+DASHBOARD_SERIES_SCOPES = ("PORTFOLIO_TOTAL", "HOLDINGS_RETURN_TOTAL", "HOLDING_RETURN")
+DASHBOARD_CORRECTION_ACTIONS = ("OVERRIDE", "DELETE")
+DASHBOARD_CORRECTION_GRANULARITIES = ("hour", "day", "month", "year")
+ASSET_MUTATION_OPERATIONS = ("CREATE", "UPDATE", "DELETE")
 
 
 def utc_now() -> datetime:
@@ -136,4 +140,31 @@ class HoldingPerformanceSnapshot(SQLModel, table=True):
 	symbol: Optional[str] = Field(default=None, index=True)
 	name: Optional[str] = Field(default=None, max_length=120)
 	return_pct: float = Field(default=0)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
+class DashboardCorrection(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	series_scope: str = Field(index=True, max_length=32)
+	symbol: Optional[str] = Field(default=None, index=True, max_length=64)
+	granularity: str = Field(index=True, max_length=8)
+	bucket_utc: datetime = Field(nullable=False, index=True)
+	action: str = Field(max_length=16)
+	corrected_value: float | None = Field(default=None)
+	reason: str = Field(max_length=500)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class AssetMutationAudit(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	actor_user_id: str = Field(index=True, max_length=32)
+	entity_type: str = Field(index=True, max_length=32)
+	entity_id: int | None = Field(default=None, index=True)
+	operation: str = Field(index=True, max_length=16)
+	before_state: str | None = Field(default=None)
+	after_state: str | None = Field(default=None)
+	reason: str | None = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
