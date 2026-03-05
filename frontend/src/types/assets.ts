@@ -138,6 +138,7 @@ export const DEFAULT_CASH_ACCOUNT_FORM_DRAFT: CashAccountFormDraft = {
 };
 
 export interface HoldingInput {
+	side: "BUY" | "SELL";
 	symbol: string;
 	name: string;
 	quantity: number;
@@ -150,6 +151,7 @@ export interface HoldingInput {
 }
 
 export interface HoldingFormDraft {
+	side: "BUY" | "SELL";
 	symbol: string;
 	name: string;
 	quantity: string;
@@ -279,6 +281,7 @@ export interface SecuritySearchResult {
 }
 
 export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
+	side: "BUY",
 	symbol: "",
 	name: "",
 	quantity: "1",

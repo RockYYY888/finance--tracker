@@ -22,8 +22,12 @@ from app.main import (
 	create_other_asset,
 	create_account,
 	create_holding,
+	create_holding_legacy_endpoint,
+	create_holding_transaction,
 	delete_account,
 	delete_holding,
+	delete_holding_transaction,
+	list_holding_transactions,
 	update_account,
 	update_holding,
 )
@@ -36,6 +40,7 @@ from app.models import (
 	OtherAsset,
 	PortfolioSnapshot,
 	SecurityHolding,
+	SecurityHoldingTransaction,
 	UserAccount,
 )
 from app.schemas import (
@@ -49,6 +54,7 @@ from app.schemas import (
 	OtherAssetCreate,
 	PasswordResetRequest,
 	SecurityHoldingCreate,
+	SecurityHoldingTransactionCreate,
 	SecurityHoldingUpdate,
 	UserEmailUpdate,
 )
@@ -594,6 +600,250 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 	assert stored_holding.note == "long term"
 
 
+def test_create_holding_bootstraps_buy_transaction_baseline(session: Session) -> None:
+	current_user = make_user(session)
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=88,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+
+	transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == current_user.username),
+		),
+	)
+	assert len(transactions) == 1
+	assert transactions[0].side == "BUY"
+	assert transactions[0].quantity == 2
+	assert transactions[0].price == 88
+	assert transactions[0].traded_on == date(2026, 2, 14)
+
+
+def test_legacy_create_holding_endpoint_returns_410(session: Session) -> None:
+	current_user = make_user(session)
+	with pytest.raises(HTTPException) as error:
+		create_holding_legacy_endpoint(
+			SecurityHoldingCreate(
+				symbol="aapl",
+				name="Apple",
+				quantity=1,
+				fallback_currency="usd",
+				market="us",
+			),
+			current_user,
+		)
+	assert error.value.status_code == 410
+	assert "已停用" in str(error.value.detail)
+
+
+def test_holding_transaction_buy_and_sell_rebuilds_position_from_lots(session: Session) -> None:
+	current_user = make_user(session)
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+
+	applied_buy = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 2, 1),
+		),
+		current_user,
+		session,
+	)
+	assert applied_buy.holding is not None
+	assert applied_buy.holding.quantity == 3
+	assert applied_buy.holding.started_on == date(2026, 2, 1)
+	assert applied_buy.holding.cost_basis_price == pytest.approx(86.66666667)
+
+	applied_sell = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			price=120,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 2, 20),
+		),
+		current_user,
+		session,
+	)
+	assert applied_sell.holding is not None
+	assert applied_sell.holding.quantity == 1
+	assert applied_sell.holding.started_on == date(2026, 2, 14)
+	assert applied_sell.holding.cost_basis_price == pytest.approx(80.0)
+
+	holding_transactions = list_holding_transactions(holding.id or 0, current_user, session)
+	assert len(holding_transactions) == 3
+	assert [item.side for item in holding_transactions] == ["SELL", "BUY", "BUY"]
+
+
+def test_holding_sell_transaction_auto_creates_cash_entry_with_source(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+
+	applied_sell = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=12,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_sell.transaction.price == 100.0
+	assert applied_sell.transaction.fallback_currency == "USD"
+
+	cash_entries = list(
+		session.exec(
+			select(CashAccount)
+			.where(CashAccount.user_id == current_user.username)
+			.order_by(CashAccount.created_at.asc()),
+		),
+	)
+	assert len(cash_entries) == 1
+	assert cash_entries[0].platform == "交易回款"
+	assert cash_entries[0].currency == "USD"
+	assert cash_entries[0].balance == 100.0
+	assert cash_entries[0].started_on == date(2026, 3, 1)
+	assert "来源：卖出 Apple(AAPL)" in (cash_entries[0].note or "")
+	assert "交易ID #" in (cash_entries[0].note or "")
+
+
+def test_holding_transaction_sell_rejects_when_quantity_is_insufficient(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+		),
+		current_user,
+		session,
+	)
+
+	with pytest.raises(HTTPException) as error:
+		create_holding_transaction(
+			SecurityHoldingTransactionCreate(
+				side="SELL",
+				symbol="aapl",
+				name="Apple",
+				quantity=2,
+				price=120,
+				fallback_currency="usd",
+				market="us",
+				traded_on=date(2026, 3, 1),
+			),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 422
+	assert "可卖数量不足" in str(error.value.detail)
+
+
+def test_delete_holding_transaction_reconciles_holding_projection(session: Session) -> None:
+	current_user = make_user(session)
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+		),
+		current_user,
+		session,
+	)
+	applied = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=120,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+		),
+		current_user,
+		session,
+	)
+
+	response = delete_holding_transaction(applied.transaction.id, current_user, session)
+	assert response.status_code == 204
+
+	stored_holding = session.get(SecurityHolding, holding.id)
+	assert stored_holding is not None
+	assert stored_holding.quantity == 1
+	assert stored_holding.cost_basis_price == 80
+
+	remaining_transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == current_user.username)
+			.where(SecurityHoldingTransaction.symbol == "AAPL"),
+		),
+	)
+	assert len(remaining_transactions) == 1
+	assert remaining_transactions[0].side == "BUY"
+
+
 def test_create_holding_rejects_future_started_on_based_on_server_date(
 	session: Session,
 ) -> None:
@@ -656,6 +906,17 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 	assert updated_holding.broker == "Futu"
 	assert updated_holding.note == "core position"
 
+	transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == current_user.username),
+		),
+	)
+	assert len(transactions) == 1
+	assert transactions[0].symbol == "0700.HK"
+	assert transactions[0].market == "HK"
+	assert transactions[0].side == "BUY"
+
 
 def test_update_holding_rejects_future_started_on_based_on_server_date(
 	session: Session,
@@ -712,6 +973,7 @@ def test_delete_holding_removes_record(session: Session) -> None:
 
 	assert response.status_code == 204
 	assert session.exec(select(SecurityHolding)).all() == []
+	assert session.exec(select(SecurityHoldingTransaction)).all() == []
 
 
 def test_delete_holding_returns_404_when_missing(session: Session) -> None:

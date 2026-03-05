@@ -69,11 +69,11 @@ describe("HoldingForm started_on guard", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+		fireEvent.click(screen.getByRole("button", { name: "提交交易" }));
 
 		await waitFor(() => {
 			expect(
-				screen.getByText("持仓日不能晚于服务器今日日期（2026-03-05）。"),
+				screen.getByText("交易日不能晚于服务器今日日期（2026-03-05）。"),
 			).not.toBeNull();
 		});
 		expect(onEdit).not.toHaveBeenCalled();

@@ -977,41 +977,23 @@ class MarketDataClient:
 		all_points: list[tuple[datetime, float]] = []
 		currency: str | None = None
 
-		hourly_window_start = end_utc - timedelta(days=729)
-		use_split_strategy = start_utc < hourly_window_start
-		if use_split_strategy:
-			daily_points, daily_currency, daily_warning = await fetch_chart_points(
-				"1d",
-				start_utc,
-				hourly_window_start,
-			)
-			if daily_warning:
-				warnings.append(daily_warning)
-			else:
-				all_points.extend(daily_points)
-				currency = daily_currency or currency
-
+		# Yahoo's 1h chart API has long-range constraints. Chunk requests by window to keep
+		# full hourly granularity from start_at to end_at without falling back to daily bars.
+		hourly_window_span = timedelta(days=729)
+		segment_start = start_utc
+		while segment_start < end_utc:
+			segment_end = min(segment_start + hourly_window_span, end_utc)
 			hourly_points, hourly_currency, hourly_warning = await fetch_chart_points(
 				"1h",
-				hourly_window_start,
-				end_utc,
+				segment_start,
+				segment_end,
 			)
 			if hourly_warning:
 				warnings.append(hourly_warning)
 			else:
 				all_points.extend(hourly_points)
 				currency = hourly_currency or currency
-		else:
-			hourly_points, hourly_currency, hourly_warning = await fetch_chart_points(
-				"1h",
-				start_utc,
-				end_utc,
-			)
-			if hourly_warning:
-				warnings.append(hourly_warning)
-			else:
-				all_points.extend(hourly_points)
-				currency = hourly_currency or currency
+			segment_start = segment_end
 
 		deduped_points: dict[datetime, float] = {}
 		for bucket, price in all_points:

@@ -274,6 +274,7 @@ function toCashAccountRecord(record: DashboardResponse["cash_accounts"][number])
 function toHoldingRecord(record: DashboardResponse["holdings"][number]): HoldingRecord {
 	return {
 		...record,
+		side: "BUY",
 		cost_basis_price: record.cost_basis_price ?? undefined,
 		broker: record.broker ?? undefined,
 		started_on: record.started_on ?? undefined,
@@ -1115,46 +1116,16 @@ function App() {
 				void loadDashboard();
 				return updatedRecord;
 			},
-			onDelete: async (recordId) => {
-				await defaultAssetApiClient.deleteHolding(recordId);
-				patchDashboard((currentDashboard) => ({
-					...currentDashboard,
-					holdings: removeRecordById(currentDashboard.holdings, recordId),
-				}));
-				void loadDashboard();
-			},
-			onMergeDuplicate: async ({ targetRecordId, sourceRecordId, mergedPayload }) => {
-				const updatedRecord = await defaultAssetApiClient.updateHolding(
-					targetRecordId,
-					mergedPayload,
-				);
-
-				if (sourceRecordId != null && sourceRecordId !== targetRecordId) {
-					await defaultAssetApiClient.deleteHolding(sourceRecordId);
-				}
-
-				patchDashboard((currentDashboard) => {
-					let nextHoldings = currentDashboard.holdings;
-
-					if (sourceRecordId != null && sourceRecordId !== targetRecordId) {
-						nextHoldings = removeRecordById(nextHoldings, sourceRecordId);
-					}
-
-					nextHoldings = upsertRecordById(
-						nextHoldings,
-						toDashboardHolding(updatedRecord),
-					);
-
-					return {
+				onDelete: async (recordId) => {
+					await defaultAssetApiClient.deleteHolding(recordId);
+					patchDashboard((currentDashboard) => ({
 						...currentDashboard,
-						holdings: nextHoldings,
-					};
-				});
-				void loadDashboard();
-				return updatedRecord;
+						holdings: removeRecordById(currentDashboard.holdings, recordId),
+					}));
+					void loadDashboard();
+				},
+				onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
 			},
-			onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
-		},
 		fixedAssets: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createFixedAsset(payload);

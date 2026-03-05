@@ -75,6 +75,7 @@ function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
 
 function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 	return {
+		side: "BUY",
 		symbol: record.symbol,
 		name: record.name,
 		quantity: String(record.quantity),
@@ -147,14 +148,21 @@ function updateLocalCashAccount(
 }
 
 function createLocalHolding(payload: HoldingInput, nextId: number): HoldingRecord {
+	const quantityDelta = payload.side === "SELL" ? -payload.quantity : payload.quantity;
 	return {
 		id: nextId,
-		...payload,
-		broker: payload.broker,
-		note: payload.note,
+		side: payload.side,
+		symbol: payload.symbol,
+		name: payload.name,
+		quantity: quantityDelta,
+		fallback_currency: payload.fallback_currency,
 		cost_basis_price: payload.cost_basis_price,
-		price: null,
-		price_currency: payload.fallback_currency,
+			market: payload.market,
+			broker: payload.broker,
+			started_on: payload.started_on,
+			note: payload.note,
+			price: null,
+			price_currency: payload.fallback_currency,
 		value_cny: 0,
 		return_pct: null,
 		last_updated: null,
@@ -165,15 +173,22 @@ function updateLocalHolding(
 	currentRecord: HoldingRecord,
 	payload: HoldingInput,
 ): HoldingRecord {
+	const quantityDelta = payload.side === "SELL" ? -payload.quantity : payload.quantity;
+	const nextQuantity = Number((currentRecord.quantity + quantityDelta).toFixed(8));
 	return {
 		...currentRecord,
-		...payload,
-		broker: payload.broker,
-		note: payload.note,
+		symbol: payload.symbol,
+		name: payload.name,
+		quantity: nextQuantity > 0 ? nextQuantity : 0,
+		fallback_currency: payload.fallback_currency,
 		cost_basis_price: payload.cost_basis_price,
-		price_currency: currentRecord.price_currency ?? payload.fallback_currency,
-	};
-}
+			market: payload.market,
+			broker: payload.broker,
+			started_on: payload.started_on,
+			note: payload.note,
+			price_currency: currentRecord.price_currency ?? payload.fallback_currency,
+		};
+	}
 
 function createLocalFixedAsset(
 	payload: FixedAssetInput,

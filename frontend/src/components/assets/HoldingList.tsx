@@ -132,7 +132,7 @@ export function HoldingList({
 											onClick={() => onEdit(holding)}
 											disabled={isActionLocked}
 										>
-											编辑
+											记一笔
 										</button>
 									) : null}
 									{onDelete ? (

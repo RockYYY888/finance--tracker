@@ -8,6 +8,7 @@ from sqlalchemy import UniqueConstraint
 
 CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
 SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "CRYPTO", "OTHER")
+HOLDING_TRANSACTION_SIDES = ("BUY", "SELL", "ADJUST")
 FIXED_ASSET_CATEGORIES = (
 	"REAL_ESTATE",
 	"VEHICLE",
@@ -153,6 +154,23 @@ class SecurityHolding(SQLModel, table=True):
 	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class SecurityHoldingTransaction(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	symbol: str = Field(index=True)
+	name: str
+	side: str = Field(default="BUY", index=True, max_length=12)
+	quantity: float = Field(gt=0)
+	price: float | None = Field(default=None)
+	fallback_currency: str = Field(default="CNY", max_length=8)
+	market: str = Field(default="OTHER", max_length=16)
+	broker: Optional[str] = Field(default=None, max_length=120)
+	traded_on: date = Field(index=True)
+	note: Optional[str] = Field(default=None, max_length=500)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 

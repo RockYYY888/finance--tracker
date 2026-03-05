@@ -17,6 +17,7 @@ from app.models import (
 	FEEDBACK_SOURCES,
 	FEEDBACK_STATUSES,
 	FIXED_ASSET_CATEGORIES,
+	HOLDING_TRANSACTION_SIDES,
 	LIABILITY_CATEGORIES,
 	LIABILITY_CURRENCIES,
 	OTHER_ASSET_CATEGORIES,
@@ -624,6 +625,61 @@ class SecurityHoldingRead(UtcTimestampResponseModel):
 	value_cny: Optional[float] = None
 	return_pct: Optional[float] = None
 	last_updated: Optional[datetime] = None
+
+
+class SecurityHoldingTransactionCreate(BaseModel):
+	side: str = Field(default="BUY", min_length=3, max_length=12)
+	symbol: str = Field(min_length=1, max_length=32)
+	name: str = Field(min_length=1, max_length=120)
+	quantity: float = Field(gt=0)
+	price: Optional[float] = Field(default=None, gt=0)
+	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
+	market: str = Field(default="OTHER", min_length=2, max_length=16)
+	broker: Optional[str] = Field(default=None, max_length=120)
+	traded_on: date
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("side", mode="before")
+	@classmethod
+	def validate_side(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, HOLDING_TRANSACTION_SIDES, "side")
+
+	@field_validator("market", mode="before")
+	@classmethod
+	def validate_market(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SECURITY_MARKETS, "market")
+
+	@field_validator("broker", "note", mode="before")
+	@classmethod
+	def normalize_optional_fields(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+	@model_validator(mode="after")
+	def validate_quantity_for_market(self) -> SecurityHoldingTransactionCreate:
+		if self.market not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
+			raise ValueError("股票请使用整数数量，基金可使用份额。")
+		return self
+
+
+class SecurityHoldingTransactionRead(UtcTimestampResponseModel):
+	id: int
+	symbol: str
+	name: str
+	side: str
+	quantity: float
+	price: Optional[float] = None
+	fallback_currency: str
+	market: str
+	broker: Optional[str] = None
+	traded_on: date
+	note: Optional[str] = None
+	created_at: datetime
+	updated_at: datetime
+
+
+class HoldingTransactionApplyRead(UtcTimestampResponseModel):
+	transaction: SecurityHoldingTransactionRead
+	holding: SecurityHoldingRead | None = None
 
 
 class SecuritySearchRead(BaseModel):

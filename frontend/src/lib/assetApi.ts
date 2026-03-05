@@ -15,6 +15,13 @@ import type {
 	SecuritySearchResult,
 } from "../types/assets";
 
+type HoldingTransactionApplyResponse = {
+	holding: HoldingRecord | null;
+	transaction: {
+		id: number;
+	};
+};
+
 function toJsonBody(
 	payload:
 		| CashAccountInput
@@ -26,10 +33,65 @@ function toJsonBody(
 	return JSON.stringify(payload);
 }
 
+function buildSyntheticHoldingFromPayload(
+	payload: HoldingInput,
+): HoldingRecord {
+	const nextId = -Date.now();
+	return {
+		id: nextId,
+		side: payload.side,
+		symbol: payload.symbol,
+		name: payload.name,
+		quantity: payload.side === "SELL" ? 0 : payload.quantity,
+		fallback_currency: payload.fallback_currency,
+		cost_basis_price: payload.cost_basis_price,
+		market: payload.market,
+		broker: payload.broker,
+		started_on: payload.started_on,
+		note: payload.note,
+		price: null,
+		price_currency: payload.fallback_currency,
+		value_cny: 0,
+		return_pct: null,
+		last_updated: null,
+	};
+}
+
 /**
  * Creates the replaceable asset API adapter for later integration work.
  */
 export function createAssetApiClient(apiClient: ApiClient = createApiClient()): AssetApiClient {
+	const applyHoldingTransaction = async (payload: HoldingInput): Promise<HoldingRecord> => {
+		if (!payload.started_on) {
+			throw new Error("交易日为必填项。");
+		}
+		const response = await apiClient.request<HoldingTransactionApplyResponse>(
+			"/api/holding-transactions",
+			{
+				method: "POST",
+				body: JSON.stringify({
+					side: payload.side,
+					symbol: payload.symbol,
+					name: payload.name,
+					quantity: payload.quantity,
+					price: payload.cost_basis_price,
+					fallback_currency: payload.fallback_currency,
+					market: payload.market,
+					broker: payload.broker,
+					traded_on: payload.started_on,
+					note: payload.note,
+				}),
+			},
+		);
+		if (response.holding) {
+			return {
+				...response.holding,
+				side: "BUY",
+			};
+		}
+		return buildSyntheticHoldingFromPayload(payload);
+	};
+
 	return {
 		listCashAccounts: () => apiClient.request<CashAccountRecord[]>("/api/accounts"),
 		createCashAccount: (payload) =>
@@ -46,17 +108,17 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			apiClient.request<void>(`/api/accounts/${recordId}`, {
 				method: "DELETE",
 			}),
-		listHoldings: () => apiClient.request<HoldingRecord[]>("/api/holdings"),
-		createHolding: (payload) =>
-			apiClient.request<HoldingRecord>("/api/holdings", {
-				method: "POST",
-				body: toJsonBody(payload),
-			}),
-		updateHolding: (recordId, payload) =>
-			apiClient.request<HoldingRecord>(`/api/holdings/${recordId}`, {
-				method: "PUT",
-				body: toJsonBody(payload),
-			}),
+		listHoldings: async () => {
+			const holdings = await apiClient.request<HoldingRecord[]>("/api/holdings");
+			return holdings.map((record) => ({
+				...record,
+				side: "BUY",
+			}));
+		},
+		createHolding: (payload) => applyHoldingTransaction(payload),
+		updateHolding: async (_recordId, payload) => {
+			return await applyHoldingTransaction(payload);
+		},
 		deleteHolding: (recordId) =>
 			apiClient.request<void>(`/api/holdings/${recordId}`, {
 				method: "DELETE",

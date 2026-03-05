@@ -63,6 +63,7 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 	const normalizedNote = draft.note.trim();
 
 	return {
+		side: draft.side,
 		symbol: draft.symbol.trim().toUpperCase(),
 		name: draft.name.trim(),
 		quantity: Number(draft.quantity),
@@ -324,9 +325,9 @@ export function HoldingForm({
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
-	const resolvedTitle = title ?? (mode === "edit" ? "编辑投资类资产" : "新增投资类资产");
-	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
-	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
+	const resolvedTitle = title ?? (mode === "edit" ? "登记投资交易" : "新增投资交易");
+	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "提交交易" : "登记交易");
+	const cancelLabel = mode === "edit" ? "取消登记" : "取消";
 	const quantityLabel = draft.market === "FUND"
 		? "份额"
 		: draft.market === "CRYPTO"
@@ -393,17 +394,20 @@ export function HoldingForm({
 			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
 				throw new Error("请输入有效的持仓数量。");
 			}
+			if (!payload.started_on) {
+				throw new Error("交易日为必填项。");
+			}
 			if (
 				payload.cost_basis_price !== undefined &&
 				(!Number.isFinite(payload.cost_basis_price) || payload.cost_basis_price <= 0)
 			) {
-				throw new Error("请输入有效的持仓价。");
+				throw new Error("请输入有效的成交价。");
 			}
 			if (!allowsFractionalQuantity(draft.market) && !Number.isInteger(payload.quantity)) {
 				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
 			}
 			if (payload.started_on && maxStartedOnDate && payload.started_on > maxStartedOnDate) {
-				throw new Error(`持仓日不能晚于服务器今日日期（${maxStartedOnDate}）。`);
+				throw new Error(`交易日不能晚于服务器今日日期（${maxStartedOnDate}）。`);
 			}
 
 			const duplicateHolding = findDuplicateHolding(existingHoldings, payload.symbol, recordId);
@@ -594,6 +598,19 @@ export function HoldingForm({
 
 				<div className="asset-manager__field-grid asset-manager__field-grid--triple">
 					<label className="asset-manager__field">
+						<span>交易类型</span>
+						<select
+							value={draft.side}
+							onChange={(event) =>
+								updateDraft("side", event.target.value as HoldingFormDraft["side"])
+							}
+						>
+							<option value="BUY">买入</option>
+							<option value="SELL">卖出</option>
+						</select>
+					</label>
+
+					<label className="asset-manager__field">
 						<span>市场</span>
 						<select
 							value={draft.market}
@@ -636,14 +653,14 @@ export function HoldingForm({
 				</div>
 
 				<label className="asset-manager__field">
-					<span>持仓价（计价币种）</span>
+					<span>成交价（计价币种）</span>
 					<input
 						type="number"
 						min="0.0001"
 						step="0.0001"
 						value={draft.cost_basis_price}
 						onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
-						placeholder="可选，例如 536.89"
+						placeholder="可选，卖出会优先使用当前行情"
 					/>
 				</label>
 
@@ -657,12 +674,12 @@ export function HoldingForm({
 				</label>
 
 				<label className="asset-manager__field">
-					<span>持仓日</span>
+					<span>交易日（必填）</span>
 					<DatePickerField
 						value={draft.started_on}
 						onChange={(nextValue) => updateDraft("started_on", nextValue)}
 						maxDate={maxStartedOnDate}
-						placeholder="选择持仓日"
+						placeholder="请选择交易日期"
 					/>
 				</label>
 
