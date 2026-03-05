@@ -12,6 +12,7 @@ from app.models import (
 	DASHBOARD_CORRECTION_GRANULARITIES,
 	DASHBOARD_SERIES_SCOPES,
 	FEEDBACK_CATEGORIES,
+	INBOX_MESSAGE_KINDS,
 	FEEDBACK_PRIORITIES,
 	FEEDBACK_SOURCES,
 	FEEDBACK_STATUSES,
@@ -339,6 +340,8 @@ class UserFeedbackCreate(BaseModel):
 	category: str | None = Field(default=None, max_length=32)
 	priority: str | None = Field(default=None, max_length=16)
 	source: str | None = Field(default=None, max_length=32)
+	fingerprint: str | None = Field(default=None, max_length=96)
+	dedupe_window_minutes: int | None = Field(default=None, ge=1, le=10_080)
 
 	@field_validator("message", mode="before")
 	@classmethod
@@ -360,6 +363,11 @@ class UserFeedbackCreate(BaseModel):
 	def normalize_source(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, FEEDBACK_SOURCES, "source")
 
+	@field_validator("fingerprint", mode="before")
+	@classmethod
+	def normalize_fingerprint(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
 
 class UserFeedbackRead(UtcTimestampResponseModel):
 	id: int
@@ -377,6 +385,28 @@ class UserFeedbackRead(UtcTimestampResponseModel):
 	resolved_at: datetime | None = None
 	closed_by: str | None = None
 	created_at: datetime
+
+
+class AdminFeedbackRead(UserFeedbackRead):
+	assignee: str | None = None
+	acknowledged_at: datetime | None = None
+	acknowledged_by: str | None = None
+	ack_deadline: datetime | None = None
+	internal_note: str | None = None
+	internal_note_updated_at: datetime | None = None
+	internal_note_updated_by: str | None = None
+	fingerprint: str | None = None
+	dedupe_window_minutes: int | None = None
+	occurrence_count: int = 1
+	last_seen_at: datetime | None = None
+
+
+class AdminFeedbackListRead(BaseModel):
+	items: list[AdminFeedbackRead]
+	total: int
+	page: int
+	page_size: int
+	has_more: bool
 
 
 class FeedbackSummaryRead(BaseModel):
@@ -399,6 +429,9 @@ class AdminFeedbackClassifyUpdate(BaseModel):
 	priority: str | None = Field(default=None, max_length=16)
 	source: str | None = Field(default=None, max_length=32)
 	status: str | None = Field(default=None, max_length=16)
+	assignee: str | None = Field(default=None, max_length=32)
+	ack_deadline: datetime | None = Field(default=None)
+	internal_note: str | None = Field(default=None, max_length=3000)
 
 	@field_validator("category", mode="before")
 	@classmethod
@@ -419,6 +452,49 @@ class AdminFeedbackClassifyUpdate(BaseModel):
 	@classmethod
 	def normalize_status(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, FEEDBACK_STATUSES, "status")
+
+	@field_validator("assignee", mode="before")
+	@classmethod
+	def normalize_assignee(cls, value: str | None) -> str | None:
+		if value is None:
+			return None
+		return normalize_user_id(value)
+
+	@field_validator("internal_note", mode="before")
+	@classmethod
+	def normalize_internal_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class AdminFeedbackAcknowledgeUpdate(BaseModel):
+	assignee: str | None = Field(default=None, max_length=32)
+	ack_deadline: datetime | None = Field(default=None)
+	internal_note: str | None = Field(default=None, max_length=3000)
+
+	@field_validator("assignee", mode="before")
+	@classmethod
+	def normalize_assignee(cls, value: str | None) -> str | None:
+		if value is None:
+			return None
+		return normalize_user_id(value)
+
+	@field_validator("internal_note", mode="before")
+	@classmethod
+	def normalize_internal_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class InboxMessageHideCreate(BaseModel):
+	message_kind: str = Field(max_length=24)
+	message_id: int = Field(gt=0)
+
+	@field_validator("message_kind", mode="before")
+	@classmethod
+	def normalize_message_kind(cls, value: str) -> str:
+		normalized = _normalize_required_text(value, "message_kind").upper()
+		if normalized not in INBOX_MESSAGE_KINDS:
+			raise ValueError(f"message_kind must be one of: {', '.join(INBOX_MESSAGE_KINDS)}")
+		return normalized
 
 
 SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")

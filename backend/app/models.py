@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
+from sqlalchemy import UniqueConstraint
 
 CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
 SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "CRYPTO", "OTHER")
@@ -32,7 +33,8 @@ HOLDING_HISTORY_SYNC_STATUSES = ("PENDING", "RUNNING", "DONE")
 FEEDBACK_CATEGORIES = ("USER_REQUEST", "SYSTEM_ALERT", "SYSTEM_HEARTBEAT", "SYSTEM_TASK")
 FEEDBACK_PRIORITIES = ("LOW", "MEDIUM", "HIGH")
 FEEDBACK_SOURCES = ("USER", "SYSTEM", "API_MONITOR", "TRADING_AGENT", "ADMIN")
-FEEDBACK_STATUSES = ("OPEN", "IN_PROGRESS", "RESOLVED")
+FEEDBACK_STATUSES = ("OPEN", "ACKED", "IN_PROGRESS", "SILENCED", "RESOLVED")
+INBOX_MESSAGE_KINDS = ("FEEDBACK", "RELEASE_NOTE")
 
 
 def utc_now() -> datetime:
@@ -63,7 +65,35 @@ class UserFeedback(SQLModel, table=True):
 	reply_seen_at: datetime | None = Field(default=None, index=True)
 	resolved_at: datetime | None = Field(default=None, index=True)
 	closed_by: str | None = Field(default=None, max_length=32)
+	assignee: str | None = Field(default=None, index=True, max_length=32)
+	acknowledged_at: datetime | None = Field(default=None, index=True)
+	acknowledged_by: str | None = Field(default=None, max_length=32)
+	ack_deadline: datetime | None = Field(default=None, index=True)
+	internal_note: str | None = Field(default=None, max_length=3000)
+	internal_note_updated_at: datetime | None = Field(default=None, index=True)
+	internal_note_updated_by: str | None = Field(default=None, max_length=32)
+	fingerprint: str | None = Field(default=None, index=True, max_length=96)
+	dedupe_window_minutes: int | None = Field(default=None)
+	occurrence_count: int = Field(default=1)
+	last_seen_at: datetime | None = Field(default=None, index=True)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
+class InboxMessageVisibility(SQLModel, table=True):
+	__table_args__ = (
+		UniqueConstraint(
+			"user_id",
+			"message_kind",
+			"message_id",
+			name="uq_inbox_message_visibility_user_kind_message",
+		),
+	)
+
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	message_kind: str = Field(index=True, max_length=24)
+	message_id: int = Field(index=True)
+	hidden_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
 class ReleaseNote(SQLModel, table=True):

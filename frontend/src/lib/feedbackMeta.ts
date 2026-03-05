@@ -33,7 +33,9 @@ const SOURCE_META: Record<FeedbackSource, FeedbackBadgeMeta> = {
 
 const STATUS_META: Record<FeedbackStatus, FeedbackBadgeMeta> = {
 	OPEN: { label: "待处理", tone: "pink" },
+	ACKED: { label: "已确认", tone: "sky" },
 	IN_PROGRESS: { label: "处理中", tone: "amber" },
+	SILENCED: { label: "已静默", tone: "slate" },
 	RESOLVED: { label: "已关闭", tone: "teal" },
 };
 

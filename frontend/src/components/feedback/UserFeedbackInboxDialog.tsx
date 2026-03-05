@@ -25,6 +25,8 @@ export interface UserFeedbackInboxDialogProps {
 	releaseNotes: ReleaseNoteDeliveryRecord[];
 	errorMessage?: string | null;
 	onClose: () => void;
+	onHideFeedbackItem: (feedbackId: number) => Promise<void>;
+	onHideReleaseNote: (deliveryId: number) => Promise<void>;
 }
 
 function formatTimestamp(value: string | null): string {
@@ -44,11 +46,15 @@ export function UserFeedbackInboxDialog({
 	releaseNotes,
 	errorMessage = null,
 	onClose,
+	onHideFeedbackItem,
+	onHideReleaseNote,
 }: UserFeedbackInboxDialogProps) {
 	const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set<string>());
 	const [pendingDismissTarget, setPendingDismissTarget] = useState<{
 		key: string;
 		label: string;
+		messageKind: "FEEDBACK" | "RELEASE_NOTE";
+		messageId: number;
 	} | null>(null);
 	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
 
@@ -98,14 +104,32 @@ export function UserFeedbackInboxDialog({
 		});
 	}
 
-	function handleRequestDismiss(key: string, label: string): void {
+	async function handleDismiss(
+		messageKind: "FEEDBACK" | "RELEASE_NOTE",
+		messageId: number,
+		key: string,
+	): Promise<void> {
+		if (messageKind === "FEEDBACK") {
+			await onHideFeedbackItem(messageId);
+		} else {
+			await onHideReleaseNote(messageId);
+		}
+		applyDismiss(key);
+	}
+
+	function handleRequestDismiss(
+		key: string,
+		label: string,
+		messageKind: "FEEDBACK" | "RELEASE_NOTE",
+		messageId: number,
+	): void {
 		if (shouldSkipDismissConfirmation()) {
-			applyDismiss(key);
+			void handleDismiss(messageKind, messageId, key);
 			return;
 		}
 
 		setSkipDismissConfirmChecked(false);
-		setPendingDismissTarget({ key, label });
+		setPendingDismissTarget({ key, label, messageKind, messageId });
 	}
 
 	function handleCancelDismiss(): void {
@@ -113,7 +137,7 @@ export function UserFeedbackInboxDialog({
 		setSkipDismissConfirmChecked(false);
 	}
 
-	function handleConfirmDismiss(): void {
+	async function handleConfirmDismiss(): Promise<void> {
 		if (!pendingDismissTarget) {
 			return;
 		}
@@ -121,7 +145,11 @@ export function UserFeedbackInboxDialog({
 		if (skipDismissConfirmChecked) {
 			setSkipDismissConfirmation(true);
 		}
-		applyDismiss(pendingDismissTarget.key);
+		await handleDismiss(
+			pendingDismissTarget.messageKind,
+			pendingDismissTarget.messageId,
+			pendingDismissTarget.key,
+		);
 		setPendingDismissTarget(null);
 		setSkipDismissConfirmChecked(false);
 	}
@@ -181,6 +209,8 @@ export function UserFeedbackInboxDialog({
 											handleRequestDismiss(
 												`release-note:${releaseNote.delivery_id}`,
 												`版本 v${releaseNote.version}`,
+												"RELEASE_NOTE",
+												releaseNote.delivery_id,
 											)
 										}
 										aria-label={`从当前列表移除版本消息 v${releaseNote.version}`}
@@ -222,7 +252,12 @@ export function UserFeedbackInboxDialog({
 											className="message-dismiss-button"
 											disabled={busy}
 											onClick={() =>
-												handleRequestDismiss(`feedback:${item.id}`, `#${item.id}`)
+												handleRequestDismiss(
+													`feedback:${item.id}`,
+													`#${item.id}`,
+													"FEEDBACK",
+													item.id,
+												)
 											}
 											aria-label={`从当前列表移除消息 #${item.id}`}
 											title="从当前列表移除"
@@ -300,7 +335,8 @@ export function UserFeedbackInboxDialog({
 							<button
 								type="button"
 								className="ghost-button ghost-button--danger"
-								onClick={handleConfirmDismiss}
+								disabled={busy}
+								onClick={() => void handleConfirmDismiss()}
 							>
 								移除消息
 							</button>

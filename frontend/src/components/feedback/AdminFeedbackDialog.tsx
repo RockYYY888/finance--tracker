@@ -14,19 +14,21 @@ import {
 	shouldSkipDismissConfirmation,
 } from "../../lib/messageDismissal";
 import type {
+	AdminFeedbackRecord,
 	ReleaseNoteInput,
 	ReleaseNoteRecord,
-	UserFeedbackRecord,
 } from "../../types/feedback";
 
 export interface AdminFeedbackDialogProps {
 	open: boolean;
 	busy?: boolean;
 	viewerUserId: string;
-	items: UserFeedbackRecord[];
+	userItems: AdminFeedbackRecord[];
+	systemItems: AdminFeedbackRecord[];
 	releaseNotes: ReleaseNoteRecord[];
 	errorMessage?: string | null;
 	onClose: () => void;
+	onHideItem: (feedbackId: number) => Promise<void>;
 	onCloseItem: (feedbackId: number) => Promise<void>;
 	onReplyItem: (feedbackId: number, replyMessage: string, close: boolean) => Promise<void>;
 	onCreateReleaseNote: (payload: ReleaseNoteInput) => Promise<void>;
@@ -46,10 +48,12 @@ export function AdminFeedbackDialog({
 	open,
 	busy = false,
 	viewerUserId,
-	items,
+	userItems,
+	systemItems,
 	releaseNotes,
 	errorMessage = null,
 	onClose,
+	onHideItem,
 	onCloseItem,
 	onReplyItem,
 	onCreateReleaseNote,
@@ -61,6 +65,7 @@ export function AdminFeedbackDialog({
 	const [pendingDismissTarget, setPendingDismissTarget] = useState<{
 		key: string;
 		label: string;
+		feedbackId: number;
 	} | null>(null);
 	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
 	const [releaseVersion, setReleaseVersion] = useState("");
@@ -114,16 +119,24 @@ export function AdminFeedbackDialog({
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [busy, onClose, open]);
 
-	const visibleItems = useMemo(
-		() => items.filter((item) => !dismissedKeys.has(`feedback:${item.id}`)),
-		[dismissedKeys, items],
+	const visibleUserItems = useMemo(
+		() => userItems.filter((item) => !dismissedKeys.has(`feedback:${item.id}`)),
+		[dismissedKeys, userItems],
+	);
+	const visibleSystemItems = useMemo(
+		() => systemItems.filter((item) => !dismissedKeys.has(`feedback:${item.id}`)),
+		[dismissedKeys, systemItems],
+	);
+	const allVisibleItems = useMemo(
+		() => [...visibleUserItems, ...visibleSystemItems],
+		[visibleSystemItems, visibleUserItems],
 	);
 	const expandedItem = useMemo(
-		() => visibleItems.find((item) => item.id === expandedId) ?? null,
-		[expandedId, visibleItems],
+		() => allVisibleItems.find((item) => item.id === expandedId) ?? null,
+		[allVisibleItems, expandedId],
 	);
 
-	function handleToggle(item: UserFeedbackRecord): void {
+	function handleToggle(item: AdminFeedbackRecord): void {
 		if (expandedId === item.id) {
 			setExpandedId(null);
 			setDraftReply("");
@@ -160,7 +173,7 @@ export function AdminFeedbackDialog({
 	function handleRequestDismiss(itemId: number): void {
 		const key = `feedback:${itemId}`;
 		if (shouldSkipDismissConfirmation()) {
-			applyDismiss(key);
+			void handleDismiss(itemId, key);
 			return;
 		}
 
@@ -168,6 +181,7 @@ export function AdminFeedbackDialog({
 		setPendingDismissTarget({
 			key,
 			label: `#${itemId}`,
+			feedbackId: itemId,
 		});
 	}
 
@@ -176,7 +190,12 @@ export function AdminFeedbackDialog({
 		setSkipDismissConfirmChecked(false);
 	}
 
-	function handleConfirmDismiss(): void {
+	async function handleDismiss(feedbackId: number, key: string): Promise<void> {
+		await onHideItem(feedbackId);
+		applyDismiss(key);
+	}
+
+	async function handleConfirmDismiss(): Promise<void> {
 		if (!pendingDismissTarget) {
 			return;
 		}
@@ -184,9 +203,160 @@ export function AdminFeedbackDialog({
 		if (skipDismissConfirmChecked) {
 			setSkipDismissConfirmation(true);
 		}
-		applyDismiss(pendingDismissTarget.key);
+
+		await handleDismiss(
+			pendingDismissTarget.feedbackId,
+			pendingDismissTarget.key,
+		);
 		setPendingDismissTarget(null);
 		setSkipDismissConfirmChecked(false);
+	}
+
+	function renderFeedbackCard(item: AdminFeedbackRecord): JSX.Element {
+		const statusMeta = getFeedbackStatusMeta(item.status);
+		const priorityMeta = getFeedbackPriorityMeta(item.priority);
+		const categoryMeta = getFeedbackCategoryMeta(item.category);
+		const sourceMeta = getFeedbackSourceMeta(item.source);
+		const isClosed = item.status === "RESOLVED" || Boolean(item.resolved_at);
+		const canReply = item.source === "USER";
+		const isExpanded = expandedId === item.id;
+		return (
+			<article key={item.id} className="admin-feedback-card panel">
+				<button
+					type="button"
+					className="message-dismiss-button"
+					disabled={busy}
+					onClick={() => handleRequestDismiss(item.id)}
+					aria-label={`从当前列表移除消息 #${item.id}`}
+					title="从当前列表移除"
+				>
+					×
+				</button>
+				<div className="admin-feedback-card__head">
+					<div>
+						<strong>{item.user_id}</strong>
+						<div className="feedback-badge-row" aria-label="工单属性标签">
+							<span
+								className={`feedback-badge feedback-badge--${statusMeta.tone}`}
+							>
+								{statusMeta.label}
+							</span>
+							<span
+								className={`feedback-badge feedback-badge--${priorityMeta.tone}`}
+							>
+								{priorityMeta.label}
+							</span>
+							<span
+								className={`feedback-badge feedback-badge--${categoryMeta.tone}`}
+							>
+								{categoryMeta.label}
+							</span>
+							<span
+								className={`feedback-badge feedback-badge--${sourceMeta.tone}`}
+							>
+								{sourceMeta.label}
+							</span>
+						</div>
+						<p>
+							提交：{formatTimestamp(item.created_at)}
+							{item.replied_at
+								? ` · 最近回复：${formatTimestamp(item.replied_at)}`
+								: canReply
+								? " · 暂未回复"
+								: " · 系统工单（无需回复）"}
+							{isClosed
+								? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
+								: ` · ${statusMeta.label}`}
+						</p>
+					</div>
+					<div className="admin-feedback-card__actions">
+						<button
+							type="button"
+							className="ghost-button"
+							disabled={busy}
+							onClick={() => handleToggle(item)}
+						>
+							{isExpanded ? "收起" : "展开"}
+						</button>
+						<button
+							type="button"
+							className="ghost-button ghost-button--danger"
+							disabled={busy || isClosed}
+							onClick={() => void onCloseItem(item.id)}
+						>
+							{isClosed ? "已关闭" : "关闭"}
+						</button>
+					</div>
+				</div>
+				<p className="admin-feedback-card__message">{item.message}</p>
+				{isExpanded ? (
+					<div className="admin-feedback-card__detail">
+						{canReply ? (
+							<>
+								<div className="admin-feedback-card__reply-history">
+									<strong>回复内容</strong>
+									<p>{item.reply_message ?? "暂未回复"}</p>
+								</div>
+								<div className="admin-feedback-card__footer">
+									<span>
+										{item.replied_by
+											? `最近回复人：${item.replied_by}`
+											: "尚未回复"}
+									</span>
+								</div>
+								{!isClosed ? (
+									<>
+										<label className="admin-feedback-card__editor">
+											<span>回复</span>
+											<textarea
+												value={
+													expandedItem?.id === item.id
+														? draftReply
+														: item.reply_message ?? ""
+												}
+												onChange={(event) =>
+													setDraftReply(event.target.value)
+												}
+												placeholder="输入回复，用户会在自己的消息里看到。"
+												disabled={busy}
+											/>
+										</label>
+										<div className="admin-feedback-card__footer">
+											<span>保存后用户会在自己的消息中看到回复。</span>
+											<div className="admin-feedback-card__footer-actions">
+												<button
+													type="button"
+													className="ghost-button"
+													disabled={busy || !draftReply.trim()}
+													onClick={() => void handleReply(item.id, false)}
+												>
+													保存回复
+												</button>
+												<button
+													type="button"
+													disabled={busy || !draftReply.trim()}
+													onClick={() => void handleReply(item.id, true)}
+												>
+													回复并关闭
+												</button>
+											</div>
+										</div>
+									</>
+								) : null}
+							</>
+						) : (
+							<div className="admin-feedback-card__footer">
+								<span>
+									{isClosed
+										? "系统来源消息已处理，无需回复。"
+										: "系统来源消息无需回复，可直接关闭。"}
+								</span>
+							</div>
+						)}
+					</div>
+				) : null}
+			</article>
+		);
 	}
 
 	function parseSourceFeedbackIds(rawValue: string): number[] {
@@ -345,157 +515,35 @@ export function AdminFeedbackDialog({
 				</div>
 
 				<div className="admin-feedback-list">
-					{visibleItems.length === 0 ? (
+					{visibleUserItems.length === 0 && visibleSystemItems.length === 0 ? (
 						<div className="banner info">
 							<p>当前没有反馈消息。</p>
 						</div>
 					) : (
-						visibleItems.map((item) => {
-							const statusMeta = getFeedbackStatusMeta(item.status);
-							const priorityMeta = getFeedbackPriorityMeta(item.priority);
-							const categoryMeta = getFeedbackCategoryMeta(item.category);
-							const sourceMeta = getFeedbackSourceMeta(item.source);
-							const isClosed = item.status === "RESOLVED" || Boolean(item.resolved_at);
-							const canReply = item.source === "USER";
-							const isExpanded = expandedId === item.id;
-							return (
-								<article key={item.id} className="admin-feedback-card panel">
-									<button
-										type="button"
-										className="message-dismiss-button"
-										disabled={busy}
-										onClick={() => handleRequestDismiss(item.id)}
-										aria-label={`从当前列表移除消息 #${item.id}`}
-										title="从当前列表移除"
-									>
-										×
-									</button>
-									<div className="admin-feedback-card__head">
-										<div>
-											<strong>{item.user_id}</strong>
-											<div className="feedback-badge-row" aria-label="工单属性标签">
-												<span
-													className={`feedback-badge feedback-badge--${statusMeta.tone}`}
-												>
-													{statusMeta.label}
-												</span>
-												<span
-													className={`feedback-badge feedback-badge--${priorityMeta.tone}`}
-												>
-													{priorityMeta.label}
-												</span>
-												<span
-													className={`feedback-badge feedback-badge--${categoryMeta.tone}`}
-												>
-													{categoryMeta.label}
-												</span>
-												<span
-													className={`feedback-badge feedback-badge--${sourceMeta.tone}`}
-												>
-													{sourceMeta.label}
-												</span>
-											</div>
-											<p>
-												提交：{formatTimestamp(item.created_at)}
-												{item.replied_at
-													? ` · 最近回复：${formatTimestamp(item.replied_at)}`
-													: canReply
-														? " · 暂未回复"
-														: " · 系统工单（无需回复）"}
-												{isClosed
-													? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
-													: ` · ${statusMeta.label}`}
-											</p>
-										</div>
-										<div className="admin-feedback-card__actions">
-											<button
-												type="button"
-												className="ghost-button"
-												disabled={busy}
-												onClick={() => handleToggle(item)}
-											>
-												{isExpanded ? "收起" : "展开"}
-											</button>
-											<button
-												type="button"
-												className="ghost-button ghost-button--danger"
-												disabled={busy || isClosed}
-												onClick={() => void onCloseItem(item.id)}
-											>
-												{isClosed ? "已关闭" : "关闭"}
-											</button>
-										</div>
-									</div>
-									<p className="admin-feedback-card__message">{item.message}</p>
-									{isExpanded ? (
-										<div className="admin-feedback-card__detail">
-											{canReply ? (
-												<>
-													<div className="admin-feedback-card__reply-history">
-														<strong>回复内容</strong>
-														<p>{item.reply_message ?? "暂未回复"}</p>
-													</div>
-													<div className="admin-feedback-card__footer">
-														<span>
-															{item.replied_by
-																? `最近回复人：${item.replied_by}`
-																: "尚未回复"}
-														</span>
-													</div>
-													{!isClosed ? (
-														<>
-															<label className="admin-feedback-card__editor">
-																<span>回复</span>
-																<textarea
-																	value={
-																		expandedItem?.id === item.id
-																			? draftReply
-																			: item.reply_message ?? ""
-																	}
-																	onChange={(event) =>
-																		setDraftReply(event.target.value)
-																	}
-																	placeholder="输入回复，用户会在自己的消息里看到。"
-																	disabled={busy}
-																/>
-															</label>
-															<div className="admin-feedback-card__footer">
-																<span>保存后用户会在自己的消息中看到回复。</span>
-																<div className="admin-feedback-card__footer-actions">
-																	<button
-																		type="button"
-																		className="ghost-button"
-																		disabled={busy || !draftReply.trim()}
-																		onClick={() => void handleReply(item.id, false)}
-																	>
-																		保存回复
-																	</button>
-																	<button
-																		type="button"
-																		disabled={busy || !draftReply.trim()}
-																		onClick={() => void handleReply(item.id, true)}
-																	>
-																		回复并关闭
-																	</button>
-																</div>
-															</div>
-														</>
-													) : null}
-												</>
-											) : (
-												<div className="admin-feedback-card__footer">
-													<span>
-														{isClosed
-															? "系统来源消息已处理，无需回复。"
-															: "系统来源消息无需回复，可直接关闭或调整分类/优先级。"}
-													</span>
-												</div>
-											)}
-										</div>
-									) : null}
-								</article>
-							);
-						})
+						<>
+							<section className="admin-feedback-section" aria-label="用户工单">
+								<div className="admin-feedback-section__head">
+									<strong>用户工单</strong>
+									<span>{visibleUserItems.length} 条</span>
+								</div>
+								{visibleUserItems.length === 0 ? (
+									<p className="admin-release-note__empty">暂无用户工单。</p>
+								) : (
+									visibleUserItems.map((item) => renderFeedbackCard(item))
+								)}
+							</section>
+							<section className="admin-feedback-section" aria-label="系统工单">
+								<div className="admin-feedback-section__head">
+									<strong>系统工单</strong>
+									<span>{visibleSystemItems.length} 条</span>
+								</div>
+								{visibleSystemItems.length === 0 ? (
+									<p className="admin-release-note__empty">暂无系统工单。</p>
+								) : (
+									visibleSystemItems.map((item) => renderFeedbackCard(item))
+								)}
+							</section>
+						</>
 					)}
 				</div>
 			</div>
@@ -532,7 +580,8 @@ export function AdminFeedbackDialog({
 							<button
 								type="button"
 								className="ghost-button ghost-button--danger"
-								onClick={handleConfirmDismiss}
+								disabled={busy}
+								onClick={() => void handleConfirmDismiss()}
 							>
 								移除消息
 							</button>

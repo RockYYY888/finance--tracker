@@ -1,8 +1,12 @@
 import { createApiClient } from "./apiClient";
 import type {
+	AdminFeedbackAcknowledgeInput,
 	AdminFeedbackClassifyInput,
+	AdminFeedbackListResponse,
+	AdminFeedbackRecord,
 	AdminFeedbackReplyInput,
 	FeedbackSummary,
+	InboxMessageHideInput,
 	ReleaseNoteDeliveryRecord,
 	ReleaseNoteInput,
 	ReleaseNoteRecord,
@@ -39,18 +43,34 @@ export async function listFeedbackForAdmin(): Promise<UserFeedbackRecord[]> {
 	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/admin/feedback");
 }
 
+function buildAdminFeedbackListPath(scope: "user" | "system"): string {
+	return `/api/admin/feedback/${scope}?page=1&page_size=200`;
+}
+
+export async function listUserFeedbackForAdmin(): Promise<AdminFeedbackListResponse> {
+	return feedbackApiClient.request<AdminFeedbackListResponse>(
+		buildAdminFeedbackListPath("user"),
+	);
+}
+
+export async function listSystemFeedbackForAdmin(): Promise<AdminFeedbackListResponse> {
+	return feedbackApiClient.request<AdminFeedbackListResponse>(
+		buildAdminFeedbackListPath("system"),
+	);
+}
+
 export async function replyToFeedbackForAdmin(
 	feedbackId: number,
 	payload: AdminFeedbackReplyInput,
-): Promise<UserFeedbackRecord> {
-	return feedbackApiClient.request<UserFeedbackRecord>(`/api/admin/feedback/${feedbackId}/reply`, {
+): Promise<AdminFeedbackRecord> {
+	return feedbackApiClient.request<AdminFeedbackRecord>(`/api/admin/feedback/${feedbackId}/reply`, {
 		method: "POST",
 		body: JSON.stringify(payload),
 	});
 }
 
-export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFeedbackRecord> {
-	return feedbackApiClient.request<UserFeedbackRecord>(
+export async function closeFeedbackForAdmin(feedbackId: number): Promise<AdminFeedbackRecord> {
+	return feedbackApiClient.request<AdminFeedbackRecord>(
 		`/api/admin/feedback/${feedbackId}/close`,
 		{
 			method: "POST",
@@ -58,17 +78,39 @@ export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFee
 	);
 }
 
+export async function acknowledgeFeedbackForAdmin(
+	feedbackId: number,
+	payload: AdminFeedbackAcknowledgeInput,
+): Promise<AdminFeedbackRecord> {
+	return feedbackApiClient.request<AdminFeedbackRecord>(
+		`/api/admin/feedback/${feedbackId}/ack`,
+		{
+			method: "POST",
+			body: JSON.stringify(payload),
+		},
+	);
+}
+
 export async function classifyFeedbackForAdmin(
 	feedbackId: number,
 	payload: AdminFeedbackClassifyInput,
-): Promise<UserFeedbackRecord> {
-	return feedbackApiClient.request<UserFeedbackRecord>(
+): Promise<AdminFeedbackRecord> {
+	return feedbackApiClient.request<AdminFeedbackRecord>(
 		`/api/admin/feedback/${feedbackId}/classify`,
 		{
 			method: "POST",
 			body: JSON.stringify(payload),
 		},
 	);
+}
+
+export async function hideInboxMessageForCurrentUser(
+	payload: InboxMessageHideInput,
+): Promise<void> {
+	return feedbackApiClient.request<void>("/api/messages/hide", {
+		method: "POST",
+		body: JSON.stringify(payload),
+	});
 }
 
 export async function listReleaseNotesForCurrentUser(): Promise<ReleaseNoteDeliveryRecord[]> {
