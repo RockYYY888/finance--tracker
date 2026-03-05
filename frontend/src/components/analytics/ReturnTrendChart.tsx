@@ -70,21 +70,108 @@ const NEGATIVE_RETURN_COLOR = "#D7336C";
 const POSITIVE_RETURN_FILL = "rgba(0, 155, 193, 0.22)";
 const NEGATIVE_RETURN_FILL = "rgba(215, 51, 108, 0.22)";
 const RETURN_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
+const ZERO_RETURN_THRESHOLD = 0;
+const CROSSING_EPSILON = 1e-8;
 
 type ReturnTrendChartPoint = TimelinePoint & {
 	positiveValue: number;
 	negativeValue: number;
+	crossingPoint?: boolean;
 };
+
+function toTimestampMs(point: TimelinePoint): number | null {
+	if (!point.timestamp_utc) {
+		return null;
+	}
+
+	const parsedTimestamp = Date.parse(point.timestamp_utc);
+	if (!Number.isFinite(parsedTimestamp)) {
+		return null;
+	}
+
+	return parsedTimestamp;
+}
+
+function buildThresholdCrossingPoint(
+	left: TimelinePoint,
+	right: TimelinePoint,
+	thresholdValue: number,
+): TimelinePoint {
+	const denominator = right.value - left.value;
+	const ratio = Math.min(
+		1,
+		Math.max(
+			0,
+			denominator === 0 ? 0 : (thresholdValue - left.value) / denominator,
+		),
+	);
+	const leftTimestampMs = toTimestampMs(left);
+	const rightTimestampMs = toTimestampMs(right);
+	const interpolatedTimestamp =
+		leftTimestampMs === null || rightTimestampMs === null
+			? undefined
+			: new Date(
+				Math.round(leftTimestampMs + (rightTimestampMs - leftTimestampMs) * ratio),
+			).toISOString();
+
+	return {
+		label: "",
+		value: thresholdValue,
+		timestamp_utc: interpolatedTimestamp,
+		corrected: false,
+	};
+}
+
+function shouldInsertCrossingPoint(
+	left: TimelinePoint,
+	right: TimelinePoint,
+	thresholdValue: number,
+): boolean {
+	const leftDelta = left.value - thresholdValue;
+	const rightDelta = right.value - thresholdValue;
+	if (Math.abs(leftDelta) <= CROSSING_EPSILON || Math.abs(rightDelta) <= CROSSING_EPSILON) {
+		return false;
+	}
+
+	return leftDelta * rightDelta < 0;
+}
 
 export function buildReturnTrendChartData(
 	series: TimelinePoint[],
-	centerValue = 0,
+	thresholdValue = 0,
 ): ReturnTrendChartPoint[] {
-	return series.map((point) => ({
-		...point,
-		positiveValue: point.value >= centerValue ? point.value : centerValue,
-		negativeValue: point.value < centerValue ? point.value : centerValue,
-	}));
+	if (series.length <= 1) {
+		return series.map((point) => ({
+			...point,
+			positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
+			negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
+		}));
+	}
+
+	const segmentedSeries: TimelinePoint[] = [];
+	segmentedSeries.push(series[0]);
+	for (let index = 1; index < series.length; index += 1) {
+		const previousPoint = series[index - 1];
+		const currentPoint = series[index];
+
+		if (shouldInsertCrossingPoint(previousPoint, currentPoint, thresholdValue)) {
+			segmentedSeries.push(
+				buildThresholdCrossingPoint(previousPoint, currentPoint, thresholdValue),
+			);
+		}
+		segmentedSeries.push(currentPoint);
+	}
+
+	return segmentedSeries.map((point) => {
+		const isCrossingPoint =
+			Math.abs(point.value - thresholdValue) <= CROSSING_EPSILON && !point.label;
+		return {
+			...point,
+			...(isCrossingPoint ? { crossingPoint: true } : {}),
+			positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
+			negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
+		};
+	});
 }
 
 function formatSignedRatio(ratio: number): string {
@@ -173,7 +260,7 @@ export function ReturnTrendChart({
 			}),
 		[series],
 	);
-	const chartData = buildReturnTrendChartData(series, axisLayout.centerValue);
+	const chartData = buildReturnTrendChartData(series, ZERO_RETURN_THRESHOLD);
 	const hasData = chartData.length > 0;
 	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
@@ -293,11 +380,17 @@ export function ReturnTrendChart({
 									const rawValue = Number(
 										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
 									);
+									const sourcePoint = primaryEntry?.payload as
+										| ReturnTrendChartPoint
+										| undefined;
+									const periodLabel = sourcePoint?.crossingPoint
+										? "阈值交点"
+										: String(label ?? "");
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
 											<p style={ANALYTICS_TOOLTIP_LABEL_STYLE}>
-												周期: {String(label ?? "")}
+												周期: {periodLabel}
 											</p>
 											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
 												收益率: {formatPercentMetric(rawValue)}
@@ -313,21 +406,21 @@ export function ReturnTrendChart({
 								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 							/>
 							<Area
-								type="monotone"
+								type="linear"
 								dataKey="positiveValue"
 								stroke={POSITIVE_RETURN_COLOR}
 								fill={POSITIVE_RETURN_FILL}
 								strokeWidth={1.2}
-								baseValue={axisLayout.centerValue}
+								baseValue={ZERO_RETURN_THRESHOLD}
 								connectNulls
 							/>
 							<Area
-								type="monotone"
+								type="linear"
 								dataKey="negativeValue"
 								stroke={NEGATIVE_RETURN_COLOR}
 								fill={NEGATIVE_RETURN_FILL}
 								strokeWidth={1.2}
-								baseValue={axisLayout.centerValue}
+								baseValue={ZERO_RETURN_THRESHOLD}
 								connectNulls
 							/>
 							<Line
@@ -346,14 +439,14 @@ export function ReturnTrendChart({
 								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
 								aria-hidden="true"
 							/>
-							高于中位数
+							高于 0%
 						</span>
 						<span className="return-trend-legend__item" role="listitem">
 							<span
 								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
 								aria-hidden="true"
 							/>
-							低于中位数
+							低于 0%
 						</span>
 					</div>
 				</div>

@@ -31,4 +31,34 @@ describe("buildReturnTrendChartData", () => {
 			},
 		]);
 	});
+
+	it("inserts an explicit 0% crossing point when series crosses zero", () => {
+		const source = [
+			{ label: "03-01", value: 2 },
+			{ label: "03-05", value: -2 },
+		];
+
+		expect(buildReturnTrendChartData(source)).toEqual([
+			{
+				label: "03-01",
+				value: 2,
+				positiveValue: 2,
+				negativeValue: 0,
+			},
+			{
+				label: "",
+				value: 0,
+				corrected: false,
+				crossingPoint: true,
+				positiveValue: 0,
+				negativeValue: 0,
+			},
+			{
+				label: "03-05",
+				value: -2,
+				positiveValue: 0,
+				negativeValue: -2,
+			},
+		]);
+	});
 });
