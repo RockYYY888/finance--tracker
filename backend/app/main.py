@@ -9,7 +9,7 @@ import logging
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+from sqlalchemy import delete, text
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -21,9 +21,11 @@ from app.analytics import bucket_start_utc, build_return_timeline, build_timelin
 from app.database import engine, get_session, init_db
 from app.models import (
 	ASSET_MUTATION_OPERATIONS,
+	HOLDING_HISTORY_SYNC_STATUSES,
 	CashAccount,
 	DashboardCorrection,
 	FixedAsset,
+	HoldingHistorySyncRequest,
 	HoldingPerformanceSnapshot,
 	LiabilityEntry,
 	OtherAsset,
@@ -146,6 +148,7 @@ dashboard_cache_lock = asyncio.Lock()
 global_force_refresh_lock = asyncio.Lock()
 last_global_force_refresh_at: datetime | None = None
 background_refresh_task: asyncio.Task[None] | None = None
+holding_history_sync_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -158,6 +161,7 @@ async def lifespan(_: FastAPI):
 
 	try:
 		with Session(engine) as session:
+			await _process_pending_holding_history_sync_requests(session, limit=5)
 			await _refresh_user_dashboards(
 				session,
 				session.exec(select(UserAccount)).all(),
@@ -341,6 +345,17 @@ def _feedback_day_window(value: datetime | None = None) -> tuple[datetime, datet
 	return day_start_local.astimezone(timezone.utc), day_end_local.astimezone(timezone.utc)
 
 
+def _date_start_utc(value: date) -> datetime:
+	"""Convert a local calendar date into the UTC timestamp of local 00:00."""
+	day_start_local = datetime(
+		value.year,
+		value.month,
+		value.day,
+		tzinfo=FEEDBACK_TIMEZONE,
+	)
+	return day_start_local.astimezone(timezone.utc)
+
+
 def _is_current_minute(value: datetime | None, now: datetime | None = None) -> bool:
 	if value is None:
 		return False
@@ -435,6 +450,7 @@ async def _background_refresh_loop() -> None:
 		await _sleep_until_next_minute()
 		try:
 			with Session(engine) as session:
+				await _process_pending_holding_history_sync_requests(session, limit=1)
 				await _refresh_user_dashboards(
 					session,
 					session.exec(select(UserAccount)).all(),
@@ -442,6 +458,270 @@ async def _background_refresh_loop() -> None:
 				)
 		except Exception:
 			logger.exception("Scheduled dashboard refresh failed.")
+
+
+def _enqueue_holding_history_sync_request(
+	session: Session,
+	*,
+	user_id: str,
+	trigger_symbol: str | None = None,
+) -> None:
+	existing_request = session.exec(
+		select(HoldingHistorySyncRequest)
+		.where(HoldingHistorySyncRequest.user_id == user_id)
+		.order_by(HoldingHistorySyncRequest.requested_at.desc(), HoldingHistorySyncRequest.id.desc()),
+	).first()
+	now = utc_now()
+	if existing_request is None:
+		session.add(
+			HoldingHistorySyncRequest(
+				user_id=user_id,
+				status=HOLDING_HISTORY_SYNC_STATUSES[0],
+				trigger_symbol=trigger_symbol,
+				requested_at=now,
+				started_at=None,
+				completed_at=None,
+				error_message=None,
+			),
+		)
+		return
+
+	existing_request.status = HOLDING_HISTORY_SYNC_STATUSES[0]
+	existing_request.trigger_symbol = trigger_symbol
+	existing_request.requested_at = now
+	existing_request.started_at = None
+	existing_request.completed_at = None
+	existing_request.error_message = None
+	session.add(existing_request)
+
+
+def _has_holding_history_sync_pending(session: Session, user_id: str) -> bool:
+	request = session.exec(
+		select(HoldingHistorySyncRequest.id).where(
+			HoldingHistorySyncRequest.user_id == user_id,
+			HoldingHistorySyncRequest.status.in_(
+				(
+					HOLDING_HISTORY_SYNC_STATUSES[0],
+					HOLDING_HISTORY_SYNC_STATUSES[1],
+				),
+			),
+		),
+	).first()
+	return request is not None
+
+
+def _build_hour_buckets(start_at: datetime, end_at: datetime) -> list[datetime]:
+	start_hour = _current_hour_bucket(start_at)
+	end_hour = _current_hour_bucket(end_at)
+	if end_hour < start_hour:
+		return []
+
+	hours: list[datetime] = []
+	cursor = start_hour
+	while cursor <= end_hour:
+		hours.append(cursor)
+		cursor += timedelta(hours=1)
+	return hours
+
+
+def _fill_hourly_prices(
+	hours: list[datetime],
+	known_points: list[tuple[datetime, float]],
+	fallback_price: float,
+) -> dict[datetime, float]:
+	known_map: dict[datetime, float] = {}
+	for bucket, price in known_points:
+		if price <= 0:
+			continue
+		known_map[_current_hour_bucket(bucket)] = float(price)
+
+	first_known_price = next(iter(sorted(known_map.values())), None)
+	default_price = fallback_price if fallback_price > 0 else (first_known_price or 0.0)
+	last_known_price: float | None = None
+
+	filled: dict[datetime, float] = {}
+	for hour in hours:
+		if hour in known_map:
+			last_known_price = known_map[hour]
+			filled[hour] = known_map[hour]
+			continue
+
+		if last_known_price is not None:
+			filled[hour] = last_known_price
+			continue
+
+		filled[hour] = default_price
+
+	return filled
+
+
+async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str) -> None:
+	now = utc_now()
+	end_hour = _current_hour_bucket(now)
+	holdings = list(
+		session.exec(
+			select(SecurityHolding)
+			.where(SecurityHolding.user_id == user_id)
+			.order_by(SecurityHolding.symbol, SecurityHolding.name),
+		),
+	)
+
+	session.exec(
+		delete(HoldingPerformanceSnapshot).where(
+			HoldingPerformanceSnapshot.user_id == user_id,
+			HoldingPerformanceSnapshot.scope.in_(("HOLDING", "TOTAL")),
+		),
+	)
+	session.commit()
+
+	weighted_sum_by_hour: dict[datetime, float] = {}
+	total_basis_by_hour: dict[datetime, float] = {}
+	history_warnings: list[str] = []
+
+	for holding in holdings:
+		if (
+			holding.cost_basis_price is None
+			or holding.cost_basis_price <= 0
+			or holding.quantity <= 0
+			or holding.started_on is None
+		):
+			continue
+
+		start_at = _date_start_utc(holding.started_on)
+		if start_at > end_hour:
+			continue
+
+		known_points, history_currency, warnings = await market_data_client.fetch_hourly_price_series(
+			holding.symbol,
+			market=holding.market,
+			start_at=start_at,
+			end_at=end_hour + timedelta(hours=1),
+		)
+		history_warnings.extend(warnings)
+
+		fallback_price = holding.cost_basis_price
+		currency_for_pricing = history_currency
+		if not known_points or not currency_for_pricing:
+			latest_quote, quote_warnings = await market_data_client.fetch_quote(
+				holding.symbol,
+				holding.market,
+			)
+			history_warnings.extend(quote_warnings)
+			if latest_quote.price > 0:
+				fallback_price = latest_quote.price
+			currency_for_pricing = currency_for_pricing or latest_quote.currency
+
+		currency_code = _normalize_currency(currency_for_pricing or holding.fallback_currency)
+		if currency_code == "CNY":
+			fx_to_cny = 1.0
+		else:
+			fx_to_cny, fx_warnings = await market_data_client.fetch_fx_rate(currency_code, "CNY")
+			history_warnings.extend(fx_warnings)
+
+		basis_value_cny = holding.cost_basis_price * holding.quantity * fx_to_cny
+		if basis_value_cny <= 0:
+			continue
+
+		hours = _build_hour_buckets(start_at, end_hour)
+		filled_prices = _fill_hourly_prices(hours, known_points, fallback_price)
+		symbol_rows: list[HoldingPerformanceSnapshot] = []
+		for hour in hours:
+			price = filled_prices.get(hour, 0.0)
+			return_pct = _calculate_return_pct(price, holding.cost_basis_price)
+			if return_pct is None:
+				continue
+
+			symbol_rows.append(
+				HoldingPerformanceSnapshot(
+					user_id=user_id,
+					scope="HOLDING",
+					symbol=holding.symbol,
+					name=holding.name,
+					return_pct=return_pct,
+					created_at=hour,
+				),
+			)
+			weighted_sum_by_hour[hour] = weighted_sum_by_hour.get(hour, 0.0) + return_pct * basis_value_cny
+			total_basis_by_hour[hour] = total_basis_by_hour.get(hour, 0.0) + basis_value_cny
+
+		if symbol_rows:
+			session.add_all(symbol_rows)
+			session.commit()
+
+	total_rows: list[HoldingPerformanceSnapshot] = []
+	for hour in sorted(total_basis_by_hour):
+		total_basis = total_basis_by_hour.get(hour, 0.0)
+		if total_basis <= 0:
+			continue
+		total_return_pct = round(weighted_sum_by_hour[hour] / total_basis, 2)
+		total_rows.append(
+			HoldingPerformanceSnapshot(
+				user_id=user_id,
+				scope="TOTAL",
+				symbol=None,
+				name="非现金资产",
+				return_pct=total_return_pct,
+				created_at=hour,
+			),
+		)
+	if total_rows:
+		session.add_all(total_rows)
+		session.commit()
+
+	if history_warnings:
+		logger.warning(
+			"Holding history rebuild warnings for user %s: %s",
+			user_id,
+			"; ".join(history_warnings[:8]),
+		)
+
+	live_holdings_return_states.pop(user_id, None)
+	_invalidate_dashboard_cache(user_id)
+
+
+async def _process_pending_holding_history_sync_requests(
+	session: Session,
+	*,
+	limit: int = 1,
+	user_id: str | None = None,
+) -> None:
+	async with holding_history_sync_lock:
+		query = (
+			select(HoldingHistorySyncRequest)
+			.where(HoldingHistorySyncRequest.status == HOLDING_HISTORY_SYNC_STATUSES[0])
+			.order_by(HoldingHistorySyncRequest.requested_at.asc(), HoldingHistorySyncRequest.id.asc())
+			.limit(limit)
+		)
+		if user_id is not None:
+			query = query.where(HoldingHistorySyncRequest.user_id == user_id)
+		pending_requests = list(session.exec(query))
+		for request_row in pending_requests:
+			request_row.status = HOLDING_HISTORY_SYNC_STATUSES[1]
+			request_row.started_at = utc_now()
+			request_row.error_message = None
+			session.add(request_row)
+			session.commit()
+			session.refresh(request_row)
+
+			try:
+				await _rebuild_user_holding_history_snapshots(session, request_row.user_id)
+			except Exception as exc:  # pragma: no cover - defensive path
+				logger.exception(
+					"Holding history rebuild failed for user %s.",
+					request_row.user_id,
+				)
+				request_row.status = HOLDING_HISTORY_SYNC_STATUSES[0]
+				request_row.error_message = str(exc)[:500]
+				request_row.started_at = None
+				session.add(request_row)
+				session.commit()
+				continue
+
+			request_row.status = HOLDING_HISTORY_SYNC_STATUSES[2]
+			request_row.error_message = None
+			request_row.completed_at = utc_now()
+			session.add(request_row)
+			session.commit()
 
 
 def _load_table_columns(session: Session, table_name: str) -> set[str]:
@@ -628,6 +908,8 @@ async def _value_cash_accounts(
 async def _value_holdings(
 	holdings: list[SecurityHolding],
 	fx_rate_overrides: dict[str, float] | None = None,
+	*,
+	force_pending: bool = False,
 ) -> tuple[list[ValuedHolding], float, list[str]]:
 	items: list[ValuedHolding] = []
 	total = 0.0
@@ -686,7 +968,7 @@ async def _value_holdings(
 				return_pct=_calculate_return_pct(price, holding.cost_basis_price)
 				if price > 0
 				else None,
-				last_updated=last_updated,
+				last_updated=None if force_pending else last_updated,
 			),
 		)
 		total += value_cny
@@ -1280,6 +1562,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			.order_by(OtherAsset.category, OtherAsset.name),
 		),
 	)
+	history_sync_pending = _has_holding_history_sync_pending(session, user_id)
 
 	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(
 		accounts,
@@ -1288,6 +1571,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(
 		holdings,
 		fx_rate_overrides,
+		force_pending=history_sync_pending,
 	)
 	valued_fixed_assets, fixed_assets_value_cny = _value_fixed_assets(fixed_assets)
 	valued_liabilities, liabilities_value_cny, liability_warnings = await _value_liabilities(
@@ -1539,7 +1823,17 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		holdings_return_month_series=holdings_return_month_series,
 		holdings_return_year_series=holdings_return_year_series,
 		holding_return_series=holding_return_series,
-		warnings=[*fx_display_warnings, *account_warnings, *holding_warnings, *liability_warnings],
+		warnings=[
+			*(
+				["持仓历史更新中，曲线会在回填完成后自动同步。"]
+				if history_sync_pending
+				else []
+			),
+			*fx_display_warnings,
+			*account_warnings,
+			*holding_warnings,
+			*liability_warnings,
+		],
 	)
 
 
@@ -3088,6 +3382,11 @@ def create_holding(
 		before_state=None,
 		after_state=_capture_model_state(holding),
 	)
+	_enqueue_holding_history_sync_request(
+		session,
+		user_id=current_user.username,
+		trigger_symbol=holding.symbol,
+	)
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
@@ -3131,6 +3430,11 @@ def update_holding(
 		before_state=before_state,
 		after_state=_capture_model_state(holding),
 	)
+	_enqueue_holding_history_sync_request(
+		session,
+		user_id=current_user.username,
+		trigger_symbol=holding.symbol,
+	)
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
@@ -3158,6 +3462,11 @@ def delete_holding(
 		before_state=before_state,
 		after_state=None,
 	)
+	_enqueue_holding_history_sync_request(
+		session,
+		user_id=current_user.username,
+		trigger_symbol=holding.symbol,
+	)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -3182,6 +3491,11 @@ async def get_dashboard(
 	refresh: bool = False,
 ) -> DashboardResponse:
 	if refresh:
+		await _process_pending_holding_history_sync_requests(
+			session,
+			limit=1,
+			user_id=current_user.username,
+		)
 		if await _consume_global_force_refresh_slot():
 			market_data_client.clear_runtime_caches()
 		_invalidate_dashboard_cache(current_user.username)

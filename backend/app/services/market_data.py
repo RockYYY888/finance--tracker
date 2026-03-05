@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 
 import httpx
@@ -886,6 +886,138 @@ class MarketDataClient:
 
 		self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
 		return quote, []
+
+	async def fetch_hourly_price_series(
+		self,
+		symbol: str,
+		*,
+		market: str | None = None,
+		start_at: datetime,
+		end_at: datetime,
+	) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+		"""Fetch price history from a time point to now with minimal requests and bucket-ready output."""
+		normalized_market = (market or "").strip().upper() or None
+		normalized_symbol = normalize_symbol_for_market(symbol, normalized_market)
+		start_utc = (
+			start_at.replace(tzinfo=timezone.utc)
+			if start_at.tzinfo is None
+			else start_at.astimezone(timezone.utc)
+		)
+		end_utc = (
+			end_at.replace(tzinfo=timezone.utc)
+			if end_at.tzinfo is None
+			else end_at.astimezone(timezone.utc)
+		)
+		if end_utc <= start_utc:
+			return [], None, []
+
+		async def fetch_chart_points(
+			interval: str,
+			segment_start: datetime,
+			segment_end: datetime,
+		) -> tuple[list[tuple[datetime, float]], str | None, str | None]:
+			url = f"https://query1.finance.yahoo.com/v8/finance/chart/{normalized_symbol}"
+			params = {
+				"period1": int(segment_start.timestamp()),
+				"period2": int(segment_end.timestamp()),
+				"interval": interval,
+				"events": "history",
+				"includePrePost": "false",
+			}
+			try:
+				async with httpx.AsyncClient(timeout=15.0) as client:
+					response = await client.get(
+						url,
+						params=params,
+						headers={"User-Agent": "Mozilla/5.0"},
+					)
+					response.raise_for_status()
+					payload = response.json()
+			except httpx.HTTPError as exc:
+				return [], None, f"{normalized_symbol} {interval} 历史行情拉取失败: {exc}"
+
+			result_list = payload.get("chart", {}).get("result") or []
+			if not result_list:
+				return [], None, f"{normalized_symbol} {interval} 历史行情为空。"
+
+			result = result_list[0]
+			timestamps = result.get("timestamp") or []
+			quotes = (result.get("indicators") or {}).get("quote") or []
+			closes = (quotes[0] if quotes else {}).get("close") or []
+			currency = (result.get("meta") or {}).get("currency")
+			points: list[tuple[datetime, float]] = []
+			for index, raw_timestamp in enumerate(timestamps):
+				try:
+					timestamp = datetime.fromtimestamp(int(raw_timestamp), tz=timezone.utc)
+				except (TypeError, ValueError):
+					continue
+				if timestamp < segment_start or timestamp > segment_end:
+					continue
+
+				close_value = closes[index] if index < len(closes) else None
+				if close_value in (None, 0):
+					continue
+
+				try:
+					price = float(close_value)
+				except (TypeError, ValueError):
+					continue
+				if price <= 0:
+					continue
+
+				if interval == "1h":
+					bucket = timestamp.replace(minute=0, second=0, microsecond=0)
+				else:
+					bucket = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+				points.append((bucket, price))
+
+			return points, str(currency).upper() if currency else None, None
+
+		warnings: list[str] = []
+		all_points: list[tuple[datetime, float]] = []
+		currency: str | None = None
+
+		hourly_window_start = end_utc - timedelta(days=729)
+		use_split_strategy = start_utc < hourly_window_start
+		if use_split_strategy:
+			daily_points, daily_currency, daily_warning = await fetch_chart_points(
+				"1d",
+				start_utc,
+				hourly_window_start,
+			)
+			if daily_warning:
+				warnings.append(daily_warning)
+			else:
+				all_points.extend(daily_points)
+				currency = daily_currency or currency
+
+			hourly_points, hourly_currency, hourly_warning = await fetch_chart_points(
+				"1h",
+				hourly_window_start,
+				end_utc,
+			)
+			if hourly_warning:
+				warnings.append(hourly_warning)
+			else:
+				all_points.extend(hourly_points)
+				currency = hourly_currency or currency
+		else:
+			hourly_points, hourly_currency, hourly_warning = await fetch_chart_points(
+				"1h",
+				start_utc,
+				end_utc,
+			)
+			if hourly_warning:
+				warnings.append(hourly_warning)
+			else:
+				all_points.extend(hourly_points)
+				currency = hourly_currency or currency
+
+		deduped_points: dict[datetime, float] = {}
+		for bucket, price in all_points:
+			deduped_points[bucket] = price
+
+		return sorted(deduped_points.items(), key=lambda item: item[0]), currency, warnings
 
 	async def search_securities(self, query: str) -> list[SecuritySearchResult]:
 		"""Search securities by name or code with a short-lived cache."""

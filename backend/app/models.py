@@ -28,6 +28,7 @@ DASHBOARD_SERIES_SCOPES = ("PORTFOLIO_TOTAL", "HOLDINGS_RETURN_TOTAL", "HOLDING_
 DASHBOARD_CORRECTION_ACTIONS = ("OVERRIDE", "DELETE")
 DASHBOARD_CORRECTION_GRANULARITIES = ("hour", "day", "month", "year")
 ASSET_MUTATION_OPERATIONS = ("CREATE", "UPDATE", "DELETE")
+HOLDING_HISTORY_SYNC_STATUSES = ("PENDING", "RUNNING", "DONE")
 
 
 def utc_now() -> datetime:
@@ -74,6 +75,17 @@ class ReleaseNoteDelivery(SQLModel, table=True):
 	user_id: str = Field(index=True, max_length=32)
 	delivered_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 	seen_at: datetime | None = Field(default=None, index=True)
+
+
+class HoldingHistorySyncRequest(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	status: str = Field(default="PENDING", max_length=16, index=True)
+	trigger_symbol: str | None = Field(default=None, max_length=32)
+	error_message: str | None = Field(default=None, max_length=500)
+	requested_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	started_at: datetime | None = Field(default=None, index=True)
+	completed_at: datetime | None = Field(default=None, index=True)
 
 
 class CashAccount(SQLModel, table=True):

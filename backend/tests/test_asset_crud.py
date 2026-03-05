@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -30,6 +30,7 @@ from app.main import (
 from app.models import (
 	CashAccount,
 	FixedAsset,
+	HoldingHistorySyncRequest,
 	HoldingPerformanceSnapshot,
 	LiabilityEntry,
 	OtherAsset,
@@ -60,6 +61,16 @@ class StaticMarketDataClient:
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
+
+	async def fetch_hourly_price_series(
+		self,
+		symbol: str,
+		*,
+		market: str | None = None,
+		start_at: datetime,
+		end_at: datetime,
+	) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+		return [], "USD", []
 
 	async def fetch_quote(
 		self,
@@ -812,6 +823,134 @@ def test_build_dashboard_converts_usd_liabilities_to_cny(
 	assert dashboard.cash_value_cny == 1_000.0
 	assert dashboard.liabilities_value_cny == 700.0
 	assert dashboard.total_value_cny == 300.0
+
+
+def test_holding_update_enqueues_history_sync_request(session: Session) -> None:
+	current_user = make_user(session, "holding_sync_queue_user")
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="AAPL",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 3, 1),
+		),
+		current_user,
+		session,
+	)
+
+	requests_after_create = list(
+		session.exec(
+			select(HoldingHistorySyncRequest).where(
+				HoldingHistorySyncRequest.user_id == current_user.username,
+			),
+		),
+	)
+	assert len(requests_after_create) == 1
+	assert requests_after_create[0].status == "PENDING"
+
+	update_holding(
+		holding.id or 0,
+		SecurityHoldingUpdate(
+			symbol="AAPL",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=85,
+			market="us",
+			started_on=date(2026, 2, 20),
+		),
+		current_user,
+		session,
+	)
+
+	requests_after_update = list(
+		session.exec(
+			select(HoldingHistorySyncRequest).where(
+				HoldingHistorySyncRequest.user_id == current_user.username,
+			),
+		),
+	)
+	assert len(requests_after_update) == 1
+	assert requests_after_update[0].status == "PENDING"
+
+
+def test_process_pending_holding_history_sync_rebuilds_hourly_rows(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session, "holding_sync_rebuild_user")
+	fixed_now = datetime(2026, 3, 5, 10, 0, tzinfo=timezone.utc)
+
+	class HistoryAwareMarketDataClient(StaticMarketDataClient):
+		async def fetch_hourly_price_series(
+			self,
+			symbol: str,
+			*,
+			market: str | None = None,
+			start_at: datetime,
+			end_at: datetime,
+		) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+			return [
+				(start_at.replace(minute=0, second=0, microsecond=0), 80.0),
+				((end_at - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0), 100.0),
+			], "USD", []
+
+	monkeypatch.setattr(main, "market_data_client", HistoryAwareMarketDataClient())
+	monkeypatch.setattr(main, "utc_now", lambda: fixed_now)
+
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 3, 4),
+		),
+		current_user,
+		session,
+	)
+
+	asyncio.run(main._process_pending_holding_history_sync_requests(session, limit=1))
+
+	request = session.exec(
+		select(HoldingHistorySyncRequest).where(
+			HoldingHistorySyncRequest.user_id == current_user.username,
+		),
+	).one()
+	assert request.status == "DONE"
+	assert request.completed_at is not None
+
+	start_bucket = datetime(2026, 3, 3, 16, 0, tzinfo=timezone.utc)
+	end_bucket = datetime(2026, 3, 5, 10, 0, tzinfo=timezone.utc)
+
+	holding_rows = list(
+		session.exec(
+			select(HoldingPerformanceSnapshot)
+			.where(HoldingPerformanceSnapshot.user_id == current_user.username)
+			.where(HoldingPerformanceSnapshot.scope == "HOLDING")
+			.where(HoldingPerformanceSnapshot.symbol == "AAPL")
+			.order_by(HoldingPerformanceSnapshot.created_at.asc()),
+		),
+	)
+	assert holding_rows
+	assert main._coerce_utc_datetime(holding_rows[0].created_at) == start_bucket
+	assert main._coerce_utc_datetime(holding_rows[-1].created_at) == end_bucket
+
+	total_rows = list(
+		session.exec(
+			select(HoldingPerformanceSnapshot)
+			.where(HoldingPerformanceSnapshot.user_id == current_user.username)
+			.where(HoldingPerformanceSnapshot.scope == "TOTAL")
+			.order_by(HoldingPerformanceSnapshot.created_at.asc()),
+		),
+	)
+	assert total_rows
+	assert len(total_rows) == len(holding_rows)
 
 
 def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
