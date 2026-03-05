@@ -429,65 +429,68 @@ export function AdminFeedbackDialog({
 									<p className="admin-feedback-card__message">{item.message}</p>
 									{isExpanded ? (
 										<div className="admin-feedback-card__detail">
-											<div className="admin-feedback-card__reply-history">
-												<strong>{canReply ? "回复内容" : "处理记录"}</strong>
-												<p>
-													{item.reply_message
-														?? (canReply
-															? "暂未回复"
-															: "系统工单无需回复，可直接关闭或更新状态。")}
-												</p>
-											</div>
-											<div className="admin-feedback-card__footer">
-												<span>
-													{item.replied_by
-														? `最近回复人：${item.replied_by}`
-														: canReply
-															? "尚未回复"
-															: "系统消息"}
-												</span>
-											</div>
-											{!isClosed && canReply ? (
+											{canReply ? (
 												<>
-													<label className="admin-feedback-card__editor">
-														<span>回复</span>
-														<textarea
-															value={
-																expandedItem?.id === item.id
-																	? draftReply
-																	: item.reply_message ?? ""
-															}
-															onChange={(event) => setDraftReply(event.target.value)}
-															placeholder="输入回复，用户会在自己的消息里看到。"
-															disabled={busy}
-														/>
-													</label>
-													<div className="admin-feedback-card__footer">
-														<span>保存后用户会在自己的消息中看到回复。</span>
-														<div className="admin-feedback-card__footer-actions">
-															<button
-																type="button"
-																className="ghost-button"
-																disabled={busy || !draftReply.trim()}
-																onClick={() => void handleReply(item.id, false)}
-															>
-																保存回复
-															</button>
-															<button
-																type="button"
-																disabled={busy || !draftReply.trim()}
-																onClick={() => void handleReply(item.id, true)}
-															>
-																回复并关闭
-															</button>
-														</div>
+													<div className="admin-feedback-card__reply-history">
+														<strong>回复内容</strong>
+														<p>{item.reply_message ?? "暂未回复"}</p>
 													</div>
+													<div className="admin-feedback-card__footer">
+														<span>
+															{item.replied_by
+																? `最近回复人：${item.replied_by}`
+																: "尚未回复"}
+														</span>
+													</div>
+													{!isClosed ? (
+														<>
+															<label className="admin-feedback-card__editor">
+																<span>回复</span>
+																<textarea
+																	value={
+																		expandedItem?.id === item.id
+																			? draftReply
+																			: item.reply_message ?? ""
+																	}
+																	onChange={(event) =>
+																		setDraftReply(event.target.value)
+																	}
+																	placeholder="输入回复，用户会在自己的消息里看到。"
+																	disabled={busy}
+																/>
+															</label>
+															<div className="admin-feedback-card__footer">
+																<span>保存后用户会在自己的消息中看到回复。</span>
+																<div className="admin-feedback-card__footer-actions">
+																	<button
+																		type="button"
+																		className="ghost-button"
+																		disabled={busy || !draftReply.trim()}
+																		onClick={() => void handleReply(item.id, false)}
+																	>
+																		保存回复
+																	</button>
+																	<button
+																		type="button"
+																		disabled={busy || !draftReply.trim()}
+																		onClick={() => void handleReply(item.id, true)}
+																	>
+																		回复并关闭
+																	</button>
+																</div>
+															</div>
+														</>
+													) : null}
 												</>
-											) : !isClosed ? (
+											) : (
 												<div className="admin-feedback-card__footer">
-													<span>系统来源消息无需回复，可直接关闭或调整分类/优先级。</span>
+													<span>
+														{isClosed
+															? "系统来源消息已处理，无需回复。"
+															: "系统来源消息无需回复，可直接关闭或调整分类/优先级。"}
+													</span>
 												</div>
-											) : null}
+											)}
 										</div>
 									) : null}
 								</article>

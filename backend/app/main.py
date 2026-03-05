@@ -2488,13 +2488,20 @@ def submit_feedback(
 		if submission_count >= MAX_DAILY_FEEDBACK_SUBMISSIONS:
 			raise HTTPException(status_code=429, detail="今日反馈次数已达上限，请明天再试。")
 
+	auto_resolve = (
+		category == "SYSTEM_HEARTBEAT"
+		and priority == "LOW"
+		and source in {"SYSTEM", "API_MONITOR", "TRADING_AGENT"}
+	)
 	feedback = UserFeedback(
 		user_id=current_user.username,
 		message=payload.message,
 		category=category,
 		priority=priority,
 		source=source,
-		status="OPEN",
+		status="RESOLVED" if auto_resolve else "OPEN",
+		resolved_at=utc_now() if auto_resolve else None,
+		closed_by="system-auto" if auto_resolve else None,
 	)
 	session.add(feedback)
 	session.commit()

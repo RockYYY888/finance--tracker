@@ -101,6 +101,23 @@ def test_feedback_classification_defaults_and_system_submission(session: Session
 		assert system_feedback.priority == "LOW"
 		assert system_feedback.source == "API_MONITOR"
 		assert system_feedback.is_system is True
+		assert system_feedback.status == "RESOLVED"
+		assert system_feedback.resolved_at is not None
+		assert system_feedback.closed_by == "system-auto"
+
+	system_alert_feedback = submit_feedback(
+		UserFeedbackCreate(
+			message="系统告警：行情源返回 5xx。",
+			category="SYSTEM_ALERT",
+			priority="HIGH",
+			source="API_MONITOR",
+		),
+		admin_user,
+		session,
+	)
+	assert system_alert_feedback.status == "OPEN"
+	assert system_alert_feedback.resolved_at is None
+	assert system_alert_feedback.closed_by is None
 
 
 def test_submit_feedback_limits_each_user_to_three_per_day(session: Session) -> None:
