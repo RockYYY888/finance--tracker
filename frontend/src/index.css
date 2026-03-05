@@ -703,9 +703,20 @@ h3 {
 	font-size: 0.92rem;
 }
 
+.feedback-modal__copy--guide {
+	color: rgba(194, 234, 255, 0.9);
+}
+
 .feedback-form {
 	display: grid;
 	gap: 14px;
+}
+
+.feedback-form__hint {
+	display: block;
+	margin-top: 6px;
+	color: var(--text-muted);
+	font-size: 0.88rem;
 }
 
 .feedback-form__footer {
