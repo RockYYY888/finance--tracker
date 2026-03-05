@@ -1,11 +1,31 @@
+export type FeedbackCategory =
+	| "USER_REQUEST"
+	| "SYSTEM_ALERT"
+	| "SYSTEM_HEARTBEAT"
+	| "SYSTEM_TASK";
+
+export type FeedbackPriority = "LOW" | "MEDIUM" | "HIGH";
+
+export type FeedbackSource = "USER" | "SYSTEM" | "API_MONITOR" | "TRADING_AGENT" | "ADMIN";
+
+export type FeedbackStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
+
 export interface UserFeedbackInput {
 	message: string;
+	category?: FeedbackCategory;
+	priority?: FeedbackPriority;
+	source?: FeedbackSource;
 }
 
 export interface UserFeedbackRecord {
 	id: number;
 	user_id: string;
 	message: string;
+	category: FeedbackCategory;
+	priority: FeedbackPriority;
+	source: FeedbackSource;
+	status: FeedbackStatus;
+	is_system: boolean;
 	reply_message: string | null;
 	replied_at: string | null;
 	replied_by: string | null;
@@ -18,6 +38,13 @@ export interface UserFeedbackRecord {
 export interface AdminFeedbackReplyInput {
 	reply_message: string;
 	close: boolean;
+}
+
+export interface AdminFeedbackClassifyInput {
+	category?: FeedbackCategory;
+	priority?: FeedbackPriority;
+	source?: FeedbackSource;
+	status?: FeedbackStatus;
 }
 
 export interface ReleaseNoteInput {

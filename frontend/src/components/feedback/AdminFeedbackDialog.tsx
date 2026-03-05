@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { formatTimestamp as formatAssetTimestamp } from "../../lib/assetFormatting";
+import {
+	getFeedbackCategoryMeta,
+	getFeedbackPriorityMeta,
+	getFeedbackSourceMeta,
+	getFeedbackStatusMeta,
+} from "../../lib/feedbackMeta";
 import type {
 	ReleaseNoteInput,
 	ReleaseNoteRecord,
@@ -259,13 +265,39 @@ export function AdminFeedbackDialog({
 						</div>
 					) : (
 						items.map((item) => {
-							const isClosed = Boolean(item.resolved_at);
+							const statusMeta = getFeedbackStatusMeta(item.status);
+							const priorityMeta = getFeedbackPriorityMeta(item.priority);
+							const categoryMeta = getFeedbackCategoryMeta(item.category);
+							const sourceMeta = getFeedbackSourceMeta(item.source);
+							const isClosed = item.status === "RESOLVED" || Boolean(item.resolved_at);
 							const isExpanded = expandedId === item.id;
 							return (
 								<article key={item.id} className="admin-feedback-card panel">
 									<div className="admin-feedback-card__head">
 										<div>
 											<strong>{item.user_id}</strong>
+											<div className="feedback-badge-row" aria-label="工单属性标签">
+												<span
+													className={`feedback-badge feedback-badge--${statusMeta.tone}`}
+												>
+													{statusMeta.label}
+												</span>
+												<span
+													className={`feedback-badge feedback-badge--${priorityMeta.tone}`}
+												>
+													{priorityMeta.label}
+												</span>
+												<span
+													className={`feedback-badge feedback-badge--${categoryMeta.tone}`}
+												>
+													{categoryMeta.label}
+												</span>
+												<span
+													className={`feedback-badge feedback-badge--${sourceMeta.tone}`}
+												>
+													{sourceMeta.label}
+												</span>
+											</div>
 											<p>
 												提交：{formatTimestamp(item.created_at)}
 												{item.replied_at
@@ -273,7 +305,7 @@ export function AdminFeedbackDialog({
 													: " · 暂未回复"}
 												{isClosed
 													? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
-													: " · 处理中"}
+													: ` · ${statusMeta.label}`}
 											</p>
 										</div>
 										<div className="admin-feedback-card__actions">

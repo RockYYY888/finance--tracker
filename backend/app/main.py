@@ -21,6 +21,10 @@ from app.analytics import bucket_start_utc, build_return_timeline, build_timelin
 from app.database import engine, get_session, init_db
 from app.models import (
 	ASSET_MUTATION_OPERATIONS,
+	FEEDBACK_CATEGORIES,
+	FEEDBACK_PRIORITIES,
+	FEEDBACK_SOURCES,
+	FEEDBACK_STATUSES,
 	HOLDING_HISTORY_SYNC_STATUSES,
 	CashAccount,
 	DashboardCorrection,
@@ -40,6 +44,7 @@ from app.models import (
 )
 from app.schemas import (
 	ActionMessageRead,
+	AdminFeedbackClassifyUpdate,
 	AdminFeedbackReplyUpdate,
 	AllocationSlice,
 	AssetMutationAuditRead,
@@ -742,6 +747,10 @@ def _ensure_legacy_schema() -> None:
 		(
 			UserFeedback.__table__.name,
 			{
+				"category": "TEXT NOT NULL DEFAULT 'USER_REQUEST'",
+				"priority": "TEXT NOT NULL DEFAULT 'MEDIUM'",
+				"source": "TEXT NOT NULL DEFAULT 'USER'",
+				"status": "TEXT NOT NULL DEFAULT 'OPEN'",
 				"reply_message": "TEXT",
 				"replied_at": "TEXT",
 				"replied_by": "TEXT",
@@ -1945,11 +1954,105 @@ def _require_admin_user(current_user: UserAccount) -> None:
 		raise HTTPException(status_code=403, detail="仅管理员可访问。")
 
 
+def _normalize_feedback_choice(
+	value: str | None,
+	allowed_values: tuple[str, ...],
+	fallback: str,
+) -> str:
+	if value is None:
+		return fallback
+
+	normalized = value.strip().upper()
+	if normalized in allowed_values:
+		return normalized
+	return fallback
+
+
+def _is_system_feedback_item(feedback: UserFeedback) -> bool:
+	category = _normalize_feedback_choice(
+		feedback.category,
+		FEEDBACK_CATEGORIES,
+		"USER_REQUEST",
+	)
+	source = _normalize_feedback_choice(
+		feedback.source,
+		FEEDBACK_SOURCES,
+		"USER",
+	)
+	return category.startswith("SYSTEM_") or source != "USER"
+
+
+def _derive_feedback_status(feedback: UserFeedback) -> str:
+	if feedback.resolved_at is not None:
+		return "RESOLVED"
+
+	status = _normalize_feedback_choice(
+		feedback.status,
+		FEEDBACK_STATUSES,
+		"OPEN",
+	)
+	if status == "RESOLVED":
+		return "OPEN"
+	if status == "IN_PROGRESS":
+		return "IN_PROGRESS"
+	if feedback.replied_at is not None:
+		return "IN_PROGRESS"
+	return "OPEN"
+
+
+def _feedback_sort_key(feedback: UserFeedback) -> tuple[int, int, float]:
+	status_rank = {
+		"OPEN": 0,
+		"IN_PROGRESS": 1,
+		"RESOLVED": 2,
+	}
+	priority_rank = {
+		"HIGH": 0,
+		"MEDIUM": 1,
+		"LOW": 2,
+	}
+	status_value = _derive_feedback_status(feedback)
+	priority_value = _normalize_feedback_choice(
+		feedback.priority,
+		FEEDBACK_PRIORITIES,
+		"MEDIUM",
+	)
+	created_at = feedback.created_at
+	if created_at.tzinfo is None:
+		created_at = created_at.replace(tzinfo=timezone.utc)
+	return (
+		status_rank.get(status_value, 3),
+		priority_rank.get(priority_value, 3),
+		-created_at.timestamp(),
+	)
+
+
 def _to_feedback_read(feedback: UserFeedback) -> UserFeedbackRead:
+	category = _normalize_feedback_choice(
+		feedback.category,
+		FEEDBACK_CATEGORIES,
+		"USER_REQUEST",
+	)
+	priority = _normalize_feedback_choice(
+		feedback.priority,
+		FEEDBACK_PRIORITIES,
+		"MEDIUM",
+	)
+	source = _normalize_feedback_choice(
+		feedback.source,
+		FEEDBACK_SOURCES,
+		"USER",
+	)
+	status = _derive_feedback_status(feedback)
 	return UserFeedbackRead(
 		id=feedback.id or 0,
 		user_id=feedback.user_id,
 		message=feedback.message,
+		category=category,
+		priority=priority,
+		source=source,
+		status=status,
+		is_system=_is_system_feedback_item(feedback),
 		reply_message=feedback.reply_message,
 		replied_at=feedback.replied_at,
 		replied_by=feedback.replied_by,
@@ -2326,24 +2429,72 @@ def submit_feedback(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> UserFeedbackRead:
-	day_start, day_end = _feedback_day_window()
-	submission_count = len(
-		list(
-			session.exec(
-				select(UserFeedback.id).where(
-					UserFeedback.user_id == current_user.username,
-					UserFeedback.created_at >= day_start,
-					UserFeedback.created_at < day_end,
+	requested_category = _normalize_feedback_choice(
+		payload.category,
+		FEEDBACK_CATEGORIES,
+		"USER_REQUEST",
+	) if payload.category is not None else None
+	requested_priority = _normalize_feedback_choice(
+		payload.priority,
+		FEEDBACK_PRIORITIES,
+		"MEDIUM",
+	) if payload.priority is not None else None
+	requested_source = _normalize_feedback_choice(
+		payload.source,
+		FEEDBACK_SOURCES,
+		"USER",
+	) if payload.source is not None else None
+
+	if current_user.username == "admin":
+		category = requested_category
+		source = requested_source
+
+		if category is None:
+			if source in {"SYSTEM", "API_MONITOR", "TRADING_AGENT"}:
+				category = "SYSTEM_TASK"
+			else:
+				category = "USER_REQUEST"
+
+		if source is None:
+			source = "SYSTEM" if category.startswith("SYSTEM_") else "ADMIN"
+
+		if category == "USER_REQUEST" and source in {"SYSTEM", "API_MONITOR", "TRADING_AGENT"}:
+			category = "SYSTEM_TASK"
+
+		default_priority = "MEDIUM"
+		if category == "SYSTEM_ALERT":
+			default_priority = "HIGH"
+		elif category == "SYSTEM_HEARTBEAT":
+			default_priority = "LOW"
+		priority = requested_priority or default_priority
+	else:
+		category = "USER_REQUEST"
+		priority = "MEDIUM"
+		source = "USER"
+
+	if source == "USER":
+		day_start, day_end = _feedback_day_window()
+		submission_count = len(
+			list(
+				session.exec(
+					select(UserFeedback.id).where(
+						UserFeedback.user_id == current_user.username,
+						UserFeedback.created_at >= day_start,
+						UserFeedback.created_at < day_end,
+					),
 				),
 			),
-		),
-	)
-	if submission_count >= MAX_DAILY_FEEDBACK_SUBMISSIONS:
-		raise HTTPException(status_code=429, detail="今日反馈次数已达上限，请明天再试。")
+		)
+		if submission_count >= MAX_DAILY_FEEDBACK_SUBMISSIONS:
+			raise HTTPException(status_code=429, detail="今日反馈次数已达上限，请明天再试。")
 
 	feedback = UserFeedback(
 		user_id=current_user.username,
 		message=payload.message,
+		category=category,
+		priority=priority,
+		source=source,
+		status="OPEN",
 	)
 	session.add(feedback)
 	session.commit()
@@ -2448,14 +2599,8 @@ def list_feedback_for_admin(
 	_: TokenDependency,
 ) -> list[UserFeedbackRead]:
 	_require_admin_user(current_user)
-	feedback_items = list(
-		session.exec(
-			select(UserFeedback).order_by(
-				UserFeedback.resolved_at.is_not(None),
-				UserFeedback.created_at.desc(),
-			),
-		),
-	)
+	feedback_items = list(session.exec(select(UserFeedback)))
+	feedback_items = sorted(feedback_items, key=_feedback_sort_key)
 	return [
 		_to_feedback_read(feedback)
 		for feedback in feedback_items
@@ -2482,6 +2627,9 @@ def reply_to_feedback_for_admin(
 	if payload.close and feedback.resolved_at is None:
 		feedback.resolved_at = utc_now()
 		feedback.closed_by = current_user.username
+		feedback.status = "RESOLVED"
+	else:
+		feedback.status = "IN_PROGRESS"
 	session.add(feedback)
 	session.commit()
 	session.refresh(feedback)
@@ -2504,10 +2652,48 @@ def close_feedback_for_admin(
 	if feedback.resolved_at is None:
 		feedback.resolved_at = utc_now()
 		feedback.closed_by = current_user.username
+		feedback.status = "RESOLVED"
 		session.add(feedback)
 		session.commit()
 		session.refresh(feedback)
 
+	return _to_feedback_read(feedback)
+
+
+@app.post("/api/admin/feedback/{feedback_id}/classify", response_model=UserFeedbackRead)
+def classify_feedback_for_admin(
+	feedback_id: int,
+	payload: AdminFeedbackClassifyUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> UserFeedbackRead:
+	_require_admin_user(current_user)
+	feedback = session.get(UserFeedback, feedback_id)
+	if feedback is None:
+		raise HTTPException(status_code=404, detail="反馈不存在。")
+
+	if payload.category is not None:
+		feedback.category = payload.category
+	if payload.priority is not None:
+		feedback.priority = payload.priority
+	if payload.source is not None:
+		feedback.source = payload.source
+	if payload.status is not None:
+		if payload.status == "RESOLVED":
+			if feedback.resolved_at is None:
+				feedback.resolved_at = utc_now()
+			feedback.closed_by = current_user.username
+			feedback.status = "RESOLVED"
+		else:
+			if feedback.resolved_at is not None:
+				feedback.resolved_at = None
+				feedback.closed_by = None
+			feedback.status = payload.status
+
+	session.add(feedback)
+	session.commit()
+	session.refresh(feedback)
 	return _to_feedback_read(feedback)
 
 

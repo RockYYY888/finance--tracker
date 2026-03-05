@@ -1,6 +1,11 @@
 import { useEffect } from "react";
 
 import { formatTimestamp as formatAssetTimestamp } from "../../lib/assetFormatting";
+import {
+	getFeedbackCategoryMeta,
+	getFeedbackPriorityMeta,
+	getFeedbackStatusMeta,
+} from "../../lib/feedbackMeta";
 import type {
 	ReleaseNoteDeliveryRecord,
 	UserFeedbackRecord,
@@ -117,30 +122,46 @@ export function UserFeedbackInboxDialog({
 									</div>
 								</article>
 							))}
-							{items.map((item) => (
-								<article key={item.id} className="admin-feedback-card panel">
-									<div className="admin-feedback-card__head">
-										<div>
-											<strong>提交：{formatTimestamp(item.created_at)}</strong>
-											<p>
-												{item.replied_at
-													? `已回复：${formatTimestamp(item.replied_at)}`
-													: "等待管理员回复"}
-												{item.resolved_at
-													? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
-													: ""}
-											</p>
+							{items.map((item) => {
+								const statusMeta = getFeedbackStatusMeta(item.status);
+								const priorityMeta = getFeedbackPriorityMeta(item.priority);
+								const categoryMeta = getFeedbackCategoryMeta(item.category);
+								return (
+									<article key={item.id} className="admin-feedback-card panel">
+										<div className="admin-feedback-card__head">
+											<div>
+												<strong>提交：{formatTimestamp(item.created_at)}</strong>
+												<div className="feedback-badge-row" aria-label="工单属性标签">
+													<span className={`feedback-badge feedback-badge--${statusMeta.tone}`}>
+														{statusMeta.label}
+													</span>
+													<span className={`feedback-badge feedback-badge--${priorityMeta.tone}`}>
+														{priorityMeta.label}
+													</span>
+													<span className={`feedback-badge feedback-badge--${categoryMeta.tone}`}>
+														{categoryMeta.label}
+													</span>
+												</div>
+												<p>
+													{item.replied_at
+														? `已回复：${formatTimestamp(item.replied_at)}`
+														: "等待管理员回复"}
+													{item.resolved_at
+														? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
+														: ""}
+												</p>
+											</div>
 										</div>
-									</div>
-									<p className="admin-feedback-card__message">{item.message}</p>
-									<div className="admin-feedback-card__detail">
-										<div className="admin-feedback-card__reply-history">
-											<strong>管理员回复</strong>
-											<p>{item.reply_message ?? "暂无回复"}</p>
+										<p className="admin-feedback-card__message">{item.message}</p>
+										<div className="admin-feedback-card__detail">
+											<div className="admin-feedback-card__reply-history">
+												<strong>管理员回复</strong>
+												<p>{item.reply_message ?? "暂无回复"}</p>
+											</div>
 										</div>
-									</div>
-								</article>
-							))}
+									</article>
+								);
+							})}
 						</>
 					)}
 				</div>

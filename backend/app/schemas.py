@@ -11,6 +11,10 @@ from app.models import (
 	DASHBOARD_CORRECTION_ACTIONS,
 	DASHBOARD_CORRECTION_GRANULARITIES,
 	DASHBOARD_SERIES_SCOPES,
+	FEEDBACK_CATEGORIES,
+	FEEDBACK_PRIORITIES,
+	FEEDBACK_SOURCES,
+	FEEDBACK_STATUSES,
 	FIXED_ASSET_CATEGORIES,
 	LIABILITY_CATEGORIES,
 	LIABILITY_CURRENCIES,
@@ -332,17 +336,40 @@ class UserEmailUpdate(BaseModel):
 
 class UserFeedbackCreate(BaseModel):
 	message: str = Field(min_length=5, max_length=1000)
+	category: str | None = Field(default=None, max_length=32)
+	priority: str | None = Field(default=None, max_length=16)
+	source: str | None = Field(default=None, max_length=32)
 
 	@field_validator("message", mode="before")
 	@classmethod
 	def normalize_message(cls, value: str) -> str:
 		return _normalize_required_text(value, "message")
 
+	@field_validator("category", mode="before")
+	@classmethod
+	def normalize_category(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_CATEGORIES, "category")
+
+	@field_validator("priority", mode="before")
+	@classmethod
+	def normalize_priority(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_PRIORITIES, "priority")
+
+	@field_validator("source", mode="before")
+	@classmethod
+	def normalize_source(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_SOURCES, "source")
+
 
 class UserFeedbackRead(UtcTimestampResponseModel):
 	id: int
 	user_id: str
 	message: str
+	category: str
+	priority: str
+	source: str
+	status: str
+	is_system: bool
 	reply_message: str | None = None
 	replied_at: datetime | None = None
 	replied_by: str | None = None
@@ -365,6 +392,33 @@ class AdminFeedbackReplyUpdate(BaseModel):
 	@classmethod
 	def normalize_reply_message(cls, value: str) -> str:
 		return _normalize_required_text(value, "reply_message")
+
+
+class AdminFeedbackClassifyUpdate(BaseModel):
+	category: str | None = Field(default=None, max_length=32)
+	priority: str | None = Field(default=None, max_length=16)
+	source: str | None = Field(default=None, max_length=32)
+	status: str | None = Field(default=None, max_length=16)
+
+	@field_validator("category", mode="before")
+	@classmethod
+	def normalize_category(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_CATEGORIES, "category")
+
+	@field_validator("priority", mode="before")
+	@classmethod
+	def normalize_priority(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_PRIORITIES, "priority")
+
+	@field_validator("source", mode="before")
+	@classmethod
+	def normalize_source(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_SOURCES, "source")
+
+	@field_validator("status", mode="before")
+	@classmethod
+	def normalize_status(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, FEEDBACK_STATUSES, "status")
 
 
 SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")

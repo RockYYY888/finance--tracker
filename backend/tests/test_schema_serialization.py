@@ -8,6 +8,11 @@ def test_user_feedback_read_serializes_naive_timestamps_as_explicit_utc() -> Non
 		id=1,
 		user_id="tester",
 		message="反馈内容",
+		category="USER_REQUEST",
+		priority="MEDIUM",
+		source="USER",
+		status="OPEN",
+		is_system=False,
 		created_at=datetime(2026, 3, 1, 4, 20, 51, 753577),
 	)
 

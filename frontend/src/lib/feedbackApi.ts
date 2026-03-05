@@ -1,5 +1,6 @@
 import { createApiClient } from "./apiClient";
 import type {
+	AdminFeedbackClassifyInput,
 	AdminFeedbackReplyInput,
 	FeedbackSummary,
 	ReleaseNoteDeliveryRecord,
@@ -53,6 +54,19 @@ export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFee
 		`/api/admin/feedback/${feedbackId}/close`,
 		{
 			method: "POST",
+		},
+	);
+}
+
+export async function classifyFeedbackForAdmin(
+	feedbackId: number,
+	payload: AdminFeedbackClassifyInput,
+): Promise<UserFeedbackRecord> {
+	return feedbackApiClient.request<UserFeedbackRecord>(
+		`/api/admin/feedback/${feedbackId}/classify`,
+		{
+			method: "POST",
+			body: JSON.stringify(payload),
 		},
 	);
 }

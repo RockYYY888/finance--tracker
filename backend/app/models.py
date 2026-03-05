@@ -29,6 +29,10 @@ DASHBOARD_CORRECTION_ACTIONS = ("OVERRIDE", "DELETE")
 DASHBOARD_CORRECTION_GRANULARITIES = ("hour", "day", "month", "year")
 ASSET_MUTATION_OPERATIONS = ("CREATE", "UPDATE", "DELETE")
 HOLDING_HISTORY_SYNC_STATUSES = ("PENDING", "RUNNING", "DONE")
+FEEDBACK_CATEGORIES = ("USER_REQUEST", "SYSTEM_ALERT", "SYSTEM_HEARTBEAT", "SYSTEM_TASK")
+FEEDBACK_PRIORITIES = ("LOW", "MEDIUM", "HIGH")
+FEEDBACK_SOURCES = ("USER", "SYSTEM", "API_MONITOR", "TRADING_AGENT", "ADMIN")
+FEEDBACK_STATUSES = ("OPEN", "IN_PROGRESS", "RESOLVED")
 
 
 def utc_now() -> datetime:
@@ -49,6 +53,10 @@ class UserFeedback(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
 	message: str = Field(max_length=1000)
+	category: str = Field(default="USER_REQUEST", index=True, max_length=32)
+	priority: str = Field(default="MEDIUM", index=True, max_length=16)
+	source: str = Field(default="USER", index=True, max_length=32)
+	status: str = Field(default="OPEN", index=True, max_length=16)
 	reply_message: str | None = Field(default=None, max_length=2000)
 	replied_at: datetime | None = Field(default=None, index=True)
 	replied_by: str | None = Field(default=None, max_length=32)

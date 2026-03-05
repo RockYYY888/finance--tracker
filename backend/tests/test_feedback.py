@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import (
+	classify_feedback_for_admin,
 	close_feedback_for_admin,
 	create_release_note_for_admin,
 	get_feedback_summary,
@@ -19,7 +20,12 @@ from app.main import (
 	submit_feedback,
 )
 from app.models import ReleaseNoteDelivery, UserAccount, UserFeedback
-from app.schemas import AdminFeedbackReplyUpdate, ReleaseNoteCreate, UserFeedbackCreate
+from app.schemas import (
+	AdminFeedbackClassifyUpdate,
+	AdminFeedbackReplyUpdate,
+	ReleaseNoteCreate,
+	UserFeedbackCreate,
+)
 
 
 @pytest.fixture
@@ -62,6 +68,39 @@ def test_submit_feedback_persists_feedback_for_current_user(session: Session) ->
 	assert created_feedback.message == persisted_feedback.message
 	assert created_feedback.user_id == current_user.username
 	assert persisted_feedback.user_id == current_user.username
+
+
+def test_feedback_classification_defaults_and_system_submission(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	current_user = make_user(session, "classified_user")
+
+	user_feedback = submit_feedback(
+		UserFeedbackCreate(message="普通用户反馈默认应是中优先级。"),
+		current_user,
+		session,
+	)
+	assert user_feedback.category == "USER_REQUEST"
+	assert user_feedback.priority == "MEDIUM"
+	assert user_feedback.source == "USER"
+	assert user_feedback.status == "OPEN"
+	assert user_feedback.is_system is False
+
+	for index in range(5):
+		system_feedback = submit_feedback(
+			UserFeedbackCreate(
+				message=f"系统巡检心跳：{index}",
+				category="SYSTEM_HEARTBEAT",
+				priority="LOW",
+				source="API_MONITOR",
+			),
+			admin_user,
+			session,
+		)
+		assert system_feedback.user_id == "admin"
+		assert system_feedback.category == "SYSTEM_HEARTBEAT"
+		assert system_feedback.priority == "LOW"
+		assert system_feedback.source == "API_MONITOR"
+		assert system_feedback.is_system is True
 
 
 def test_submit_feedback_limits_each_user_to_three_per_day(session: Session) -> None:
@@ -131,6 +170,55 @@ def test_admin_can_reply_and_user_can_see_reply(session: Session) -> None:
 	assert replied_feedback.resolved_at is not None
 	assert len(user_feedback_items) == 1
 	assert user_feedback_items[0].reply_message == "已收到，我们会在下一版优化说明文字。"
+
+
+def test_admin_can_classify_and_reopen_feedback(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "classify_user")
+
+	created_feedback = submit_feedback(
+		UserFeedbackCreate(message="请支持代理自动下单前的风控校验。"),
+		normal_user,
+		session,
+	)
+
+	classified_feedback = classify_feedback_for_admin(
+		created_feedback.id,
+		AdminFeedbackClassifyUpdate(
+			category="SYSTEM_TASK",
+			priority="HIGH",
+			source="TRADING_AGENT",
+			status="IN_PROGRESS",
+		),
+		admin_user,
+		session,
+		None,
+	)
+	assert classified_feedback.category == "SYSTEM_TASK"
+	assert classified_feedback.priority == "HIGH"
+	assert classified_feedback.source == "TRADING_AGENT"
+	assert classified_feedback.status == "IN_PROGRESS"
+
+	resolved_feedback = classify_feedback_for_admin(
+		created_feedback.id,
+		AdminFeedbackClassifyUpdate(status="RESOLVED"),
+		admin_user,
+		session,
+		None,
+	)
+	assert resolved_feedback.status == "RESOLVED"
+	assert resolved_feedback.resolved_at is not None
+	assert resolved_feedback.closed_by == "admin"
+
+	reopened_feedback = classify_feedback_for_admin(
+		created_feedback.id,
+		AdminFeedbackClassifyUpdate(status="OPEN"),
+		admin_user,
+		session,
+		None,
+	)
+	assert reopened_feedback.status == "OPEN"
+	assert reopened_feedback.resolved_at is None
 
 
 def test_feedback_summary_counts_pending_items_for_admin_and_user(session: Session) -> None:
