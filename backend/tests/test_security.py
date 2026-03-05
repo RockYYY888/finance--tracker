@@ -48,7 +48,12 @@ def test_settings_default_to_local_development() -> None:
 	settings = get_settings()
 
 	assert settings.is_production is False
-	assert settings.cors_origins() == ["http://localhost:5173", "http://127.0.0.1:5173"]
+	assert settings.cors_origins() == [
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"http://localhost:8080",
+		"http://127.0.0.1:8080",
+	]
 	assert settings.trusted_hosts() == ["localhost", "127.0.0.1"]
 
 
