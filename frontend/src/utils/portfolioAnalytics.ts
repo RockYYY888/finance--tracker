@@ -201,6 +201,7 @@ export type DynamicAxisLayout = {
 	domain: [number, number];
 	minValue: number;
 	maxValue: number;
+	tickCount: number;
 };
 
 type DynamicAxisOptions = {
@@ -221,6 +222,52 @@ function getMedian(values: number[]): number {
 	}
 
 	return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
+}
+
+function clamp(value: number, minValue: number, maxValue: number): number {
+	return Math.min(Math.max(value, minValue), maxValue);
+}
+
+function getQuantile(sortedValues: number[], quantile: number): number {
+	if (sortedValues.length === 0) {
+		return 0;
+	}
+
+	const safeQuantile = clamp(quantile, 0, 1);
+	const position = (sortedValues.length - 1) * safeQuantile;
+	const lowerIndex = Math.floor(position);
+	const upperIndex = Math.ceil(position);
+	if (lowerIndex === upperIndex) {
+		return sortedValues[lowerIndex];
+	}
+
+	const ratio = position - lowerIndex;
+	return sortedValues[lowerIndex] * (1 - ratio) + sortedValues[upperIndex] * ratio;
+}
+
+function summarizeRelativeStepVolatility(values: number[], scale: number): number {
+	if (values.length < 2) {
+		return 0;
+	}
+
+	let totalChange = 0;
+	for (let index = 1; index < values.length; index += 1) {
+		totalChange += Math.abs(values[index] - values[index - 1]) / scale;
+	}
+	return totalChange / (values.length - 1);
+}
+
+function resolveDynamicTickCount(relativeVolatility: number): number {
+	if (relativeVolatility >= 0.25) {
+		return 7;
+	}
+	if (relativeVolatility >= 0.14) {
+		return 6;
+	}
+	if (relativeVolatility >= 0.05) {
+		return 5;
+	}
+	return 4;
 }
 
 /**
@@ -244,20 +291,42 @@ export function calculateDynamicAxisLayout(
 			domain: [-1, 1],
 			minValue: 0,
 			maxValue: 0,
+			tickCount: 4,
 		};
 	}
 
 	const minValue = Math.min(...numericValues);
 	const maxValue = Math.max(...numericValues);
+	const sortedValues = [...numericValues].sort((left, right) => left - right);
 	const centerValue = getMedian(numericValues);
 
 	const safeMinSpan = Math.max(minSpan, 1e-6);
-	const baseSpread = Math.max(
+	const fullSpread = Math.max(
 		Math.abs(maxValue - centerValue),
 		Math.abs(minValue - centerValue),
 	);
-	const spread = Math.max(baseSpread, safeMinSpan);
-	const halfRange = spread * (1 + Math.max(paddingRatio, 0));
+	const lowerQuantile = getQuantile(sortedValues, 0.1);
+	const upperQuantile = getQuantile(sortedValues, 0.9);
+	const robustSpread = Math.max(
+		Math.abs(lowerQuantile - centerValue),
+		Math.abs(upperQuantile - centerValue),
+	);
+	const outlierRatio = fullSpread / Math.max(robustSpread, safeMinSpan);
+	const spreadBlendRatio = outlierRatio <= 1.8 ? 1 : 0.45;
+	const effectiveSpread = Math.max(
+		robustSpread + (fullSpread - robustSpread) * spreadBlendRatio,
+		safeMinSpan,
+	);
+
+	const volatilityScale = Math.max(Math.abs(centerValue), fullSpread, 1);
+	const relativeVolatility = summarizeRelativeStepVolatility(numericValues, volatilityScale);
+	const adaptivePaddingRatio = clamp(
+		Math.max(paddingRatio, 0) - relativeVolatility * 0.08,
+		0.08,
+		0.28,
+	);
+	const halfRange = effectiveSpread * (1 + adaptivePaddingRatio);
+	const tickCount = resolveDynamicTickCount(relativeVolatility);
 
 	let domainMin = centerValue - halfRange;
 	let domainMax = centerValue + halfRange;
@@ -277,6 +346,7 @@ export function calculateDynamicAxisLayout(
 		domain: [domainMin, domainMax],
 		minValue,
 		maxValue,
+		tickCount,
 	};
 }
 

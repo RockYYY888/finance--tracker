@@ -15,8 +15,13 @@ describe("calculateDynamicAxisLayout", () => {
 		);
 
 		expect(layout.centerValue).toBe(125);
-		expect(layout.domain[0]).toBeCloseTo(95.5, 5);
-		expect(layout.domain[1]).toBeCloseTo(154.5, 5);
+		expect(layout.domain[0]).toBeLessThanOrEqual(100);
+		expect(layout.domain[1]).toBeGreaterThanOrEqual(150);
+		expect(layout.centerValue - layout.domain[0]).toBeCloseTo(
+			layout.domain[1] - layout.centerValue,
+			6,
+		);
+		expect(layout.tickCount).toBeGreaterThanOrEqual(4);
 	});
 
 	it("extends domain to include zero when requested", () => {
@@ -32,6 +37,7 @@ describe("calculateDynamicAxisLayout", () => {
 		expect(layout.centerValue).toBe(15);
 		expect(layout.domain[0]).toBeLessThanOrEqual(0);
 		expect(layout.domain[1]).toBeGreaterThan(15);
+		expect(layout.tickCount).toBeGreaterThanOrEqual(4);
 	});
 
 	it("keeps a visible range for flat data with minSpan", () => {
@@ -46,5 +52,34 @@ describe("calculateDynamicAxisLayout", () => {
 
 		expect(layout.centerValue).toBe(10);
 		expect(layout.domain[1] - layout.domain[0]).toBeGreaterThan(0.5);
+		expect(layout.tickCount).toBe(4);
+	});
+
+	it("limits outlier influence while keeping dynamic chart detail", () => {
+		const baselinePoints = Array.from({ length: 20 }, (_, index) => ({
+			label: `P-${index}`,
+			value: 100 + index,
+		}));
+		const seriesWithOutlier = [
+			...baselinePoints,
+			{
+				label: "OUTLIER",
+				value: 1000,
+			},
+		];
+		const layout = calculateDynamicAxisLayout(seriesWithOutlier, {
+			paddingRatio: 0.18,
+			minSpan: 1,
+		});
+		const outlierCenteredSpread = Math.max(
+			Math.abs(1000 - layout.centerValue),
+			Math.abs(100 - layout.centerValue),
+		);
+
+		expect(layout.centerValue).toBe(110);
+		expect(layout.domain[1] - layout.domain[0]).toBeLessThan(
+			outlierCenteredSpread * 2 * 1.18,
+		);
+		expect(layout.tickCount).toBeGreaterThanOrEqual(5);
 	});
 });

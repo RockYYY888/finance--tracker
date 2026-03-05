@@ -75,11 +75,14 @@ type ReturnTrendChartPoint = TimelinePoint & {
 	negativeValue: number;
 };
 
-export function buildReturnTrendChartData(series: TimelinePoint[]): ReturnTrendChartPoint[] {
+export function buildReturnTrendChartData(
+	series: TimelinePoint[],
+	centerValue = 0,
+): ReturnTrendChartPoint[] {
 	return series.map((point) => ({
 		...point,
-		positiveValue: point.value > 0 ? point.value : 0,
-		negativeValue: point.value < 0 ? point.value : 0,
+		positiveValue: point.value >= centerValue ? point.value : centerValue,
+		negativeValue: point.value < centerValue ? point.value : centerValue,
 	}));
 }
 
@@ -162,7 +165,7 @@ export function ReturnTrendChart({
 			}),
 		[series],
 	);
-	const chartData = buildReturnTrendChartData(series);
+	const chartData = buildReturnTrendChartData(series, axisLayout.centerValue);
 	const hasData = chartData.length > 0;
 	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
@@ -258,6 +261,7 @@ export function ReturnTrendChart({
 								axisLine={false}
 								width={56}
 								domain={axisLayout.domain}
+								tickCount={axisLayout.tickCount}
 								tickFormatter={formatCompactPercentMetric}
 							/>
 							<ReferenceLine
@@ -282,6 +286,7 @@ export function ReturnTrendChart({
 								stroke={POSITIVE_RETURN_COLOR}
 								fill={POSITIVE_RETURN_FILL}
 								strokeWidth={1.2}
+								baseValue={axisLayout.centerValue}
 								connectNulls
 							/>
 							<Area
@@ -290,6 +295,7 @@ export function ReturnTrendChart({
 								stroke={NEGATIVE_RETURN_COLOR}
 								fill={NEGATIVE_RETURN_FILL}
 								strokeWidth={1.2}
+								baseValue={axisLayout.centerValue}
 								connectNulls
 							/>
 							<Line
@@ -308,14 +314,14 @@ export function ReturnTrendChart({
 								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
 								aria-hidden="true"
 							/>
-							正收益区
+							高于中位数
 						</span>
 						<span className="return-trend-legend__item" role="listitem">
 							<span
 								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
 								aria-hidden="true"
 							/>
-							负收益区
+							低于中位数
 						</span>
 					</div>
 				</div>

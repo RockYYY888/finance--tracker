@@ -168,6 +168,7 @@ export function PortfolioTrendChart({
 								axisLine={false}
 								width={52}
 								domain={axisLayout.domain}
+								tickCount={axisLayout.tickCount}
 								tickFormatter={formatCompactCny}
 							/>
 							<ReferenceLine
