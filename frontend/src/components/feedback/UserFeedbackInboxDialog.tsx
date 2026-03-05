@@ -171,7 +171,9 @@ export function UserFeedbackInboxDialog({
 					<div>
 						<p className="eyebrow">MY MESSAGES</p>
 						<h2 id="user-feedback-title">消息</h2>
-						<p className="feedback-modal__copy">这里会显示你的反馈及管理员回复。</p>
+						<p className="feedback-modal__copy">
+							这里会显示你的工单进展与回复；提交 bug 请使用主页的“反馈问题”按钮。
+						</p>
 					</div>
 					<button
 						type="button"

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { AdminFeedbackDialog } from "./components/feedback/AdminFeedbackDialog";
+import { AdminReleaseNotesDialog } from "./components/feedback/AdminReleaseNotesDialog";
 import { EmailDialog } from "./components/auth/EmailDialog";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
@@ -405,9 +406,14 @@ function App() {
 	const [feedbackInboxCount, setFeedbackInboxCount] = useState(0);
 	const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>("records");
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
+	const [isAdminReleaseNotesOpen, setIsAdminReleaseNotesOpen] = useState(false);
 	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
 	const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
+	const [isLoadingAdminReleaseNotes, setIsLoadingAdminReleaseNotes] = useState(false);
 	const [adminInboxErrorMessage, setAdminInboxErrorMessage] = useState<string | null>(null);
+	const [adminReleaseNotesErrorMessage, setAdminReleaseNotesErrorMessage] = useState<string | null>(
+		null,
+	);
 	const [adminUserFeedbackItems, setAdminUserFeedbackItems] = useState<AdminFeedbackRecord[]>([]);
 	const [adminSystemFeedbackItems, setAdminSystemFeedbackItems] = useState<AdminFeedbackRecord[]>(
 		[],
@@ -448,8 +454,12 @@ function App() {
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
 		setActiveWorkspaceView("records");
+		setIsLoadingAdminInbox(false);
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
+		setIsLoadingAdminReleaseNotes(false);
+		setAdminReleaseNotesErrorMessage(null);
+		setIsAdminReleaseNotesOpen(false);
 		setAdminUserFeedbackItems([]);
 		setAdminSystemFeedbackItems([]);
 		setAdminReleaseNotes([]);
@@ -475,8 +485,12 @@ function App() {
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
 		setActiveWorkspaceView("records");
+		setIsLoadingAdminInbox(false);
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
+		setIsLoadingAdminReleaseNotes(false);
+		setAdminReleaseNotesErrorMessage(null);
+		setIsAdminReleaseNotesOpen(false);
 		setAdminUserFeedbackItems([]);
 		setAdminSystemFeedbackItems([]);
 		setAdminReleaseNotes([]);
@@ -678,10 +692,8 @@ function App() {
 		try {
 			const userFeedbackItems = await listUserFeedbackForAdmin();
 			const systemFeedbackItems = await listSystemFeedbackForAdmin();
-			const releaseNotes = await listReleaseNotesForAdmin();
 			setAdminUserFeedbackItems(userFeedbackItems.items);
 			setAdminSystemFeedbackItems(systemFeedbackItems.items);
-			setAdminReleaseNotes(releaseNotes);
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
@@ -699,6 +711,36 @@ function App() {
 
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
+	}
+
+	async function openAdminReleaseNotes(): Promise<void> {
+		if (authStatus !== "authenticated" || currentUserId !== "admin") {
+			return;
+		}
+
+		setAdminReleaseNotesErrorMessage(null);
+		setIsAdminReleaseNotesOpen(true);
+		setIsLoadingAdminReleaseNotes(true);
+
+		try {
+			const releaseNotes = await listReleaseNotesForAdmin();
+			setAdminReleaseNotes(releaseNotes);
+		} catch (error) {
+			setAdminReleaseNotesErrorMessage(
+				error instanceof Error ? error.message : "更新日志加载失败，请稍后再试。",
+			);
+		} finally {
+			setIsLoadingAdminReleaseNotes(false);
+		}
+	}
+
+	function closeAdminReleaseNotes(): void {
+		if (isLoadingAdminReleaseNotes) {
+			return;
+		}
+
+		setAdminReleaseNotesErrorMessage(null);
+		setIsAdminReleaseNotesOpen(false);
 	}
 
 	async function openUserInbox(): Promise<void> {
@@ -831,25 +873,25 @@ function App() {
 	}
 
 	async function handleCreateReleaseNote(payload: ReleaseNoteInput): Promise<void> {
-		setIsLoadingAdminInbox(true);
-		setAdminInboxErrorMessage(null);
+		setIsLoadingAdminReleaseNotes(true);
+		setAdminReleaseNotesErrorMessage(null);
 
 		try {
 			const createdReleaseNote = await createReleaseNoteForAdmin(payload);
 			setAdminReleaseNotes((currentItems) => [createdReleaseNote, ...currentItems]);
 			await refreshFeedbackSummary();
 		} catch (error) {
-			setAdminInboxErrorMessage(
+			setAdminReleaseNotesErrorMessage(
 				error instanceof Error ? error.message : "创建更新日志失败，请稍后再试。",
 			);
 		} finally {
-			setIsLoadingAdminInbox(false);
+			setIsLoadingAdminReleaseNotes(false);
 		}
 	}
 
 	async function handlePublishReleaseNote(releaseNoteId: number): Promise<void> {
-		setIsLoadingAdminInbox(true);
-		setAdminInboxErrorMessage(null);
+		setIsLoadingAdminReleaseNotes(true);
+		setAdminReleaseNotesErrorMessage(null);
 
 		try {
 			const publishedReleaseNote = await publishReleaseNoteForAdmin(releaseNoteId);
@@ -860,11 +902,11 @@ function App() {
 			);
 			await refreshFeedbackSummary();
 		} catch (error) {
-			setAdminInboxErrorMessage(
+			setAdminReleaseNotesErrorMessage(
 				error instanceof Error ? error.message : "发布更新日志失败，请稍后再试。",
 			);
 		} finally {
-			setIsLoadingAdminInbox(false);
+			setIsLoadingAdminReleaseNotes(false);
 		}
 	}
 
@@ -1276,6 +1318,16 @@ function App() {
 						>
 							{feedbackInboxCount > 0 ? `消息 (${feedbackInboxCount})` : "消息"}
 						</button>
+						{currentUserId === "admin" ? (
+							<button
+								type="button"
+								className="hero-note hero-note--action"
+								onClick={() => void openAdminReleaseNotes()}
+								disabled={isRecoveringSession || isLoadingAdminReleaseNotes}
+							>
+								更新日志
+							</button>
+						) : null}
 						<button
 							type="button"
 							className="hero-note hero-note--action"
@@ -1473,12 +1525,18 @@ function App() {
 				viewerUserId={currentUserId ?? "anonymous"}
 				userItems={adminUserFeedbackItems}
 				systemItems={adminSystemFeedbackItems}
-				releaseNotes={adminReleaseNotes}
 				errorMessage={adminInboxErrorMessage}
 				onClose={closeAdminInbox}
 				onHideItem={handleHideAdminFeedbackItem}
 				onCloseItem={handleCloseFeedbackItem}
 				onReplyItem={handleReplyFeedbackItem}
+			/>
+			<AdminReleaseNotesDialog
+				open={isAdminReleaseNotesOpen}
+				busy={isLoadingAdminReleaseNotes}
+				releaseNotes={adminReleaseNotes}
+				errorMessage={adminReleaseNotesErrorMessage}
+				onClose={closeAdminReleaseNotes}
 				onCreateReleaseNote={handleCreateReleaseNote}
 				onPublishReleaseNote={handlePublishReleaseNote}
 			/>

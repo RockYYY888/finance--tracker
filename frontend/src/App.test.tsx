@@ -23,9 +23,11 @@ const feedbackApiMocks = vi.hoisted(() => ({
 	getFeedbackSummary: vi.fn(),
 	listFeedbackForCurrentUser: vi.fn(),
 	markFeedbackSeenForCurrentUser: vi.fn(),
-	listFeedbackForAdmin: vi.fn(),
+	listUserFeedbackForAdmin: vi.fn(),
+	listSystemFeedbackForAdmin: vi.fn(),
 	replyToFeedbackForAdmin: vi.fn(),
 	closeFeedbackForAdmin: vi.fn(),
+	hideInboxMessageForCurrentUser: vi.fn(),
 	listReleaseNotesForCurrentUser: vi.fn(),
 	markReleaseNotesSeenForCurrentUser: vi.fn(),
 	listReleaseNotesForAdmin: vi.fn(),
@@ -65,6 +67,9 @@ vi.mock("./components/feedback/FeedbackDialog", () => ({
 vi.mock("./components/feedback/AdminFeedbackDialog", () => ({
 	AdminFeedbackDialog: () => null,
 }));
+vi.mock("./components/feedback/AdminReleaseNotesDialog", () => ({
+	AdminReleaseNotesDialog: () => null,
+}));
 
 vi.mock("./components/feedback/UserFeedbackInboxDialog", () => ({
 	UserFeedbackInboxDialog: () => null,
@@ -75,9 +80,11 @@ vi.mock("./lib/feedbackApi", () => ({
 	getFeedbackSummary: feedbackApiMocks.getFeedbackSummary,
 	listFeedbackForCurrentUser: feedbackApiMocks.listFeedbackForCurrentUser,
 	markFeedbackSeenForCurrentUser: feedbackApiMocks.markFeedbackSeenForCurrentUser,
-	listFeedbackForAdmin: feedbackApiMocks.listFeedbackForAdmin,
+	listUserFeedbackForAdmin: feedbackApiMocks.listUserFeedbackForAdmin,
+	listSystemFeedbackForAdmin: feedbackApiMocks.listSystemFeedbackForAdmin,
 	replyToFeedbackForAdmin: feedbackApiMocks.replyToFeedbackForAdmin,
 	closeFeedbackForAdmin: feedbackApiMocks.closeFeedbackForAdmin,
+	hideInboxMessageForCurrentUser: feedbackApiMocks.hideInboxMessageForCurrentUser,
 	listReleaseNotesForCurrentUser: feedbackApiMocks.listReleaseNotesForCurrentUser,
 	markReleaseNotesSeenForCurrentUser: feedbackApiMocks.markReleaseNotesSeenForCurrentUser,
 	listReleaseNotesForAdmin: feedbackApiMocks.listReleaseNotesForAdmin,
@@ -112,7 +119,21 @@ describe("App session restore", () => {
 		});
 		feedbackApiMocks.listFeedbackForCurrentUser.mockResolvedValue([]);
 		feedbackApiMocks.markFeedbackSeenForCurrentUser.mockResolvedValue(undefined);
-		feedbackApiMocks.listFeedbackForAdmin.mockResolvedValue([]);
+		feedbackApiMocks.listUserFeedbackForAdmin.mockResolvedValue({
+			items: [],
+			total: 0,
+			page: 1,
+			page_size: 200,
+			has_more: false,
+		});
+		feedbackApiMocks.listSystemFeedbackForAdmin.mockResolvedValue({
+			items: [],
+			total: 0,
+			page: 1,
+			page_size: 200,
+			has_more: false,
+		});
+		feedbackApiMocks.hideInboxMessageForCurrentUser.mockResolvedValue(undefined);
 		feedbackApiMocks.listReleaseNotesForCurrentUser.mockResolvedValue([]);
 		feedbackApiMocks.markReleaseNotesSeenForCurrentUser.mockResolvedValue(undefined);
 		feedbackApiMocks.listReleaseNotesForAdmin.mockResolvedValue([]);

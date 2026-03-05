@@ -64,14 +64,11 @@ describe("Feedback dialogs policy rendering", () => {
 				viewerUserId="admin"
 				userItems={[]}
 				systemItems={[systemItem]}
-				releaseNotes={[]}
 				errorMessage={null}
 				onHideItem={vi.fn().mockResolvedValue(undefined)}
 				onClose={vi.fn()}
 				onCloseItem={vi.fn().mockResolvedValue(undefined)}
 				onReplyItem={vi.fn().mockResolvedValue(undefined)}
-				onCreateReleaseNote={vi.fn().mockResolvedValue(undefined)}
-				onPublishReleaseNote={vi.fn().mockResolvedValue(undefined)}
 			/>,
 		);
 

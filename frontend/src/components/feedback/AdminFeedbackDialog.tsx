@@ -13,11 +13,7 @@ import {
 	setSkipDismissConfirmation,
 	shouldSkipDismissConfirmation,
 } from "../../lib/messageDismissal";
-import type {
-	AdminFeedbackRecord,
-	ReleaseNoteInput,
-	ReleaseNoteRecord,
-} from "../../types/feedback";
+import type { AdminFeedbackRecord } from "../../types/feedback";
 
 export interface AdminFeedbackDialogProps {
 	open: boolean;
@@ -25,14 +21,11 @@ export interface AdminFeedbackDialogProps {
 	viewerUserId: string;
 	userItems: AdminFeedbackRecord[];
 	systemItems: AdminFeedbackRecord[];
-	releaseNotes: ReleaseNoteRecord[];
 	errorMessage?: string | null;
 	onClose: () => void;
 	onHideItem: (feedbackId: number) => Promise<void>;
 	onCloseItem: (feedbackId: number) => Promise<void>;
 	onReplyItem: (feedbackId: number, replyMessage: string, close: boolean) => Promise<void>;
-	onCreateReleaseNote: (payload: ReleaseNoteInput) => Promise<void>;
-	onPublishReleaseNote: (releaseNoteId: number) => Promise<void>;
 }
 
 function formatTimestamp(value: string | null): string {
@@ -50,14 +43,11 @@ export function AdminFeedbackDialog({
 	viewerUserId,
 	userItems,
 	systemItems,
-	releaseNotes,
 	errorMessage = null,
 	onClose,
 	onHideItem,
 	onCloseItem,
 	onReplyItem,
-	onCreateReleaseNote,
-	onPublishReleaseNote,
 }: AdminFeedbackDialogProps) {
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 	const [draftReply, setDraftReply] = useState("");
@@ -68,10 +58,6 @@ export function AdminFeedbackDialog({
 		feedbackId: number;
 	} | null>(null);
 	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
-	const [releaseVersion, setReleaseVersion] = useState("");
-	const [releaseTitle, setReleaseTitle] = useState("");
-	const [releaseContent, setReleaseContent] = useState("");
-	const [releaseSourceFeedbackIds, setReleaseSourceFeedbackIds] = useState("");
 
 	useEffect(() => {
 		if (!open) {
@@ -79,10 +65,6 @@ export function AdminFeedbackDialog({
 			setDraftReply("");
 			setPendingDismissTarget(null);
 			setSkipDismissConfirmChecked(false);
-			setReleaseVersion("");
-			setReleaseTitle("");
-			setReleaseContent("");
-			setReleaseSourceFeedbackIds("");
 			return;
 		}
 
@@ -90,11 +72,7 @@ export function AdminFeedbackDialog({
 	}, [open, viewerUserId]);
 
 	useEffect(() => {
-		if (!open) {
-			return;
-		}
-
-		if (expandedId === null) {
+		if (!open || expandedId === null) {
 			return;
 		}
 
@@ -204,10 +182,7 @@ export function AdminFeedbackDialog({
 			setSkipDismissConfirmation(true);
 		}
 
-		await handleDismiss(
-			pendingDismissTarget.feedbackId,
-			pendingDismissTarget.key,
-		);
+		await handleDismiss(pendingDismissTarget.feedbackId, pendingDismissTarget.key);
 		setPendingDismissTarget(null);
 		setSkipDismissConfirmChecked(false);
 	}
@@ -220,6 +195,7 @@ export function AdminFeedbackDialog({
 		const isClosed = item.status === "RESOLVED" || Boolean(item.resolved_at);
 		const canReply = item.source === "USER";
 		const isExpanded = expandedId === item.id;
+
 		return (
 			<article key={item.id} className="admin-feedback-card panel">
 				<button
@@ -236,24 +212,16 @@ export function AdminFeedbackDialog({
 					<div>
 						<strong>{item.user_id}</strong>
 						<div className="feedback-badge-row" aria-label="工单属性标签">
-							<span
-								className={`feedback-badge feedback-badge--${statusMeta.tone}`}
-							>
+							<span className={`feedback-badge feedback-badge--${statusMeta.tone}`}>
 								{statusMeta.label}
 							</span>
-							<span
-								className={`feedback-badge feedback-badge--${priorityMeta.tone}`}
-							>
+							<span className={`feedback-badge feedback-badge--${priorityMeta.tone}`}>
 								{priorityMeta.label}
 							</span>
-							<span
-								className={`feedback-badge feedback-badge--${categoryMeta.tone}`}
-							>
+							<span className={`feedback-badge feedback-badge--${categoryMeta.tone}`}>
 								{categoryMeta.label}
 							</span>
-							<span
-								className={`feedback-badge feedback-badge--${sourceMeta.tone}`}
-							>
+							<span className={`feedback-badge feedback-badge--${sourceMeta.tone}`}>
 								{sourceMeta.label}
 							</span>
 						</div>
@@ -299,9 +267,7 @@ export function AdminFeedbackDialog({
 								</div>
 								<div className="admin-feedback-card__footer">
 									<span>
-										{item.replied_by
-											? `最近回复人：${item.replied_by}`
-											: "尚未回复"}
+										{item.replied_by ? `最近回复人：${item.replied_by}` : "尚未回复"}
 									</span>
 								</div>
 								{!isClosed ? (
@@ -309,14 +275,8 @@ export function AdminFeedbackDialog({
 										<label className="admin-feedback-card__editor">
 											<span>回复</span>
 											<textarea
-												value={
-													expandedItem?.id === item.id
-														? draftReply
-														: item.reply_message ?? ""
-												}
-												onChange={(event) =>
-													setDraftReply(event.target.value)
-												}
+												value={expandedItem?.id === item.id ? draftReply : item.reply_message ?? ""}
+												onChange={(event) => setDraftReply(event.target.value)}
 												placeholder="输入回复，用户会在自己的消息里看到。"
 												disabled={busy}
 											/>
@@ -347,9 +307,7 @@ export function AdminFeedbackDialog({
 						) : (
 							<div className="admin-feedback-card__footer">
 								<span>
-									{isClosed
-										? "系统来源消息已处理，无需回复。"
-										: "系统来源消息无需回复，可直接关闭。"}
+									{isClosed ? "系统来源消息已处理，无需回复。" : "系统来源消息无需回复，可直接关闭。"}
 								</span>
 							</div>
 						)}
@@ -357,37 +315,6 @@ export function AdminFeedbackDialog({
 				) : null}
 			</article>
 		);
-	}
-
-	function parseSourceFeedbackIds(rawValue: string): number[] {
-		const parsedIds = rawValue
-			.split(",")
-			.map((item) => item.trim())
-			.filter((item) => /^\d+$/.test(item))
-			.map((item) => Number.parseInt(item, 10))
-			.filter((item) => item > 0);
-
-		return Array.from(new Set(parsedIds)).sort((left, right) => left - right);
-	}
-
-	async function handleCreateReleaseNote(): Promise<void> {
-		const version = releaseVersion.trim();
-		const title = releaseTitle.trim();
-		const content = releaseContent.trim();
-		if (!version || !title || !content) {
-			return;
-		}
-
-		await onCreateReleaseNote({
-			version,
-			title,
-			content,
-			source_feedback_ids: parseSourceFeedbackIds(releaseSourceFeedbackIds),
-		});
-		setReleaseVersion("");
-		setReleaseTitle("");
-		setReleaseContent("");
-		setReleaseSourceFeedbackIds("");
 	}
 
 	if (!open) {
@@ -408,7 +335,7 @@ export function AdminFeedbackDialog({
 						<p className="eyebrow">ADMIN INBOX</p>
 						<h2 id="admin-feedback-title">消息</h2>
 						<p className="feedback-modal__copy">
-							展开后可查看详情，用户工单支持回复，系统工单仅支持关闭与分类。
+							仅管理员可见：展开后可查看详情，用户工单支持回复，系统工单仅支持关闭与分类。
 						</p>
 					</div>
 					<button
@@ -426,93 +353,6 @@ export function AdminFeedbackDialog({
 						<p>{errorMessage}</p>
 					</div>
 				) : null}
-
-				<div className="admin-release-note panel">
-					<div className="admin-release-note__head">
-						<strong>版本更新日志</strong>
-						<span>先创建草稿，再发布为站内消息。</span>
-					</div>
-					<div className="admin-release-note__form">
-						<label>
-							<span>版本号（x.y.z）</span>
-							<input
-								value={releaseVersion}
-								onChange={(event) => setReleaseVersion(event.target.value)}
-								placeholder="例如 0.2.0"
-								disabled={busy}
-							/>
-						</label>
-						<label>
-							<span>标题</span>
-							<input
-								value={releaseTitle}
-								onChange={(event) => setReleaseTitle(event.target.value)}
-								placeholder="例如 图表可读性与修正能力更新"
-								disabled={busy}
-							/>
-						</label>
-						<label>
-							<span>关联反馈 ID（可选，逗号分隔）</span>
-							<input
-								value={releaseSourceFeedbackIds}
-								onChange={(event) => setReleaseSourceFeedbackIds(event.target.value)}
-								placeholder="例如 3,5,7"
-								disabled={busy}
-							/>
-						</label>
-						<label>
-							<span>更新内容</span>
-							<textarea
-								value={releaseContent}
-								onChange={(event) => setReleaseContent(event.target.value)}
-								placeholder="填写这次上线实际修改内容。"
-								disabled={busy}
-							/>
-						</label>
-						<div className="admin-release-note__actions">
-							<button
-								type="button"
-								className="ghost-button"
-								disabled={
-									busy ||
-									!releaseVersion.trim() ||
-									!releaseTitle.trim() ||
-									!releaseContent.trim()
-								}
-								onClick={() => void handleCreateReleaseNote()}
-							>
-								创建草稿
-							</button>
-						</div>
-					</div>
-					<div className="admin-release-note__list">
-						{releaseNotes.length === 0 ? (
-							<p className="admin-release-note__empty">暂无版本日志。</p>
-						) : (
-							releaseNotes.map((releaseNote) => (
-								<div key={releaseNote.id} className="admin-release-note__item">
-									<div>
-										<strong>v{releaseNote.version}</strong>
-										<p>{releaseNote.title}</p>
-										<small>
-											{releaseNote.published_at
-												? `已发布：${formatTimestamp(releaseNote.published_at)} · 推送 ${releaseNote.delivery_count} 人`
-												: "草稿"}
-										</small>
-									</div>
-									<button
-										type="button"
-										className="ghost-button"
-										disabled={busy || Boolean(releaseNote.published_at)}
-										onClick={() => void onPublishReleaseNote(releaseNote.id)}
-									>
-										{releaseNote.published_at ? "已发布" : "发布"}
-									</button>
-								</div>
-							))
-						)}
-					</div>
-				</div>
 
 				<div className="admin-feedback-list">
 					{visibleUserItems.length === 0 && visibleSystemItems.length === 0 ? (
@@ -570,11 +410,7 @@ export function AdminFeedbackDialog({
 							<span>以后不再提示</span>
 						</label>
 						<div className="message-dismiss-confirm__actions">
-							<button
-								type="button"
-								className="ghost-button"
-								onClick={handleCancelDismiss}
-							>
+							<button type="button" className="ghost-button" onClick={handleCancelDismiss}>
 								取消
 							</button>
 							<button
