@@ -172,6 +172,34 @@ def test_admin_can_reply_and_user_can_see_reply(session: Session) -> None:
 	assert user_feedback_items[0].reply_message == "已收到，我们会在下一版优化说明文字。"
 
 
+def test_admin_cannot_reply_to_system_feedback(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+
+	system_feedback = submit_feedback(
+		UserFeedbackCreate(
+			message="API 巡检发现价格接口出现 5xx。",
+			category="SYSTEM_ALERT",
+			priority="HIGH",
+			source="API_MONITOR",
+		),
+		admin_user,
+		session,
+	)
+
+	with pytest.raises(HTTPException, match="系统工单无需回复"):
+		reply_to_feedback_for_admin(
+			system_feedback.id,
+			AdminFeedbackReplyUpdate(reply_message="已记录告警，准备排查。", close=False),
+			admin_user,
+			session,
+			None,
+		)
+
+	closed_feedback = close_feedback_for_admin(system_feedback.id, admin_user, session, None)
+	assert closed_feedback.status == "RESOLVED"
+	assert closed_feedback.resolved_at is not None
+
+
 def test_admin_can_classify_and_reopen_feedback(session: Session) -> None:
 	admin_user = make_user(session, "admin")
 	normal_user = make_user(session, "classify_user")

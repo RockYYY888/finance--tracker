@@ -7,6 +7,12 @@ import {
 	getFeedbackSourceMeta,
 	getFeedbackStatusMeta,
 } from "../../lib/feedbackMeta";
+import {
+	loadDismissedMessageKeys,
+	saveDismissedMessageKeys,
+	setSkipDismissConfirmation,
+	shouldSkipDismissConfirmation,
+} from "../../lib/messageDismissal";
 import type {
 	ReleaseNoteInput,
 	ReleaseNoteRecord,
@@ -16,6 +22,7 @@ import type {
 export interface AdminFeedbackDialogProps {
 	open: boolean;
 	busy?: boolean;
+	viewerUserId: string;
 	items: UserFeedbackRecord[];
 	releaseNotes: ReleaseNoteRecord[];
 	errorMessage?: string | null;
@@ -38,6 +45,7 @@ function formatTimestamp(value: string | null): string {
 export function AdminFeedbackDialog({
 	open,
 	busy = false,
+	viewerUserId,
 	items,
 	releaseNotes,
 	errorMessage = null,
@@ -49,6 +57,12 @@ export function AdminFeedbackDialog({
 }: AdminFeedbackDialogProps) {
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 	const [draftReply, setDraftReply] = useState("");
+	const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set<string>());
+	const [pendingDismissTarget, setPendingDismissTarget] = useState<{
+		key: string;
+		label: string;
+	} | null>(null);
+	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
 	const [releaseVersion, setReleaseVersion] = useState("");
 	const [releaseTitle, setReleaseTitle] = useState("");
 	const [releaseContent, setReleaseContent] = useState("");
@@ -58,12 +72,32 @@ export function AdminFeedbackDialog({
 		if (!open) {
 			setExpandedId(null);
 			setDraftReply("");
+			setPendingDismissTarget(null);
+			setSkipDismissConfirmChecked(false);
 			setReleaseVersion("");
 			setReleaseTitle("");
 			setReleaseContent("");
 			setReleaseSourceFeedbackIds("");
+			return;
 		}
-	}, [open]);
+
+		setDismissedKeys(loadDismissedMessageKeys("admin-inbox", viewerUserId));
+	}, [open, viewerUserId]);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+
+		if (expandedId === null) {
+			return;
+		}
+
+		if (dismissedKeys.has(`feedback:${expandedId}`)) {
+			setExpandedId(null);
+			setDraftReply("");
+		}
+	}, [dismissedKeys, expandedId, open]);
 
 	useEffect(() => {
 		if (!open) {
@@ -80,9 +114,13 @@ export function AdminFeedbackDialog({
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [busy, onClose, open]);
 
+	const visibleItems = useMemo(
+		() => items.filter((item) => !dismissedKeys.has(`feedback:${item.id}`)),
+		[dismissedKeys, items],
+	);
 	const expandedItem = useMemo(
-		() => items.find((item) => item.id === expandedId) ?? null,
-		[expandedId, items],
+		() => visibleItems.find((item) => item.id === expandedId) ?? null,
+		[expandedId, visibleItems],
 	);
 
 	function handleToggle(item: UserFeedbackRecord): void {
@@ -103,6 +141,52 @@ export function AdminFeedbackDialog({
 		}
 
 		await onReplyItem(itemId, normalizedReply, close);
+	}
+
+	function applyDismiss(key: string): void {
+		if (expandedId !== null && key === `feedback:${expandedId}`) {
+			setExpandedId(null);
+			setDraftReply("");
+		}
+
+		setDismissedKeys((currentKeys) => {
+			const nextKeys = new Set(currentKeys);
+			nextKeys.add(key);
+			saveDismissedMessageKeys("admin-inbox", viewerUserId, nextKeys);
+			return nextKeys;
+		});
+	}
+
+	function handleRequestDismiss(itemId: number): void {
+		const key = `feedback:${itemId}`;
+		if (shouldSkipDismissConfirmation()) {
+			applyDismiss(key);
+			return;
+		}
+
+		setSkipDismissConfirmChecked(false);
+		setPendingDismissTarget({
+			key,
+			label: `#${itemId}`,
+		});
+	}
+
+	function handleCancelDismiss(): void {
+		setPendingDismissTarget(null);
+		setSkipDismissConfirmChecked(false);
+	}
+
+	function handleConfirmDismiss(): void {
+		if (!pendingDismissTarget) {
+			return;
+		}
+
+		if (skipDismissConfirmChecked) {
+			setSkipDismissConfirmation(true);
+		}
+		applyDismiss(pendingDismissTarget.key);
+		setPendingDismissTarget(null);
+		setSkipDismissConfirmChecked(false);
 	}
 
 	function parseSourceFeedbackIds(rawValue: string): number[] {
@@ -153,7 +237,9 @@ export function AdminFeedbackDialog({
 					<div>
 						<p className="eyebrow">ADMIN INBOX</p>
 						<h2 id="admin-feedback-title">消息</h2>
-						<p className="feedback-modal__copy">展开后可查看详情，未关闭的反馈支持回复与关闭。</p>
+						<p className="feedback-modal__copy">
+							展开后可查看详情，用户工单支持回复，系统工单仅支持关闭与分类。
+						</p>
 					</div>
 					<button
 						type="button"
@@ -259,20 +345,31 @@ export function AdminFeedbackDialog({
 				</div>
 
 				<div className="admin-feedback-list">
-					{items.length === 0 ? (
+					{visibleItems.length === 0 ? (
 						<div className="banner info">
 							<p>当前没有反馈消息。</p>
 						</div>
 					) : (
-						items.map((item) => {
+						visibleItems.map((item) => {
 							const statusMeta = getFeedbackStatusMeta(item.status);
 							const priorityMeta = getFeedbackPriorityMeta(item.priority);
 							const categoryMeta = getFeedbackCategoryMeta(item.category);
 							const sourceMeta = getFeedbackSourceMeta(item.source);
 							const isClosed = item.status === "RESOLVED" || Boolean(item.resolved_at);
+							const canReply = item.source === "USER";
 							const isExpanded = expandedId === item.id;
 							return (
 								<article key={item.id} className="admin-feedback-card panel">
+									<button
+										type="button"
+										className="message-dismiss-button"
+										disabled={busy}
+										onClick={() => handleRequestDismiss(item.id)}
+										aria-label={`从当前列表移除消息 #${item.id}`}
+										title="从当前列表移除"
+									>
+										×
+									</button>
 									<div className="admin-feedback-card__head">
 										<div>
 											<strong>{item.user_id}</strong>
@@ -302,7 +399,9 @@ export function AdminFeedbackDialog({
 												提交：{formatTimestamp(item.created_at)}
 												{item.replied_at
 													? ` · 最近回复：${formatTimestamp(item.replied_at)}`
-													: " · 暂未回复"}
+													: canReply
+														? " · 暂未回复"
+														: " · 系统工单（无需回复）"}
 												{isClosed
 													? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
 													: ` · ${statusMeta.label}`}
@@ -331,17 +430,24 @@ export function AdminFeedbackDialog({
 									{isExpanded ? (
 										<div className="admin-feedback-card__detail">
 											<div className="admin-feedback-card__reply-history">
-												<strong>回复内容</strong>
-												<p>{item.reply_message ?? "暂未回复"}</p>
+												<strong>{canReply ? "回复内容" : "处理记录"}</strong>
+												<p>
+													{item.reply_message
+														?? (canReply
+															? "暂未回复"
+															: "系统工单无需回复，可直接关闭或更新状态。")}
+												</p>
 											</div>
 											<div className="admin-feedback-card__footer">
 												<span>
 													{item.replied_by
 														? `最近回复人：${item.replied_by}`
-														: "尚未回复"}
+														: canReply
+															? "尚未回复"
+															: "系统消息"}
 												</span>
 											</div>
-											{!isClosed ? (
+											{!isClosed && canReply ? (
 												<>
 													<label className="admin-feedback-card__editor">
 														<span>回复</span>
@@ -377,6 +483,10 @@ export function AdminFeedbackDialog({
 														</div>
 													</div>
 												</>
+											) : !isClosed ? (
+												<div className="admin-feedback-card__footer">
+													<span>系统来源消息无需回复，可直接关闭或调整分类/优先级。</span>
+												</div>
 											) : null}
 										</div>
 									) : null}
@@ -386,6 +496,47 @@ export function AdminFeedbackDialog({
 					)}
 				</div>
 			</div>
+			{pendingDismissTarget ? (
+				<div className="message-dismiss-confirm" role="dialog" aria-modal="true">
+					<button
+						type="button"
+						className="message-dismiss-confirm__backdrop"
+						onClick={handleCancelDismiss}
+						aria-label="关闭确认框"
+					/>
+					<div className="message-dismiss-confirm__panel panel">
+						<h3>移除消息</h3>
+						<p>
+							将从你的消息列表中移除
+							{pendingDismissTarget.label}。此操作不可逆，但不会删除后台记录。
+						</p>
+						<label className="message-dismiss-confirm__checkbox">
+							<input
+								type="checkbox"
+								checked={skipDismissConfirmChecked}
+								onChange={(event) => setSkipDismissConfirmChecked(event.target.checked)}
+							/>
+							<span>以后不再提示</span>
+						</label>
+						<div className="message-dismiss-confirm__actions">
+							<button
+								type="button"
+								className="ghost-button"
+								onClick={handleCancelDismiss}
+							>
+								取消
+							</button>
+							<button
+								type="button"
+								className="ghost-button ghost-button--danger"
+								onClick={handleConfirmDismiss}
+							>
+								移除消息
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }

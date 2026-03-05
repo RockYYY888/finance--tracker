@@ -1,11 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatTimestamp as formatAssetTimestamp } from "../../lib/assetFormatting";
 import {
 	getFeedbackCategoryMeta,
-	getFeedbackPriorityMeta,
+	getFeedbackSourceMeta,
 	getFeedbackStatusMeta,
 } from "../../lib/feedbackMeta";
+import {
+	loadDismissedMessageKeys,
+	saveDismissedMessageKeys,
+	setSkipDismissConfirmation,
+	shouldSkipDismissConfirmation,
+} from "../../lib/messageDismissal";
 import type {
 	ReleaseNoteDeliveryRecord,
 	UserFeedbackRecord,
@@ -14,6 +20,7 @@ import type {
 export interface UserFeedbackInboxDialogProps {
 	open: boolean;
 	busy?: boolean;
+	viewerUserId: string;
 	items: UserFeedbackRecord[];
 	releaseNotes: ReleaseNoteDeliveryRecord[];
 	errorMessage?: string | null;
@@ -32,11 +39,29 @@ function formatTimestamp(value: string | null): string {
 export function UserFeedbackInboxDialog({
 	open,
 	busy = false,
+	viewerUserId,
 	items,
 	releaseNotes,
 	errorMessage = null,
 	onClose,
 }: UserFeedbackInboxDialogProps) {
+	const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set<string>());
+	const [pendingDismissTarget, setPendingDismissTarget] = useState<{
+		key: string;
+		label: string;
+	} | null>(null);
+	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
+
+	useEffect(() => {
+		if (!open) {
+			setPendingDismissTarget(null);
+			setSkipDismissConfirmChecked(false);
+			return;
+		}
+
+		setDismissedKeys(loadDismissedMessageKeys("user-inbox", viewerUserId));
+	}, [open, viewerUserId]);
+
 	useEffect(() => {
 		if (!open) {
 			return;
@@ -51,6 +76,55 @@ export function UserFeedbackInboxDialog({
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [busy, onClose, open]);
+
+	const visibleReleaseNotes = useMemo(
+		() =>
+			releaseNotes.filter(
+				(item) => !dismissedKeys.has(`release-note:${item.delivery_id}`),
+			),
+		[dismissedKeys, releaseNotes],
+	);
+	const visibleFeedbackItems = useMemo(
+		() => items.filter((item) => !dismissedKeys.has(`feedback:${item.id}`)),
+		[dismissedKeys, items],
+	);
+
+	function applyDismiss(key: string): void {
+		setDismissedKeys((currentKeys) => {
+			const nextKeys = new Set(currentKeys);
+			nextKeys.add(key);
+			saveDismissedMessageKeys("user-inbox", viewerUserId, nextKeys);
+			return nextKeys;
+		});
+	}
+
+	function handleRequestDismiss(key: string, label: string): void {
+		if (shouldSkipDismissConfirmation()) {
+			applyDismiss(key);
+			return;
+		}
+
+		setSkipDismissConfirmChecked(false);
+		setPendingDismissTarget({ key, label });
+	}
+
+	function handleCancelDismiss(): void {
+		setPendingDismissTarget(null);
+		setSkipDismissConfirmChecked(false);
+	}
+
+	function handleConfirmDismiss(): void {
+		if (!pendingDismissTarget) {
+			return;
+		}
+
+		if (skipDismissConfirmChecked) {
+			setSkipDismissConfirmation(true);
+		}
+		applyDismiss(pendingDismissTarget.key);
+		setPendingDismissTarget(null);
+		setSkipDismissConfirmChecked(false);
+	}
 
 	if (!open) {
 		return null;
@@ -88,17 +162,32 @@ export function UserFeedbackInboxDialog({
 				) : null}
 
 				<div className="admin-feedback-list">
-					{releaseNotes.length === 0 && items.length === 0 ? (
+					{visibleReleaseNotes.length === 0 && visibleFeedbackItems.length === 0 ? (
 						<div className="banner info">
 							<p>当前没有消息。</p>
 						</div>
 					) : (
 						<>
-							{releaseNotes.map((releaseNote) => (
+							{visibleReleaseNotes.map((releaseNote) => (
 								<article
 									key={`release-note-${releaseNote.delivery_id}`}
 									className="admin-feedback-card panel"
 								>
+									<button
+										type="button"
+										className="message-dismiss-button"
+										disabled={busy}
+										onClick={() =>
+											handleRequestDismiss(
+												`release-note:${releaseNote.delivery_id}`,
+												`版本 v${releaseNote.version}`,
+											)
+										}
+										aria-label={`从当前列表移除版本消息 v${releaseNote.version}`}
+										title="从当前列表移除"
+									>
+										×
+									</button>
 									<div className="admin-feedback-card__head">
 										<div>
 											<strong>版本 v{releaseNote.version}</strong>
@@ -122,12 +211,24 @@ export function UserFeedbackInboxDialog({
 									</div>
 								</article>
 							))}
-							{items.map((item) => {
+							{visibleFeedbackItems.map((item) => {
 								const statusMeta = getFeedbackStatusMeta(item.status);
-								const priorityMeta = getFeedbackPriorityMeta(item.priority);
 								const categoryMeta = getFeedbackCategoryMeta(item.category);
+								const sourceMeta = getFeedbackSourceMeta(item.source);
 								return (
 									<article key={item.id} className="admin-feedback-card panel">
+										<button
+											type="button"
+											className="message-dismiss-button"
+											disabled={busy}
+											onClick={() =>
+												handleRequestDismiss(`feedback:${item.id}`, `#${item.id}`)
+											}
+											aria-label={`从当前列表移除消息 #${item.id}`}
+											title="从当前列表移除"
+										>
+											×
+										</button>
 										<div className="admin-feedback-card__head">
 											<div>
 												<strong>提交：{formatTimestamp(item.created_at)}</strong>
@@ -135,17 +236,17 @@ export function UserFeedbackInboxDialog({
 													<span className={`feedback-badge feedback-badge--${statusMeta.tone}`}>
 														{statusMeta.label}
 													</span>
-													<span className={`feedback-badge feedback-badge--${priorityMeta.tone}`}>
-														{priorityMeta.label}
-													</span>
 													<span className={`feedback-badge feedback-badge--${categoryMeta.tone}`}>
 														{categoryMeta.label}
+													</span>
+													<span className={`feedback-badge feedback-badge--${sourceMeta.tone}`}>
+														{sourceMeta.label}
 													</span>
 												</div>
 												<p>
 													{item.replied_at
 														? `已回复：${formatTimestamp(item.replied_at)}`
-														: "等待管理员回复"}
+														: `状态：${statusMeta.label}`}
 													{item.resolved_at
 														? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
 														: ""}
@@ -166,6 +267,47 @@ export function UserFeedbackInboxDialog({
 					)}
 				</div>
 			</div>
+			{pendingDismissTarget ? (
+				<div className="message-dismiss-confirm" role="dialog" aria-modal="true">
+					<button
+						type="button"
+						className="message-dismiss-confirm__backdrop"
+						onClick={handleCancelDismiss}
+						aria-label="关闭确认框"
+					/>
+					<div className="message-dismiss-confirm__panel panel">
+						<h3>移除消息</h3>
+						<p>
+							将从你的消息列表中移除
+							{pendingDismissTarget.label}。此操作不可逆，但不会删除后台记录。
+						</p>
+						<label className="message-dismiss-confirm__checkbox">
+							<input
+								type="checkbox"
+								checked={skipDismissConfirmChecked}
+								onChange={(event) => setSkipDismissConfirmChecked(event.target.checked)}
+							/>
+							<span>以后不再提示</span>
+						</label>
+						<div className="message-dismiss-confirm__actions">
+							<button
+								type="button"
+								className="ghost-button"
+								onClick={handleCancelDismiss}
+							>
+								取消
+							</button>
+							<button
+								type="button"
+								className="ghost-button ghost-button--danger"
+								onClick={handleConfirmDismiss}
+							>
+								移除消息
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }

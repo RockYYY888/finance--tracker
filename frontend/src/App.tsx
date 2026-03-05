@@ -1373,6 +1373,7 @@ function App() {
 			<AdminFeedbackDialog
 				open={isAdminInboxOpen}
 				busy={isLoadingAdminInbox}
+				viewerUserId={currentUserId ?? "anonymous"}
 				items={adminFeedbackItems}
 				releaseNotes={adminReleaseNotes}
 				errorMessage={adminInboxErrorMessage}
@@ -1385,6 +1386,7 @@ function App() {
 			<UserFeedbackInboxDialog
 				open={isUserInboxOpen}
 				busy={isLoadingUserInbox}
+				viewerUserId={currentUserId ?? "anonymous"}
 				items={userFeedbackItems}
 				releaseNotes={userReleaseNotes}
 				errorMessage={userInboxErrorMessage}

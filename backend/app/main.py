@@ -2619,6 +2619,11 @@ def reply_to_feedback_for_admin(
 	feedback = session.get(UserFeedback, feedback_id)
 	if feedback is None:
 		raise HTTPException(status_code=404, detail="反馈不存在。")
+	if _is_system_feedback_item(feedback):
+		raise HTTPException(
+			status_code=400,
+			detail="系统工单无需回复，请直接关闭或调整状态。",
+		)
 
 	feedback.reply_message = payload.reply_message
 	feedback.replied_at = utc_now()

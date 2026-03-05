@@ -714,7 +714,33 @@ h3 {
 }
 
 .admin-feedback-card {
+	position: relative;
 	padding: 18px;
+}
+
+.message-dismiss-button {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	z-index: 2;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border-radius: 999px;
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	background: rgba(255, 255, 255, 0.08);
+	color: rgba(240, 245, 255, 0.78);
+	box-shadow: none;
+	font-size: 18px;
+	line-height: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.message-dismiss-button:hover:not(:disabled) {
+	background: rgba(255, 255, 255, 0.16);
+	color: rgba(255, 255, 255, 0.98);
 }
 
 .admin-feedback-card__head {
@@ -840,6 +866,68 @@ h3 {
 	gap: 14px;
 	color: var(--text-muted);
 	font-size: 0.84rem;
+}
+
+.message-dismiss-confirm {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+
+.message-dismiss-confirm__backdrop {
+	position: absolute;
+	inset: 0;
+	padding: 0;
+	border-radius: 0;
+	background: rgba(6, 11, 20, 0.56);
+	box-shadow: none;
+}
+
+.message-dismiss-confirm__backdrop:hover:not(:disabled) {
+	transform: none;
+}
+
+.message-dismiss-confirm__panel {
+	position: relative;
+	z-index: 1;
+	width: min(460px, 92vw);
+	display: grid;
+	gap: 12px;
+	padding: 18px;
+}
+
+.message-dismiss-confirm__panel h3 {
+	margin: 0;
+	font-size: 1.02rem;
+}
+
+.message-dismiss-confirm__panel p {
+	margin: 0;
+	color: var(--text-soft);
+	line-height: 1.5;
+}
+
+.message-dismiss-confirm__checkbox {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--text-soft);
+	font-size: 0.9rem;
+}
+
+.message-dismiss-confirm__checkbox input {
+	width: 16px;
+	height: 16px;
+}
+
+.message-dismiss-confirm__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
 }
 
 .admin-release-note {
