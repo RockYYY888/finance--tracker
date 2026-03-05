@@ -72,9 +72,8 @@ export function FeedbackDialog({
 					<div>
 						<p className="eyebrow">USER FEEDBACK</p>
 						<h2 id="feedback-title">反馈问题</h2>
-						<p className="feedback-modal__copy">每天最多提交 3 次，我们会按账号归档处理。</p>
-						<p className="feedback-modal__copy feedback-modal__copy--guide">
-							为了更快定位问题，请按「场景 → 操作 → 实际结果 → 期望结果」描述。
+						<p className="feedback-modal__copy">
+							请简单告诉我们你当时在做什么、遇到了什么问题，以及你希望它怎么表现，我们会更快处理。
 						</p>
 					</div>
 					<button
@@ -96,10 +95,6 @@ export function FeedbackDialog({
 				<form onSubmit={(event) => void handleSubmit(event)} className="feedback-form">
 					<label>
 						问题描述
-						<span className="feedback-form__hint">
-							建议格式：在【什么场景】做了【什么操作】，出现【哪里不对】，
-							我期望【应该是怎样】。
-						</span>
 						<textarea
 							value={message}
 							onChange={(event) => {
@@ -107,7 +102,7 @@ export function FeedbackDialog({
 								setLocalError(null);
 							}}
 							maxLength={1000}
-							placeholder="例如：在【持仓管理-编辑持仓】场景，我做了【修改数量后保存】，实际【收益率未刷新】，期望【保存后立即刷新并显示新收益率】。"
+							placeholder="例如：我在编辑持仓后保存，收益率没有更新，希望保存后能立刻显示最新收益率。"
 							disabled={busy}
 						/>
 					</label>
