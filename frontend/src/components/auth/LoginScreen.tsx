@@ -35,8 +35,15 @@ export function LoginScreen({
 	const isLoginMode = mode === "login";
 	const isRegisterMode = mode === "register";
 	const isResetMode = mode === "reset";
+	const shouldShowForgotPasswordPrompt = Boolean(
+		isLoginMode && errorMessage && errorMessage.includes("是否忘记密码"),
+	);
 	const submitLabel = isLoginMode ? "登录" : isRegisterMode ? "创建账号" : "重设密码";
-	const panelTitle = isLoginMode ? "欢迎回来" : isRegisterMode ? "创建你的账号" : "找回密码";
+	const panelTitle = isLoginMode
+		? "欢迎回来"
+		: isRegisterMode
+			? "创建你的账号"
+			: "找回密码";
 	const panelCopy = isLoginMode
 		? "登录后即可查看持仓、账户资产与最近记录。"
 		: isRegisterMode
@@ -136,12 +143,26 @@ export function LoginScreen({
 								value={password}
 								onChange={(event) => setPassword(event.target.value)}
 								autoComplete={isLoginMode ? "current-password" : "new-password"}
-								placeholder={isLoginMode ? "输入密码" : isRegisterMode ? "设置密码" : "设置新密码"}
+								placeholder={
+									isLoginMode ? "输入密码" : isRegisterMode ? "设置密码" : "设置新密码"
+								}
 								required
 							/>
 						</label>
 
 						{errorMessage ? <div className="banner error">{errorMessage}</div> : null}
+						{shouldShowForgotPasswordPrompt ? (
+							<div className="auth-forgot-hint">
+								<p>连续多次输入密码错误，是否需要改为找回密码？</p>
+								<button
+									type="button"
+									className="auth-switch__button auth-forgot-hint__button"
+									onClick={() => setMode("reset")}
+								>
+									去重设密码
+								</button>
+							</div>
+						) : null}
 						{noticeMessage ? <div className="banner info">{noticeMessage}</div> : null}
 
 						<button type="submit" className="auth-submit" disabled={loading}>

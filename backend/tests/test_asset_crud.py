@@ -104,6 +104,13 @@ def session(tmp_path: Path) -> Iterator[Session]:
 		yield db_session
 
 
+@pytest.fixture(autouse=True)
+def reset_login_attempt_state() -> Iterator[None]:
+	main.login_attempt_states.clear()
+	yield
+	main.login_attempt_states.clear()
+
+
 def make_user(session: Session, username: str = "tester") -> UserAccount:
 	user = UserAccount(
 		username=username,
@@ -218,6 +225,94 @@ def test_authenticate_user_account_rejects_short_wrong_password_with_401(
 		_authenticate_user_account(
 			session,
 			AuthLoginCredentials(user_id="tester", password="short"),
+		)
+
+	assert error.value.status_code == 401
+	assert error.value.detail == "账号或密码错误。"
+
+
+def test_authenticate_user_account_prompts_password_reset_after_five_wrong_attempts(
+	session: Session,
+) -> None:
+	make_user(session)
+	attempt_key = ("tester", "device:test-browser")
+	credentials = AuthLoginCredentials(user_id="tester", password="wrong-password")
+
+	for _ in range(4):
+		with pytest.raises(HTTPException) as error:
+			_authenticate_user_account(
+				session,
+				credentials,
+				attempt_key=attempt_key,
+			)
+		assert error.value.status_code == 401
+		assert error.value.detail == "账号或密码错误。"
+
+	with pytest.raises(HTTPException) as error:
+		_authenticate_user_account(
+			session,
+			credentials,
+			attempt_key=attempt_key,
+		)
+
+	assert error.value.status_code == 401
+	assert "是否忘记密码" in error.value.detail
+
+
+def test_authenticate_user_account_rate_limits_after_eight_attempts_in_one_minute(
+	session: Session,
+) -> None:
+	make_user(session)
+	attempt_key = ("tester", "device:test-browser")
+	credentials = AuthLoginCredentials(user_id="tester", password="wrong-password")
+
+	for _ in range(8):
+		with pytest.raises(HTTPException) as error:
+			_authenticate_user_account(
+				session,
+				credentials,
+				attempt_key=attempt_key,
+			)
+		assert error.value.status_code == 401
+
+	with pytest.raises(HTTPException) as error:
+		_authenticate_user_account(
+			session,
+			credentials,
+			attempt_key=attempt_key,
+		)
+
+	assert error.value.status_code == 429
+	assert "1 分钟内最多尝试 8 次" in error.value.detail
+
+
+def test_authenticate_user_account_success_resets_consecutive_failed_counter(
+	session: Session,
+) -> None:
+	make_user(session)
+	attempt_key = ("tester", "device:test-browser")
+	wrong_credentials = AuthLoginCredentials(user_id="tester", password="wrong-password")
+
+	for _ in range(5):
+		with pytest.raises(HTTPException):
+			_authenticate_user_account(
+				session,
+				wrong_credentials,
+				attempt_key=attempt_key,
+			)
+
+	user = _authenticate_user_account(
+		session,
+		AuthLoginCredentials(user_id="tester", password="qwer1234"),
+		attempt_key=attempt_key,
+	)
+	assert user.username == "tester"
+
+	with pytest.raises(HTTPException) as error:
+		_authenticate_user_account(
+			session,
+			wrong_credentials,
+			attempt_key=attempt_key,
 		)
 
 	assert error.value.status_code == 401

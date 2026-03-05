@@ -9,6 +9,44 @@ import type {
 } from "../types/auth";
 
 const authApiClient = createApiClient();
+const CLIENT_DEVICE_ID_STORAGE_KEY = "asset-tracker-client-device-id";
+let inMemoryClientDeviceId: string | null = null;
+
+function generateClientDeviceId(): string {
+	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+		return crypto.randomUUID();
+	}
+
+	const randomChunk = Math.random().toString(16).slice(2, 10);
+	return `device-${Date.now().toString(36)}-${randomChunk}`;
+}
+
+function getOrCreateClientDeviceId(): string {
+	if (inMemoryClientDeviceId) {
+		return inMemoryClientDeviceId;
+	}
+
+	const generatedId = generateClientDeviceId();
+	if (typeof window === "undefined") {
+		inMemoryClientDeviceId = generatedId;
+		return generatedId;
+	}
+
+	try {
+		const storedId = window.localStorage.getItem(CLIENT_DEVICE_ID_STORAGE_KEY);
+		if (storedId && storedId.trim()) {
+			inMemoryClientDeviceId = storedId;
+			return storedId;
+		}
+
+		window.localStorage.setItem(CLIENT_DEVICE_ID_STORAGE_KEY, generatedId);
+		inMemoryClientDeviceId = generatedId;
+		return generatedId;
+	} catch {
+		inMemoryClientDeviceId = generatedId;
+		return generatedId;
+	}
+}
 
 function toJsonBody(
 	payload:
@@ -28,6 +66,9 @@ export async function loginWithPassword(payload: AuthLoginCredentials): Promise<
 	return authApiClient.request<AuthSession>("/api/auth/login", {
 		method: "POST",
 		body: toJsonBody(payload),
+		headers: {
+			"X-Client-Device-Id": getOrCreateClientDeviceId(),
+		},
 	});
 }
 

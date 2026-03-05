@@ -524,6 +524,28 @@ h3 {
 	color: #97fff0;
 }
 
+.auth-forgot-hint {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.55rem;
+	padding: 0.85rem 1rem;
+	border-radius: 14px;
+	border: 1px solid rgba(255, 209, 102, 0.28);
+	background: rgba(255, 209, 102, 0.09);
+	color: #ffd986;
+	font-size: 0.9rem;
+}
+
+.auth-forgot-hint p {
+	margin: 0;
+}
+
+.auth-forgot-hint__button {
+	font-size: 0.9rem;
+}
+
 .banner {
 	padding: 13px 16px;
 	margin-bottom: 20px;

@@ -4,8 +4,10 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 import json
 import logging
+import threading
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
@@ -120,6 +122,11 @@ GLOBAL_FORCE_REFRESH_INTERVAL = timedelta(seconds=60)
 DASHBOARD_SERIES_SCOPES = ("PORTFOLIO_TOTAL", "HOLDINGS_RETURN_TOTAL", "HOLDING_RETURN")
 DASHBOARD_CORRECTION_ACTIONS = ("OVERRIDE", "DELETE")
 DASHBOARD_CORRECTION_GRANULARITIES = ("hour", "day", "month", "year")
+LOGIN_ATTEMPT_WINDOW = timedelta(minutes=1)
+MAX_LOGIN_ATTEMPTS_PER_WINDOW = 8
+FAILED_LOGIN_FORGOT_PASSWORD_THRESHOLD = 5
+MAX_LOGIN_DEVICE_ID_LENGTH = 120
+LOGIN_ATTEMPT_STATE_TTL = timedelta(hours=24)
 
 
 @dataclass(slots=True)
@@ -152,14 +159,23 @@ class LiveHoldingsReturnState:
 	has_tracked_holdings_in_bucket: bool
 
 
+@dataclass(slots=True)
+class LoginAttemptState:
+	attempt_timestamps: list[datetime]
+	consecutive_failed_attempts: int
+	last_attempt_at: datetime
+
+
 dashboard_cache: dict[str, DashboardCacheEntry] = {}
 live_portfolio_states: dict[str, LivePortfolioState] = {}
 live_holdings_return_states: dict[str, LiveHoldingsReturnState] = {}
+login_attempt_states: dict[tuple[str, str], LoginAttemptState] = {}
 dashboard_cache_lock = asyncio.Lock()
 global_force_refresh_lock = asyncio.Lock()
 last_global_force_refresh_at: datetime | None = None
 background_refresh_task: asyncio.Task[None] | None = None
 holding_history_sync_lock = asyncio.Lock()
+login_attempts_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -209,7 +225,7 @@ app.add_middleware(
 	allow_origins=settings.cors_origins(),
 	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allow_headers=["Content-Type", "X-API-Key"],
+	allow_headers=["Content-Type", "X-API-Key", "X-Client-Device-Id"],
 )
 
 app.add_middleware(
@@ -1919,13 +1935,132 @@ def _create_user_account(session: Session, credentials: AuthRegisterCredentials)
 	return user
 
 
+def _normalize_client_device_id(raw_device_id: str | None) -> str | None:
+	if raw_device_id is None:
+		return None
+
+	normalized = raw_device_id.strip()
+	if not normalized:
+		return None
+
+	return normalized[:MAX_LOGIN_DEVICE_ID_LENGTH]
+
+
+def _build_login_attempt_key(request: Request, user_id: str) -> tuple[str, str]:
+	explicit_device_id = _normalize_client_device_id(
+		request.headers.get("X-Client-Device-Id"),
+	)
+	if explicit_device_id is not None:
+		return normalize_user_id(user_id), f"device:{explicit_device_id}"
+
+	client_host = request.client.host if request.client is not None else "unknown"
+	user_agent = (request.headers.get("user-agent") or "").strip().lower()
+	fallback_seed = f"{client_host}|{user_agent}"
+	fallback_hash = hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()[:24]
+	return normalize_user_id(user_id), f"fallback:{fallback_hash}"
+
+
+def _prune_login_attempt_timestamps(
+	attempt_timestamps: list[datetime],
+	now: datetime,
+) -> list[datetime]:
+	window_start = now - LOGIN_ATTEMPT_WINDOW
+	return [timestamp for timestamp in attempt_timestamps if timestamp >= window_start]
+
+
+def _cleanup_expired_login_attempt_states(now: datetime) -> None:
+	expired_before = now - LOGIN_ATTEMPT_STATE_TTL
+	expired_keys = [
+		key
+		for key, state in login_attempt_states.items()
+		if state.last_attempt_at < expired_before
+	]
+	for key in expired_keys:
+		login_attempt_states.pop(key, None)
+
+
+def _reserve_login_attempt(
+	attempt_key: tuple[str, str],
+	now: datetime,
+) -> None:
+	with login_attempts_lock:
+		state = login_attempt_states.get(attempt_key)
+		if state is None:
+			state = LoginAttemptState(
+				attempt_timestamps=[],
+				consecutive_failed_attempts=0,
+				last_attempt_at=now,
+			)
+			login_attempt_states[attempt_key] = state
+
+		state.attempt_timestamps = _prune_login_attempt_timestamps(
+			state.attempt_timestamps,
+			now,
+		)
+		if len(state.attempt_timestamps) >= MAX_LOGIN_ATTEMPTS_PER_WINDOW:
+			raise HTTPException(
+				status_code=429,
+				detail="同一设备同一账号 1 分钟内最多尝试 8 次，请稍后再试。",
+			)
+
+		state.attempt_timestamps.append(now)
+		state.last_attempt_at = now
+
+		if len(login_attempt_states) > 2048:
+			_cleanup_expired_login_attempt_states(now)
+
+
+def _record_failed_login_attempt(
+	attempt_key: tuple[str, str],
+	now: datetime,
+) -> int:
+	with login_attempts_lock:
+		state = login_attempt_states.get(attempt_key)
+		if state is None:
+			state = LoginAttemptState(
+				attempt_timestamps=[now],
+				consecutive_failed_attempts=0,
+				last_attempt_at=now,
+			)
+			login_attempt_states[attempt_key] = state
+
+		state.consecutive_failed_attempts += 1
+		state.last_attempt_at = now
+		return state.consecutive_failed_attempts
+
+
+def _record_successful_login(attempt_key: tuple[str, str], now: datetime) -> None:
+	with login_attempts_lock:
+		state = login_attempt_states.get(attempt_key)
+		if state is None:
+			return
+		state.consecutive_failed_attempts = 0
+		state.last_attempt_at = now
+
+
 def _authenticate_user_account(
 	session: Session,
 	credentials: AuthLoginCredentials,
+	*,
+	attempt_key: tuple[str, str] | None = None,
 ) -> UserAccount:
+	now = utc_now()
+	login_attempt_key = attempt_key or (normalize_user_id(credentials.user_id), "device:unknown")
+	_reserve_login_attempt(login_attempt_key, now)
 	user = _get_user(session, credentials.user_id)
 	if user is None or not verify_password(credentials.password, user.password_digest):
+		failed_attempts = _record_failed_login_attempt(login_attempt_key, now)
+		if failed_attempts >= FAILED_LOGIN_FORGOT_PASSWORD_THRESHOLD:
+			raise HTTPException(
+				status_code=401,
+				detail=(
+					"账号或密码错误。已连续输错 5 次，是否忘记密码？"
+					"可点击“忘记密码”重设。"
+				),
+			)
 		raise HTTPException(status_code=401, detail="账号或密码错误。")
+
+	_record_successful_login(login_attempt_key, now)
 	return user
 
 
@@ -2549,7 +2684,12 @@ def login_user(
 	_: TokenDependency,
 	session: SessionDependency,
 ) -> AuthSessionRead:
-	user = _authenticate_user_account(session, payload)
+	attempt_key = _build_login_attempt_key(request, payload.user_id)
+	user = _authenticate_user_account(
+		session,
+		payload,
+		attempt_key=attempt_key,
+	)
 	request.session["user_id"] = user.username
 	return AuthSessionRead(user_id=user.username, email=user.email)
 
