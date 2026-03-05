@@ -1,8 +1,10 @@
 import { useState } from "react";
 import {
+	Area,
 	CartesianGrid,
+	ComposedChart,
 	Line,
-	LineChart,
+	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
 	XAxis,
@@ -40,6 +42,27 @@ const RANGE_LABELS: Record<TimelineRange, string> = {
 	year: "年",
 };
 
+const POSITIVE_TREND_COLOR = "#009BC1";
+const NEGATIVE_TREND_COLOR = "#D7336C";
+const POSITIVE_TREND_FILL = "rgba(0, 155, 193, 0.22)";
+const NEGATIVE_TREND_FILL = "rgba(215, 51, 108, 0.22)";
+const TREND_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
+
+type PortfolioTrendChartPoint = TimelinePoint & {
+	positiveValue: number;
+	negativeValue: number;
+};
+
+export function buildPortfolioTrendChartData(
+	series: TimelinePoint[],
+): PortfolioTrendChartPoint[] {
+	return series.map((point) => ({
+		...point,
+		positiveValue: point.value > 0 ? point.value : 0,
+		negativeValue: point.value < 0 ? point.value : 0,
+	}));
+}
+
 export function PortfolioTrendChart({
 	hour_series,
 	day_series,
@@ -52,8 +75,9 @@ export function PortfolioTrendChart({
 }: PortfolioTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const series = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
+	const chartData = buildPortfolioTrendChartData(series);
 	const summary = summarizeTimeline(series);
-	const hasData = series.some((point) => point.value > 0);
+	const hasData = chartData.length > 0;
 	const changeDirection = summary.changeValue >= 0 ? "增加" : "减少";
 
 	return (
@@ -105,7 +129,10 @@ export function PortfolioTrendChart({
 			) : (
 				<div className="analytics-chart">
 					<ResponsiveContainer width="100%" height={320}>
-						<LineChart data={series} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+						<ComposedChart
+							data={chartData}
+							margin={{ top: 12, right: 12, left: 0, bottom: 0 }}
+						>
 							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
 							<XAxis dataKey="label" stroke="#d6d4cb" tickLine={false} axisLine={false} />
 							<YAxis
@@ -115,6 +142,7 @@ export function PortfolioTrendChart({
 								width={52}
 								tickFormatter={formatCompactCny}
 							/>
+							<ReferenceLine y={0} stroke="rgba(214, 212, 203, 0.38)" strokeDasharray="4 4" />
 							<Tooltip
 								formatter={(value) => [
 									formatCny(Number(value ?? 0)),
@@ -125,16 +153,48 @@ export function PortfolioTrendChart({
 								itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
 								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 							/>
+							<Area
+								type="monotone"
+								dataKey="positiveValue"
+								stroke={POSITIVE_TREND_COLOR}
+								fill={POSITIVE_TREND_FILL}
+								strokeWidth={1.2}
+								connectNulls
+							/>
+							<Area
+								type="monotone"
+								dataKey="negativeValue"
+								stroke={NEGATIVE_TREND_COLOR}
+								fill={NEGATIVE_TREND_FILL}
+								strokeWidth={1.2}
+								connectNulls
+							/>
 							<Line
 								type="monotone"
 								dataKey="value"
-								stroke="#ef476f"
-								strokeWidth={3}
-								dot={{ r: 3, strokeWidth: 0, fill: "#ffd166" }}
-								activeDot={{ r: 5, fill: "#ffd166" }}
+								stroke={TREND_LINE_COLOR}
+								strokeWidth={2.4}
+								dot={false}
+								activeDot={{ r: 4, fill: TREND_LINE_COLOR }}
 							/>
-						</LineChart>
+						</ComposedChart>
 					</ResponsiveContainer>
+					<div className="return-trend-legend" role="list" aria-label="净值图例">
+						<span className="return-trend-legend__item" role="listitem">
+							<span
+								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
+								aria-hidden="true"
+							/>
+							净值高于 0
+						</span>
+						<span className="return-trend-legend__item" role="listitem">
+							<span
+								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
+								aria-hidden="true"
+							/>
+							净值低于 0
+						</span>
+					</div>
 				</div>
 			)}
 		</section>

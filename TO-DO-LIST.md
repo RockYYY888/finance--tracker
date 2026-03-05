@@ -34,6 +34,10 @@
   - [x] Lazy-load analytics module in `App.tsx`
   - [x] Add Vite `manualChunks` for react/charts vendors
   - [x] Rebuild and verify chunk-size warning cleared
+- [x] Audit and align other charts:
+  - [x] Fix `PortfolioTrendChart` negative-series empty-state bug
+  - [x] Upgrade `PortfolioTrendChart` to zero-baseline positive/negative area style
+  - [x] Add `PortfolioTrendChart` data split unit test
 
 ### Pending
 - [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)
