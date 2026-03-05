@@ -17,11 +17,16 @@ import {
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
 import {
+	createReleaseNoteForAdmin,
 	closeFeedbackForAdmin,
 	getFeedbackSummary,
 	listFeedbackForCurrentUser,
 	listFeedbackForAdmin,
+	listReleaseNotesForAdmin,
+	listReleaseNotesForCurrentUser,
 	markFeedbackSeenForCurrentUser,
+	markReleaseNotesSeenForCurrentUser,
+	publishReleaseNoteForAdmin,
 	replyToFeedbackForAdmin,
 	submitUserFeedback,
 } from "./lib/feedbackApi";
@@ -41,7 +46,12 @@ import type {
 	OtherAssetRecord,
 } from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
-import type { UserFeedbackRecord } from "./types/feedback";
+import type {
+	ReleaseNoteDeliveryRecord,
+	ReleaseNoteInput,
+	ReleaseNoteRecord,
+	UserFeedbackRecord,
+} from "./types/feedback";
 import { formatCny } from "./utils/portfolioAnalytics";
 
 type AuthStatus = "checking" | "anonymous" | "authenticated";
@@ -382,9 +392,11 @@ function App() {
 	const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
 	const [adminInboxErrorMessage, setAdminInboxErrorMessage] = useState<string | null>(null);
 	const [adminFeedbackItems, setAdminFeedbackItems] = useState<UserFeedbackRecord[]>([]);
+	const [adminReleaseNotes, setAdminReleaseNotes] = useState<ReleaseNoteRecord[]>([]);
 	const [isLoadingUserInbox, setIsLoadingUserInbox] = useState(false);
 	const [userInboxErrorMessage, setUserInboxErrorMessage] = useState<string | null>(null);
 	const [userFeedbackItems, setUserFeedbackItems] = useState<UserFeedbackRecord[]>([]);
+	const [userReleaseNotes, setUserReleaseNotes] = useState<ReleaseNoteDeliveryRecord[]>([]);
 	const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
 	const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
 	const [emailDialogErrorMessage, setEmailDialogErrorMessage] = useState<string | null>(null);
@@ -419,9 +431,11 @@ function App() {
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
 		setAdminFeedbackItems([]);
+		setAdminReleaseNotes([]);
 		setUserInboxErrorMessage(null);
 		setIsUserInboxOpen(false);
 		setUserFeedbackItems([]);
+		setUserReleaseNotes([]);
 		setEmailNoticeMessage(null);
 		setEmailDialogErrorMessage(null);
 		setIsEmailDialogOpen(false);
@@ -443,9 +457,11 @@ function App() {
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
 		setAdminFeedbackItems([]);
+		setAdminReleaseNotes([]);
 		setUserInboxErrorMessage(null);
 		setIsUserInboxOpen(false);
 		setUserFeedbackItems([]);
+		setUserReleaseNotes([]);
 		setEmailNoticeMessage(null);
 		setEmailDialogErrorMessage(null);
 		setIsEmailDialogOpen(false);
@@ -638,8 +654,10 @@ function App() {
 		setIsLoadingAdminInbox(true);
 
 		try {
-			const items = await listFeedbackForAdmin();
-			setAdminFeedbackItems(items);
+			const feedbackItems = await listFeedbackForAdmin();
+			const releaseNotes = await listReleaseNotesForAdmin();
+			setAdminFeedbackItems(feedbackItems);
+			setAdminReleaseNotes(releaseNotes);
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
@@ -669,9 +687,12 @@ function App() {
 		setIsLoadingUserInbox(true);
 
 		try {
-			const items = await listFeedbackForCurrentUser();
-			setUserFeedbackItems(items);
+			const feedbackItems = await listFeedbackForCurrentUser();
+			const releaseNotes = await listReleaseNotesForCurrentUser();
+			setUserFeedbackItems(feedbackItems);
+			setUserReleaseNotes(releaseNotes);
 			await markFeedbackSeenForCurrentUser();
+			await markReleaseNotesSeenForCurrentUser();
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setUserInboxErrorMessage(
@@ -748,6 +769,44 @@ function App() {
 		} catch (error) {
 			setAdminInboxErrorMessage(
 				error instanceof Error ? error.message : "回复失败，请稍后再试。",
+			);
+		} finally {
+			setIsLoadingAdminInbox(false);
+		}
+	}
+
+	async function handleCreateReleaseNote(payload: ReleaseNoteInput): Promise<void> {
+		setIsLoadingAdminInbox(true);
+		setAdminInboxErrorMessage(null);
+
+		try {
+			const createdReleaseNote = await createReleaseNoteForAdmin(payload);
+			setAdminReleaseNotes((currentItems) => [createdReleaseNote, ...currentItems]);
+			await refreshFeedbackSummary();
+		} catch (error) {
+			setAdminInboxErrorMessage(
+				error instanceof Error ? error.message : "创建更新日志失败，请稍后再试。",
+			);
+		} finally {
+			setIsLoadingAdminInbox(false);
+		}
+	}
+
+	async function handlePublishReleaseNote(releaseNoteId: number): Promise<void> {
+		setIsLoadingAdminInbox(true);
+		setAdminInboxErrorMessage(null);
+
+		try {
+			const publishedReleaseNote = await publishReleaseNoteForAdmin(releaseNoteId);
+			setAdminReleaseNotes((currentItems) =>
+				currentItems.map((item) =>
+					item.id === publishedReleaseNote.id ? publishedReleaseNote : item
+				),
+			);
+			await refreshFeedbackSummary();
+		} catch (error) {
+			setAdminInboxErrorMessage(
+				error instanceof Error ? error.message : "发布更新日志失败，请稍后再试。",
 			);
 		} finally {
 			setIsLoadingAdminInbox(false);
@@ -1315,15 +1374,19 @@ function App() {
 				open={isAdminInboxOpen}
 				busy={isLoadingAdminInbox}
 				items={adminFeedbackItems}
+				releaseNotes={adminReleaseNotes}
 				errorMessage={adminInboxErrorMessage}
 				onClose={closeAdminInbox}
 				onCloseItem={handleCloseFeedbackItem}
 				onReplyItem={handleReplyFeedbackItem}
+				onCreateReleaseNote={handleCreateReleaseNote}
+				onPublishReleaseNote={handlePublishReleaseNote}
 			/>
 			<UserFeedbackInboxDialog
 				open={isUserInboxOpen}
 				busy={isLoadingUserInbox}
 				items={userFeedbackItems}
+				releaseNotes={userReleaseNotes}
 				errorMessage={userInboxErrorMessage}
 				onClose={closeUserInbox}
 			/>

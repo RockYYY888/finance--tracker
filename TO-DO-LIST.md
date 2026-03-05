@@ -38,9 +38,19 @@
   - [x] Fix `PortfolioTrendChart` negative-series empty-state bug
   - [x] Upgrade `PortfolioTrendChart` to zero-baseline positive/negative area style
   - [x] Add `PortfolioTrendChart` data split unit test
+- [x] Implement feedback `#5` feature set (awaiting acceptance before push):
+  - [x] Add backend release-note models: `ReleaseNote` and `ReleaseNoteDelivery`
+  - [x] Add admin APIs for release-note draft creation/listing/publish
+  - [x] Add user APIs for release-note inbox listing and mark-seen
+  - [x] Merge release-note unread count into user feedback summary badge
+  - [x] Add admin UI for versioned update-log drafting and publish
+  - [x] Add user inbox UI for station-pushed release notes
+  - [x] Add backend tests for publish delivery flow and semantic version uniqueness
+  - [x] Run backend/frontend test and build validation
 
 ### Pending
 - [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)
+- [ ] Push feedback `#5` implementation after product acceptance
 - [ ] Create `.env.codex-feedback-automation.local` from example and fill secrets:
   - [ ] `FEEDBACK_API_BASE_URL=http://117.72.217.15:8080`
   - [ ] `FEEDBACK_ADMIN_USER=<admin_user>`

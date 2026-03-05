@@ -1,12 +1,16 @@
 import { useEffect } from "react";
 
 import { formatTimestamp as formatAssetTimestamp } from "../../lib/assetFormatting";
-import type { UserFeedbackRecord } from "../../types/feedback";
+import type {
+	ReleaseNoteDeliveryRecord,
+	UserFeedbackRecord,
+} from "../../types/feedback";
 
 export interface UserFeedbackInboxDialogProps {
 	open: boolean;
 	busy?: boolean;
 	items: UserFeedbackRecord[];
+	releaseNotes: ReleaseNoteDeliveryRecord[];
 	errorMessage?: string | null;
 	onClose: () => void;
 }
@@ -24,6 +28,7 @@ export function UserFeedbackInboxDialog({
 	open,
 	busy = false,
 	items,
+	releaseNotes,
 	errorMessage = null,
 	onClose,
 }: UserFeedbackInboxDialogProps) {
@@ -78,35 +83,65 @@ export function UserFeedbackInboxDialog({
 				) : null}
 
 				<div className="admin-feedback-list">
-					{items.length === 0 ? (
+					{releaseNotes.length === 0 && items.length === 0 ? (
 						<div className="banner info">
 							<p>当前没有消息。</p>
 						</div>
 					) : (
-						items.map((item) => (
-							<article key={item.id} className="admin-feedback-card panel">
-								<div className="admin-feedback-card__head">
-									<div>
-										<strong>提交：{formatTimestamp(item.created_at)}</strong>
-										<p>
-											{item.replied_at
-												? `已回复：${formatTimestamp(item.replied_at)}`
-												: "等待管理员回复"}
-											{item.resolved_at
-												? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
-												: ""}
-										</p>
+						<>
+							{releaseNotes.map((releaseNote) => (
+								<article
+									key={`release-note-${releaseNote.delivery_id}`}
+									className="admin-feedback-card panel"
+								>
+									<div className="admin-feedback-card__head">
+										<div>
+											<strong>版本 v{releaseNote.version}</strong>
+											<p>发布：{formatTimestamp(releaseNote.published_at)}</p>
+										</div>
 									</div>
-								</div>
-								<p className="admin-feedback-card__message">{item.message}</p>
-								<div className="admin-feedback-card__detail">
-									<div className="admin-feedback-card__reply-history">
-										<strong>管理员回复</strong>
-										<p>{item.reply_message ?? "暂无回复"}</p>
+									<p className="admin-feedback-card__message">{releaseNote.title}</p>
+									<div className="admin-feedback-card__detail">
+										<div className="admin-feedback-card__reply-history">
+											<strong>更新内容</strong>
+											<p>{releaseNote.content}</p>
+										</div>
+										{releaseNote.source_feedback_ids.length > 0 ? (
+											<div className="admin-feedback-card__footer">
+												<span>
+													关联反馈：#
+													{releaseNote.source_feedback_ids.join(", #")}
+												</span>
+											</div>
+										) : null}
 									</div>
-								</div>
-							</article>
-						))
+								</article>
+							))}
+							{items.map((item) => (
+								<article key={item.id} className="admin-feedback-card panel">
+									<div className="admin-feedback-card__head">
+										<div>
+											<strong>提交：{formatTimestamp(item.created_at)}</strong>
+											<p>
+												{item.replied_at
+													? `已回复：${formatTimestamp(item.replied_at)}`
+													: "等待管理员回复"}
+												{item.resolved_at
+													? ` · 已关闭：${formatTimestamp(item.resolved_at)}`
+													: ""}
+											</p>
+										</div>
+									</div>
+									<p className="admin-feedback-card__message">{item.message}</p>
+									<div className="admin-feedback-card__detail">
+										<div className="admin-feedback-card__reply-history">
+											<strong>管理员回复</strong>
+											<p>{item.reply_message ?? "暂无回复"}</p>
+										</div>
+									</div>
+								</article>
+							))}
+						</>
 					)}
 				</div>
 			</div>

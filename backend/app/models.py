@@ -57,6 +57,25 @@ class UserFeedback(SQLModel, table=True):
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
+class ReleaseNote(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	version: str = Field(index=True, max_length=32)
+	title: str = Field(max_length=120)
+	content: str = Field(max_length=6000)
+	source_feedback_ids_json: str | None = Field(default=None, max_length=2000)
+	created_by: str = Field(index=True, max_length=32)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	published_at: datetime | None = Field(default=None, index=True)
+
+
+class ReleaseNoteDelivery(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	release_note_id: int = Field(index=True)
+	user_id: str = Field(index=True, max_length=32)
+	delivered_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	seen_at: datetime | None = Field(default=None, index=True)
+
+
 class CashAccount(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)

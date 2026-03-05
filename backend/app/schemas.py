@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import re
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
@@ -364,6 +365,61 @@ class AdminFeedbackReplyUpdate(BaseModel):
 	@classmethod
 	def normalize_reply_message(cls, value: str) -> str:
 		return _normalize_required_text(value, "reply_message")
+
+
+SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+class ReleaseNoteCreate(BaseModel):
+	version: str = Field(min_length=1, max_length=32)
+	title: str = Field(min_length=1, max_length=120)
+	content: str = Field(min_length=1, max_length=6000)
+	source_feedback_ids: list[int] = Field(default_factory=list)
+
+	@field_validator("version", mode="before")
+	@classmethod
+	def validate_version(cls, value: str) -> str:
+		normalized = _normalize_required_text(value, "version")
+		if SEMVER_PATTERN.match(normalized) is None:
+			raise ValueError("version must match semantic version format: x.y.z")
+		return normalized
+
+	@field_validator("title", "content", mode="before")
+	@classmethod
+	def normalize_required_fields(cls, value: str, info: Any) -> str:
+		return _normalize_required_text(value, info.field_name)
+
+	@field_validator("source_feedback_ids")
+	@classmethod
+	def validate_source_feedback_ids(cls, value: list[int]) -> list[int]:
+		normalized_ids = sorted(set(value))
+		if any(item <= 0 for item in normalized_ids):
+			raise ValueError("source_feedback_ids must contain positive integers only.")
+		return normalized_ids
+
+
+class ReleaseNoteRead(UtcTimestampResponseModel):
+	id: int
+	version: str
+	title: str
+	content: str
+	source_feedback_ids: list[int]
+	created_by: str
+	created_at: datetime
+	published_at: datetime | None = None
+	delivery_count: int = 0
+
+
+class ReleaseNoteDeliveryRead(UtcTimestampResponseModel):
+	delivery_id: int
+	release_note_id: int
+	version: str
+	title: str
+	content: str
+	source_feedback_ids: list[int]
+	delivered_at: datetime
+	seen_at: datetime | None = None
+	published_at: datetime
 
 
 class SecurityHoldingCreate(BaseModel):

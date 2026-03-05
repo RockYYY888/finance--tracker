@@ -2,6 +2,9 @@ import { createApiClient } from "./apiClient";
 import type {
 	AdminFeedbackReplyInput,
 	FeedbackSummary,
+	ReleaseNoteDeliveryRecord,
+	ReleaseNoteInput,
+	ReleaseNoteRecord,
 	UserFeedbackInput,
 	UserFeedbackRecord,
 } from "../types/feedback";
@@ -48,6 +51,40 @@ export async function replyToFeedbackForAdmin(
 export async function closeFeedbackForAdmin(feedbackId: number): Promise<UserFeedbackRecord> {
 	return feedbackApiClient.request<UserFeedbackRecord>(
 		`/api/admin/feedback/${feedbackId}/close`,
+		{
+			method: "POST",
+		},
+	);
+}
+
+export async function listReleaseNotesForCurrentUser(): Promise<ReleaseNoteDeliveryRecord[]> {
+	return feedbackApiClient.request<ReleaseNoteDeliveryRecord[]>("/api/release-notes");
+}
+
+export async function markReleaseNotesSeenForCurrentUser(): Promise<void> {
+	return feedbackApiClient.request<void>("/api/release-notes/mark-seen", {
+		method: "POST",
+	});
+}
+
+export async function listReleaseNotesForAdmin(): Promise<ReleaseNoteRecord[]> {
+	return feedbackApiClient.request<ReleaseNoteRecord[]>("/api/admin/release-notes");
+}
+
+export async function createReleaseNoteForAdmin(
+	payload: ReleaseNoteInput,
+): Promise<ReleaseNoteRecord> {
+	return feedbackApiClient.request<ReleaseNoteRecord>("/api/admin/release-notes", {
+		method: "POST",
+		body: JSON.stringify(payload),
+	});
+}
+
+export async function publishReleaseNoteForAdmin(
+	releaseNoteId: number,
+): Promise<ReleaseNoteRecord> {
+	return feedbackApiClient.request<ReleaseNoteRecord>(
+		`/api/admin/release-notes/${releaseNoteId}/publish`,
 		{
 			method: "POST",
 		},

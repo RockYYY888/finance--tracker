@@ -26,6 +26,11 @@ const feedbackApiMocks = vi.hoisted(() => ({
 	listFeedbackForAdmin: vi.fn(),
 	replyToFeedbackForAdmin: vi.fn(),
 	closeFeedbackForAdmin: vi.fn(),
+	listReleaseNotesForCurrentUser: vi.fn(),
+	markReleaseNotesSeenForCurrentUser: vi.fn(),
+	listReleaseNotesForAdmin: vi.fn(),
+	createReleaseNoteForAdmin: vi.fn(),
+	publishReleaseNoteForAdmin: vi.fn(),
 }));
 
 vi.mock("./lib/authApi", () => ({
@@ -73,6 +78,11 @@ vi.mock("./lib/feedbackApi", () => ({
 	listFeedbackForAdmin: feedbackApiMocks.listFeedbackForAdmin,
 	replyToFeedbackForAdmin: feedbackApiMocks.replyToFeedbackForAdmin,
 	closeFeedbackForAdmin: feedbackApiMocks.closeFeedbackForAdmin,
+	listReleaseNotesForCurrentUser: feedbackApiMocks.listReleaseNotesForCurrentUser,
+	markReleaseNotesSeenForCurrentUser: feedbackApiMocks.markReleaseNotesSeenForCurrentUser,
+	listReleaseNotesForAdmin: feedbackApiMocks.listReleaseNotesForAdmin,
+	createReleaseNoteForAdmin: feedbackApiMocks.createReleaseNoteForAdmin,
+	publishReleaseNoteForAdmin: feedbackApiMocks.publishReleaseNoteForAdmin,
 }));
 
 function createDeferredPromise<T>() {
@@ -103,6 +113,31 @@ describe("App session restore", () => {
 		feedbackApiMocks.listFeedbackForCurrentUser.mockResolvedValue([]);
 		feedbackApiMocks.markFeedbackSeenForCurrentUser.mockResolvedValue(undefined);
 		feedbackApiMocks.listFeedbackForAdmin.mockResolvedValue([]);
+		feedbackApiMocks.listReleaseNotesForCurrentUser.mockResolvedValue([]);
+		feedbackApiMocks.markReleaseNotesSeenForCurrentUser.mockResolvedValue(undefined);
+		feedbackApiMocks.listReleaseNotesForAdmin.mockResolvedValue([]);
+		feedbackApiMocks.createReleaseNoteForAdmin.mockResolvedValue({
+			id: 1,
+			version: "0.2.0",
+			title: "更新日志",
+			content: "内容",
+			source_feedback_ids: [],
+			created_by: "admin",
+			created_at: new Date().toISOString(),
+			published_at: null,
+			delivery_count: 0,
+		});
+		feedbackApiMocks.publishReleaseNoteForAdmin.mockResolvedValue({
+			id: 1,
+			version: "0.2.0",
+			title: "更新日志",
+			content: "内容",
+			source_feedback_ids: [],
+			created_by: "admin",
+			created_at: new Date().toISOString(),
+			published_at: new Date().toISOString(),
+			delivery_count: 1,
+		});
 		feedbackApiMocks.replyToFeedbackForAdmin.mockResolvedValue({
 			id: 1,
 			user_id: "alice",

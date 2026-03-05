@@ -7,15 +7,19 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import (
 	close_feedback_for_admin,
+	create_release_note_for_admin,
 	get_feedback_summary,
 	list_feedback_for_admin,
 	list_feedback_for_current_user,
+	list_release_notes_for_current_user,
 	mark_feedback_seen_for_current_user,
+	mark_release_notes_seen_for_current_user,
+	publish_release_note_for_admin,
 	reply_to_feedback_for_admin,
 	submit_feedback,
 )
 from app.models import UserAccount, UserFeedback
-from app.schemas import AdminFeedbackReplyUpdate, UserFeedbackCreate
+from app.schemas import AdminFeedbackReplyUpdate, ReleaseNoteCreate, UserFeedbackCreate
 
 
 @pytest.fixture
@@ -165,3 +169,70 @@ def test_feedback_summary_counts_pending_items_for_admin_and_user(session: Sessi
 	assert user_summary_before_reply.inbox_count == 0
 	assert user_summary_after_reply.inbox_count == 1
 	assert user_summary_after_seen.inbox_count == 0
+
+
+def test_release_note_publish_pushes_station_message_to_users(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "release_note_user")
+
+	created_release_note = create_release_note_for_admin(
+		ReleaseNoteCreate(
+			version="0.2.0",
+			title="收益图可读性优化",
+			content="新增零轴分区与图例，提升正负收益辨识度。",
+			source_feedback_ids=[5, 6],
+		),
+		admin_user,
+		session,
+		None,
+	)
+	assert created_release_note.published_at is None
+
+	published_release_note = publish_release_note_for_admin(
+		created_release_note.id,
+		admin_user,
+		session,
+		None,
+	)
+	assert published_release_note.published_at is not None
+	assert published_release_note.delivery_count == 1
+
+	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
+	assert len(user_release_notes) == 1
+	assert user_release_notes[0].version == "0.2.0"
+	assert user_release_notes[0].source_feedback_ids == [5, 6]
+	assert user_release_notes[0].seen_at is None
+
+	user_summary = get_feedback_summary(normal_user, session, None)
+	assert user_summary.inbox_count == 1
+
+	mark_release_notes_seen_for_current_user(normal_user, session, None)
+	user_summary_after_seen = get_feedback_summary(normal_user, session, None)
+	assert user_summary_after_seen.inbox_count == 0
+
+
+def test_release_note_version_must_be_unique(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+
+	create_release_note_for_admin(
+		ReleaseNoteCreate(
+			version="0.3.0",
+			title="第一版日志",
+			content="第一版更新内容",
+		),
+		admin_user,
+		session,
+		None,
+	)
+
+	with pytest.raises(HTTPException, match="该版本号已存在"):
+		create_release_note_for_admin(
+			ReleaseNoteCreate(
+				version="0.3.0",
+				title="重复版本号日志",
+				content="重复版本号不应允许创建。",
+			),
+			admin_user,
+			session,
+			None,
+		)

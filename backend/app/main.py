@@ -28,6 +28,8 @@ from app.models import (
 	LiabilityEntry,
 	OtherAsset,
 	PortfolioSnapshot,
+	ReleaseNote,
+	ReleaseNoteDelivery,
 	SecurityHolding,
 	AssetMutationAudit,
 	UserFeedback,
@@ -60,6 +62,9 @@ from app.schemas import (
 	OtherAssetRead,
 	OtherAssetUpdate,
 	PasswordResetRequest,
+	ReleaseNoteCreate,
+	ReleaseNoteDeliveryRead,
+	ReleaseNoteRead,
 	SecuritySearchRead,
 	UserEmailUpdate,
 	SecurityHoldingCreate,
@@ -1661,6 +1666,115 @@ def _to_feedback_read(feedback: UserFeedback) -> UserFeedbackRead:
 	)
 
 
+def _encode_source_feedback_ids(source_feedback_ids: list[int]) -> str | None:
+	if not source_feedback_ids:
+		return None
+
+	return json.dumps(sorted(set(source_feedback_ids)), ensure_ascii=False)
+
+
+def _decode_source_feedback_ids(payload: str | None) -> list[int]:
+	if not payload:
+		return []
+
+	try:
+		raw_value = json.loads(payload)
+	except json.JSONDecodeError:
+		return []
+
+	if not isinstance(raw_value, list):
+		return []
+
+	source_feedback_ids: list[int] = []
+	for item in raw_value:
+		if not isinstance(item, int) or item <= 0:
+			continue
+		source_feedback_ids.append(item)
+
+	return sorted(set(source_feedback_ids))
+
+
+def _count_release_note_deliveries(session: Session, release_note_id: int) -> int:
+	return len(
+		list(
+			session.exec(
+				select(ReleaseNoteDelivery.id).where(
+					ReleaseNoteDelivery.release_note_id == release_note_id,
+				),
+			),
+		),
+	)
+
+
+def _to_release_note_read(
+	session: Session,
+	release_note: ReleaseNote,
+) -> ReleaseNoteRead:
+	return ReleaseNoteRead(
+		id=release_note.id or 0,
+		version=release_note.version,
+		title=release_note.title,
+		content=release_note.content,
+		source_feedback_ids=_decode_source_feedback_ids(release_note.source_feedback_ids_json),
+		created_by=release_note.created_by,
+		created_at=release_note.created_at,
+		published_at=release_note.published_at,
+		delivery_count=_count_release_note_deliveries(session, release_note.id or 0),
+	)
+
+
+def _to_release_note_delivery_read(
+	delivery: ReleaseNoteDelivery,
+	release_note: ReleaseNote,
+) -> ReleaseNoteDeliveryRead:
+	return ReleaseNoteDeliveryRead(
+		delivery_id=delivery.id or 0,
+		release_note_id=release_note.id or 0,
+		version=release_note.version,
+		title=release_note.title,
+		content=release_note.content,
+		source_feedback_ids=_decode_source_feedback_ids(release_note.source_feedback_ids_json),
+		delivered_at=delivery.delivered_at,
+		seen_at=delivery.seen_at,
+		published_at=release_note.published_at or delivery.delivered_at,
+	)
+
+
+def _ensure_release_note_deliveries_for_user(session: Session, user_id: str) -> None:
+	published_notes = list(
+		session.exec(
+			select(ReleaseNote).where(ReleaseNote.published_at.is_not(None)),
+		),
+	)
+	if not published_notes:
+		return
+
+	delivered_release_note_ids = set(
+		session.exec(
+			select(ReleaseNoteDelivery.release_note_id).where(
+				ReleaseNoteDelivery.user_id == user_id,
+			),
+		).all(),
+	)
+	created_new_delivery = False
+	for release_note in published_notes:
+		release_note_id = release_note.id
+		if release_note_id is None or release_note_id in delivered_release_note_ids:
+			continue
+
+		session.add(
+			ReleaseNoteDelivery(
+				release_note_id=release_note_id,
+				user_id=user_id,
+				delivered_at=release_note.published_at or utc_now(),
+			),
+		)
+		created_new_delivery = True
+
+	if created_new_delivery:
+		session.commit()
+
+
 def _to_dashboard_correction_read(correction: DashboardCorrection) -> DashboardCorrectionRead:
 	return DashboardCorrectionRead(
 		id=correction.id or 0,
@@ -1917,7 +2031,8 @@ def get_feedback_summary(
 		)
 		return FeedbackSummaryRead(inbox_count=inbox_count, mode="admin-open")
 
-	inbox_count = len(
+	_ensure_release_note_deliveries_for_user(session, current_user.username)
+	feedback_unread_count = len(
 		list(
 			session.exec(
 				select(UserFeedback.id).where(
@@ -1928,7 +2043,20 @@ def get_feedback_summary(
 			),
 		),
 	)
-	return FeedbackSummaryRead(inbox_count=inbox_count, mode="user-unread")
+	release_note_unread_count = len(
+		list(
+			session.exec(
+				select(ReleaseNoteDelivery.id).where(
+					ReleaseNoteDelivery.user_id == current_user.username,
+					ReleaseNoteDelivery.seen_at.is_(None),
+				),
+			),
+		),
+	)
+	return FeedbackSummaryRead(
+		inbox_count=feedback_unread_count + release_note_unread_count,
+		mode="user-unread",
+	)
 
 
 @app.get("/api/admin/feedback", response_model=list[UserFeedbackRead])
@@ -1999,6 +2127,145 @@ def close_feedback_for_admin(
 		session.refresh(feedback)
 
 	return _to_feedback_read(feedback)
+
+
+@app.get("/api/admin/release-notes", response_model=list[ReleaseNoteRead])
+def list_release_notes_for_admin(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> list[ReleaseNoteRead]:
+	_require_admin_user(current_user)
+	release_notes = list(
+		session.exec(
+			select(ReleaseNote).order_by(ReleaseNote.created_at.desc()),
+		),
+	)
+	return [_to_release_note_read(session, release_note) for release_note in release_notes]
+
+
+@app.post("/api/admin/release-notes", response_model=ReleaseNoteRead, status_code=201)
+def create_release_note_for_admin(
+	payload: ReleaseNoteCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> ReleaseNoteRead:
+	_require_admin_user(current_user)
+	existing_release_note = session.exec(
+		select(ReleaseNote).where(ReleaseNote.version == payload.version),
+	).first()
+	if existing_release_note is not None:
+		raise HTTPException(status_code=409, detail="该版本号已存在。")
+
+	release_note = ReleaseNote(
+		version=payload.version,
+		title=payload.title,
+		content=payload.content,
+		source_feedback_ids_json=_encode_source_feedback_ids(payload.source_feedback_ids),
+		created_by=current_user.username,
+	)
+	session.add(release_note)
+	session.commit()
+	session.refresh(release_note)
+	return _to_release_note_read(session, release_note)
+
+
+@app.post("/api/admin/release-notes/{release_note_id}/publish", response_model=ReleaseNoteRead)
+def publish_release_note_for_admin(
+	release_note_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> ReleaseNoteRead:
+	_require_admin_user(current_user)
+	release_note = session.get(ReleaseNote, release_note_id)
+	if release_note is None:
+		raise HTTPException(status_code=404, detail="更新日志不存在。")
+
+	if release_note.published_at is None:
+		release_note.published_at = utc_now()
+		session.add(release_note)
+		session.commit()
+		session.refresh(release_note)
+
+	existing_recipients = set(
+		session.exec(
+			select(ReleaseNoteDelivery.user_id).where(
+				ReleaseNoteDelivery.release_note_id == release_note_id,
+			),
+		).all(),
+	)
+	recipient_ids = list(
+		session.exec(
+			select(UserAccount.username).where(UserAccount.username != current_user.username),
+		),
+	)
+	created_new_delivery = False
+	for recipient_id in recipient_ids:
+		if recipient_id in existing_recipients:
+			continue
+		session.add(
+			ReleaseNoteDelivery(
+				release_note_id=release_note_id,
+				user_id=recipient_id,
+				delivered_at=release_note.published_at or utc_now(),
+			),
+		)
+		created_new_delivery = True
+
+	if created_new_delivery:
+		session.commit()
+
+	return _to_release_note_read(session, release_note)
+
+
+@app.get("/api/release-notes", response_model=list[ReleaseNoteDeliveryRead])
+def list_release_notes_for_current_user(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> list[ReleaseNoteDeliveryRead]:
+	_ensure_release_note_deliveries_for_user(session, current_user.username)
+	rows = list(
+		session.exec(
+			select(ReleaseNoteDelivery, ReleaseNote)
+			.join(ReleaseNote, ReleaseNote.id == ReleaseNoteDelivery.release_note_id)
+			.where(
+				ReleaseNoteDelivery.user_id == current_user.username,
+				ReleaseNote.published_at.is_not(None),
+			)
+			.order_by(ReleaseNoteDelivery.delivered_at.desc()),
+		),
+	)
+	return [_to_release_note_delivery_read(delivery, release_note) for delivery, release_note in rows]
+
+
+@app.post("/api/release-notes/mark-seen", response_model=ActionMessageRead)
+def mark_release_notes_seen_for_current_user(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> ActionMessageRead:
+	_ensure_release_note_deliveries_for_user(session, current_user.username)
+	pending_items = list(
+		session.exec(
+			select(ReleaseNoteDelivery).where(
+				ReleaseNoteDelivery.user_id == current_user.username,
+				ReleaseNoteDelivery.seen_at.is_(None),
+			),
+		),
+	)
+	if not pending_items:
+		return ActionMessageRead(message="没有新的更新日志。")
+
+	now = utc_now()
+	for delivery in pending_items:
+		delivery.seen_at = now
+		session.add(delivery)
+
+	session.commit()
+	return ActionMessageRead(message="更新日志已标记为已读。")
 
 
 @app.post("/api/dashboard/corrections", response_model=DashboardCorrectionRead, status_code=201)
