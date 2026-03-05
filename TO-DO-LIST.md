@@ -30,6 +30,10 @@
     - [x] Negative: `#D7336C` (Pioneering Pink)
   - [x] Add frontend test for positive/negative split dataset mapping
   - [x] Run frontend tests and build validation
+- [x] Optimize frontend bundle splitting:
+  - [x] Lazy-load analytics module in `App.tsx`
+  - [x] Add Vite `manualChunks` for react/charts vendors
+  - [x] Rebuild and verify chunk-size warning cleared
 
 ### Pending
 - [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)

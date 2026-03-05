@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { AdminFeedbackDialog } from "./components/feedback/AdminFeedbackDialog";
 import { EmailDialog } from "./components/auth/EmailDialog";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
-import { PortfolioAnalytics } from "./components/analytics";
 import { FeedbackDialog } from "./components/feedback/FeedbackDialog";
 import { UserFeedbackInboxDialog } from "./components/feedback/UserFeedbackInboxDialog";
 import { defaultAssetApiClient } from "./lib/assetApi";
@@ -50,6 +49,10 @@ type WorkspaceView = "records" | "insights";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
+const PortfolioAnalytics = lazy(async () => {
+	const module = await import("./components/analytics");
+	return { default: module.PortfolioAnalytics };
+});
 
 function readRememberedSessionUserId(): string | null {
 	if (typeof window === "undefined") {
@@ -1249,25 +1252,27 @@ function App() {
 						</div>
 					</div>
 
-					<PortfolioAnalytics
-						total_value_cny={dashboard.total_value_cny}
-						cash_accounts={dashboard.cash_accounts}
-						holdings={dashboard.holdings}
-						fixed_assets={dashboard.fixed_assets}
-						liabilities={dashboard.liabilities}
-						other_assets={dashboard.other_assets}
-						allocation={dashboard.allocation}
-						hour_series={dashboard.hour_series}
-						day_series={dashboard.day_series}
-						month_series={dashboard.month_series}
-						year_series={dashboard.year_series}
-						holdings_return_hour_series={dashboard.holdings_return_hour_series}
-						holdings_return_day_series={dashboard.holdings_return_day_series}
-						holdings_return_month_series={dashboard.holdings_return_month_series}
-						holdings_return_year_series={dashboard.holdings_return_year_series}
-						holding_return_series={dashboard.holding_return_series}
-						loading={isLoadingDashboard || isRecoveringSession}
-					/>
+					<Suspense fallback={<div className="banner info">正在加载洞察模块...</div>}>
+						<PortfolioAnalytics
+							total_value_cny={dashboard.total_value_cny}
+							cash_accounts={dashboard.cash_accounts}
+							holdings={dashboard.holdings}
+							fixed_assets={dashboard.fixed_assets}
+							liabilities={dashboard.liabilities}
+							other_assets={dashboard.other_assets}
+							allocation={dashboard.allocation}
+							hour_series={dashboard.hour_series}
+							day_series={dashboard.day_series}
+							month_series={dashboard.month_series}
+							year_series={dashboard.year_series}
+							holdings_return_hour_series={dashboard.holdings_return_hour_series}
+							holdings_return_day_series={dashboard.holdings_return_day_series}
+							holdings_return_month_series={dashboard.holdings_return_month_series}
+							holdings_return_year_series={dashboard.holdings_return_year_series}
+							holding_return_series={dashboard.holding_return_series}
+							loading={isLoadingDashboard || isRecoveringSession}
+						/>
+					</Suspense>
 				</section>
 			) : (
 				<div className="integrated-stack">
