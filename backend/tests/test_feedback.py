@@ -18,7 +18,7 @@ from app.main import (
 	reply_to_feedback_for_admin,
 	submit_feedback,
 )
-from app.models import UserAccount, UserFeedback
+from app.models import ReleaseNoteDelivery, UserAccount, UserFeedback
 from app.schemas import AdminFeedbackReplyUpdate, ReleaseNoteCreate, UserFeedbackCreate
 
 
@@ -209,6 +209,58 @@ def test_release_note_publish_pushes_station_message_to_users(session: Session) 
 	mark_release_notes_seen_for_current_user(normal_user, session, None)
 	user_summary_after_seen = get_feedback_summary(normal_user, session, None)
 	assert user_summary_after_seen.inbox_count == 0
+
+
+def test_release_note_stream_keeps_single_user_message_after_multiple_publishes(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "release_stream_user")
+
+	first_note = create_release_note_for_admin(
+		ReleaseNoteCreate(
+			version="0.4.0",
+			title="第一批优化",
+			content="修复趋势图的动态中线逻辑。",
+			source_feedback_ids=[4],
+		),
+		admin_user,
+		session,
+		None,
+	)
+	publish_release_note_for_admin(first_note.id, admin_user, session, None)
+	mark_release_notes_seen_for_current_user(normal_user, session, None)
+
+	second_note = create_release_note_for_admin(
+		ReleaseNoteCreate(
+			version="0.5.0",
+			title="第二批优化",
+			content="统一更新日志推送为单条流式消息。",
+			source_feedback_ids=[5],
+		),
+		admin_user,
+		session,
+		None,
+	)
+	publish_release_note_for_admin(second_note.id, admin_user, session, None)
+
+	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
+	assert len(user_release_notes) == 1
+	assert user_release_notes[0].version == "0.5.0"
+	assert user_release_notes[0].title == "产品更新日志（持续更新）"
+	assert "## v0.5.0" in user_release_notes[0].content
+	assert "## v0.4.0" in user_release_notes[0].content
+	assert user_release_notes[0].seen_at is None
+
+	deliveries = list(
+		session.exec(
+			select(ReleaseNoteDelivery).where(ReleaseNoteDelivery.user_id == normal_user.username),
+		),
+	)
+	assert len(deliveries) == 1
+
+	user_summary = get_feedback_summary(normal_user, session, None)
+	assert user_summary.inbox_count == 1
 
 
 def test_release_note_version_must_be_unique(session: Session) -> None:

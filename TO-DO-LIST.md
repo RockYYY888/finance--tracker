@@ -21,7 +21,7 @@
 - [x] Implement asset mutation audit model/API for CRUD operations
 - [x] Update timeline schema/analytics to include `timestamp_utc` and `corrected`
 - [x] Add backend tests for correction application and audit log generation
-- [x] Run backend regression tests (55 passed)
+- [x] Run backend regression tests (58 passed)
 - [x] Execute approved workflow for feedback `#7` (code/test/push/reply/close)
 - [x] Execute approved workflow for feedback `#6`:
   - [x] Implement return chart option B (zero-baseline positive/negative area)
@@ -47,10 +47,25 @@
   - [x] Add user inbox UI for station-pushed release notes
   - [x] Add backend tests for publish delivery flow and semantic version uniqueness
   - [x] Run backend/frontend test and build validation
+- [x] Execute approved workflow for feedback `#5`:
+  - [x] Push branch `codex/feedback-fix-5-20260305`
+  - [x] Reply and close feedback ticket `#5`
+- [x] Implement feedback `#4` dynamic chart strategy (local, awaiting acceptance before push):
+  - [x] Add `calculateDynamicAxisLayout` (median centerline + adaptive domain)
+  - [x] Apply dynamic y-domain + median reference line to `PortfolioTrendChart`
+  - [x] Apply dynamic y-domain + median reference line to `ReturnTrendChart`
+  - [x] Keep return chart zero-baseline semantic line while adding median line
+  - [x] Add tests for dynamic axis layout and custom center split
+  - [x] Run frontend tests and build validation
+- [x] Refactor release-note inbox delivery to stream mode:
+  - [x] Keep max one release-note notification per user
+  - [x] New publish updates same delivery row and resets unseen flag
+  - [x] User release-note content returns cumulative markdown history
+  - [x] Add backend test for multi-publish single-message behavior
+  - [x] Add repository `CHANGELOG.md` as persistent update history file
 
 ### Pending
 - [ ] Create Codex automation `Daily Feedback Approval Loop` (09:30 Asia/Shanghai)
-- [ ] Push feedback `#5` implementation after product acceptance
 - [ ] Create `.env.codex-feedback-automation.local` from example and fill secrets:
   - [ ] `FEEDBACK_API_BASE_URL=http://117.72.217.15:8080`
   - [ ] `FEEDBACK_ADMIN_USER=<admin_user>`

@@ -1726,13 +1726,16 @@ def _to_release_note_read(
 def _to_release_note_delivery_read(
 	delivery: ReleaseNoteDelivery,
 	release_note: ReleaseNote,
+	*,
+	title_override: str | None = None,
+	content_override: str | None = None,
 ) -> ReleaseNoteDeliveryRead:
 	return ReleaseNoteDeliveryRead(
 		delivery_id=delivery.id or 0,
 		release_note_id=release_note.id or 0,
 		version=release_note.version,
-		title=release_note.title,
-		content=release_note.content,
+		title=title_override if title_override is not None else release_note.title,
+		content=content_override if content_override is not None else release_note.content,
 		source_feedback_ids=_decode_source_feedback_ids(release_note.source_feedback_ids_json),
 		delivered_at=delivery.delivered_at,
 		seen_at=delivery.seen_at,
@@ -1740,38 +1743,120 @@ def _to_release_note_delivery_read(
 	)
 
 
-def _ensure_release_note_deliveries_for_user(session: Session, user_id: str) -> None:
-	published_notes = list(
+def _list_published_release_notes_desc(session: Session) -> list[ReleaseNote]:
+	return list(
 		session.exec(
-			select(ReleaseNote).where(ReleaseNote.published_at.is_not(None)),
+			select(ReleaseNote)
+			.where(ReleaseNote.published_at.is_not(None))
+			.order_by(ReleaseNote.published_at.desc(), ReleaseNote.id.desc()),
 		),
 	)
-	if not published_notes:
-		return
 
-	delivered_release_note_ids = set(
+
+def _get_latest_published_release_note(session: Session) -> ReleaseNote | None:
+	return session.exec(
+		select(ReleaseNote)
+		.where(ReleaseNote.published_at.is_not(None))
+		.order_by(ReleaseNote.published_at.desc(), ReleaseNote.id.desc()),
+	).first()
+
+
+def _format_release_note_stream_content(release_notes: list[ReleaseNote]) -> str:
+	if not release_notes:
+		return ""
+
+	sections: list[str] = []
+	for release_note in release_notes:
+		published_at = (release_note.published_at or release_note.created_at).astimezone(
+			FEEDBACK_TIMEZONE,
+		)
+		source_feedback_ids = _decode_source_feedback_ids(release_note.source_feedback_ids_json)
+		source_feedback_line = ""
+		if source_feedback_ids:
+			source_feedback_line = (
+				"\n关联反馈："
+				+ ", ".join(f"#{feedback_id}" for feedback_id in source_feedback_ids)
+			)
+
+		sections.append(
+			"\n".join(
+				[
+					f"## v{release_note.version} · {published_at:%Y-%m-%d %H:%M}",
+					release_note.title,
+					"",
+					release_note.content,
+					source_feedback_line,
+				],
+			).strip(),
+		)
+
+	return "# 更新日志\n\n" + "\n\n---\n\n".join(sections)
+
+
+def _upsert_release_note_stream_delivery(
+	session: Session,
+	*,
+	user_id: str,
+	release_note: ReleaseNote,
+	reset_seen: bool,
+) -> bool:
+	release_note_id = release_note.id
+	if release_note_id is None:
+		return False
+
+	deliveries = list(
 		session.exec(
-			select(ReleaseNoteDelivery.release_note_id).where(
-				ReleaseNoteDelivery.user_id == user_id,
-			),
-		).all(),
+			select(ReleaseNoteDelivery)
+			.where(ReleaseNoteDelivery.user_id == user_id)
+			.order_by(ReleaseNoteDelivery.delivered_at.desc(), ReleaseNoteDelivery.id.desc()),
+		),
 	)
-	created_new_delivery = False
-	for release_note in published_notes:
-		release_note_id = release_note.id
-		if release_note_id is None or release_note_id in delivered_release_note_ids:
-			continue
 
+	target_delivered_at = release_note.published_at or utc_now()
+	changed = False
+	if not deliveries:
 		session.add(
 			ReleaseNoteDelivery(
 				release_note_id=release_note_id,
 				user_id=user_id,
-				delivered_at=release_note.published_at or utc_now(),
+				delivered_at=target_delivered_at,
+				seen_at=None,
 			),
 		)
-		created_new_delivery = True
+		return True
 
-	if created_new_delivery:
+	primary_delivery = deliveries[0]
+	is_new_release_for_user = primary_delivery.release_note_id != release_note_id
+	if primary_delivery.release_note_id != release_note_id:
+		primary_delivery.release_note_id = release_note_id
+		changed = True
+	if primary_delivery.delivered_at != target_delivered_at:
+		primary_delivery.delivered_at = target_delivered_at
+		changed = True
+	if is_new_release_for_user or reset_seen:
+		if primary_delivery.seen_at is not None:
+			primary_delivery.seen_at = None
+			changed = True
+	session.add(primary_delivery)
+
+	for stale_delivery in deliveries[1:]:
+		session.delete(stale_delivery)
+		changed = True
+
+	return changed
+
+
+def _ensure_release_note_deliveries_for_user(session: Session, user_id: str) -> None:
+	latest_release_note = _get_latest_published_release_note(session)
+	if latest_release_note is None:
+		return
+
+	if _upsert_release_note_stream_delivery(
+		session,
+		user_id=user_id,
+		release_note=latest_release_note,
+		reset_seen=False,
+	):
 		session.commit()
 
 
@@ -2044,14 +2129,17 @@ def get_feedback_summary(
 		),
 	)
 	release_note_unread_count = len(
-		list(
-			session.exec(
-				select(ReleaseNoteDelivery.id).where(
+		[
+			1
+			for _ in session.exec(
+				select(ReleaseNoteDelivery.id)
+				.where(
 					ReleaseNoteDelivery.user_id == current_user.username,
 					ReleaseNoteDelivery.seen_at.is_(None),
-				),
-			),
-		),
+				)
+				.limit(1),
+			)
+		],
 	)
 	return FeedbackSummaryRead(
 		inbox_count=feedback_unread_count + release_note_unread_count,
@@ -2171,55 +2259,6 @@ def create_release_note_for_admin(
 	return _to_release_note_read(session, release_note)
 
 
-@app.post("/api/admin/release-notes/{release_note_id}/publish", response_model=ReleaseNoteRead)
-def publish_release_note_for_admin(
-	release_note_id: int,
-	current_user: CurrentUserDependency,
-	session: SessionDependency,
-	_: TokenDependency,
-) -> ReleaseNoteRead:
-	_require_admin_user(current_user)
-	release_note = session.get(ReleaseNote, release_note_id)
-	if release_note is None:
-		raise HTTPException(status_code=404, detail="更新日志不存在。")
-
-	if release_note.published_at is None:
-		release_note.published_at = utc_now()
-		session.add(release_note)
-		session.commit()
-		session.refresh(release_note)
-
-	existing_recipients = set(
-		session.exec(
-			select(ReleaseNoteDelivery.user_id).where(
-				ReleaseNoteDelivery.release_note_id == release_note_id,
-			),
-		).all(),
-	)
-	recipient_ids = list(
-		session.exec(
-			select(UserAccount.username).where(UserAccount.username != current_user.username),
-		),
-	)
-	created_new_delivery = False
-	for recipient_id in recipient_ids:
-		if recipient_id in existing_recipients:
-			continue
-		session.add(
-			ReleaseNoteDelivery(
-				release_note_id=release_note_id,
-				user_id=recipient_id,
-				delivered_at=release_note.published_at or utc_now(),
-			),
-		)
-		created_new_delivery = True
-
-	if created_new_delivery:
-		session.commit()
-
-	return _to_release_note_read(session, release_note)
-
-
 @app.get("/api/release-notes", response_model=list[ReleaseNoteDeliveryRead])
 def list_release_notes_for_current_user(
 	current_user: CurrentUserDependency,
@@ -2227,18 +2266,29 @@ def list_release_notes_for_current_user(
 	_: TokenDependency,
 ) -> list[ReleaseNoteDeliveryRead]:
 	_ensure_release_note_deliveries_for_user(session, current_user.username)
-	rows = list(
-		session.exec(
-			select(ReleaseNoteDelivery, ReleaseNote)
-			.join(ReleaseNote, ReleaseNote.id == ReleaseNoteDelivery.release_note_id)
-			.where(
-				ReleaseNoteDelivery.user_id == current_user.username,
-				ReleaseNote.published_at.is_not(None),
-			)
-			.order_by(ReleaseNoteDelivery.delivered_at.desc()),
+	row = session.exec(
+		select(ReleaseNoteDelivery, ReleaseNote)
+		.join(ReleaseNote, ReleaseNote.id == ReleaseNoteDelivery.release_note_id)
+		.where(
+			ReleaseNoteDelivery.user_id == current_user.username,
+			ReleaseNote.published_at.is_not(None),
+		)
+		.order_by(ReleaseNoteDelivery.delivered_at.desc(), ReleaseNoteDelivery.id.desc())
+		.limit(1),
+	).first()
+	if row is None:
+		return []
+
+	delivery, latest_release_note = row
+	stream_content = _format_release_note_stream_content(_list_published_release_notes_desc(session))
+	return [
+		_to_release_note_delivery_read(
+			delivery,
+			latest_release_note,
+			title_override="产品更新日志（持续更新）",
+			content_override=stream_content,
 		),
-	)
-	return [_to_release_note_delivery_read(delivery, release_note) for delivery, release_note in rows]
+	]
 
 
 @app.post("/api/release-notes/mark-seen", response_model=ActionMessageRead)
@@ -2266,6 +2316,45 @@ def mark_release_notes_seen_for_current_user(
 
 	session.commit()
 	return ActionMessageRead(message="更新日志已标记为已读。")
+
+
+@app.post("/api/admin/release-notes/{release_note_id}/publish", response_model=ReleaseNoteRead)
+def publish_release_note_for_admin(
+	release_note_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> ReleaseNoteRead:
+	_require_admin_user(current_user)
+	release_note = session.get(ReleaseNote, release_note_id)
+	if release_note is None:
+		raise HTTPException(status_code=404, detail="更新日志不存在。")
+
+	if release_note.published_at is None:
+		release_note.published_at = utc_now()
+		session.add(release_note)
+		session.commit()
+		session.refresh(release_note)
+
+	recipient_ids = list(
+		session.exec(
+			select(UserAccount.username).where(UserAccount.username != current_user.username),
+		),
+	)
+	updated_delivery = False
+	for recipient_id in recipient_ids:
+		if _upsert_release_note_stream_delivery(
+			session,
+			user_id=recipient_id,
+			release_note=release_note,
+			reset_seen=True,
+		):
+			updated_delivery = True
+
+	if updated_delivery:
+		session.commit()
+
+	return _to_release_note_read(session, release_note)
 
 
 @app.post("/api/dashboard/corrections", response_model=DashboardCorrectionRead, status_code=201)

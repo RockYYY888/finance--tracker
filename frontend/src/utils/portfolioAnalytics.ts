@@ -196,6 +196,90 @@ export function summarizeCompoundedStepRate(series: TimelinePoint[]): number {
 	return (Math.pow(cumulativeRatio, 1 / intervalCount) - 1) * 100;
 }
 
+export type DynamicAxisLayout = {
+	centerValue: number;
+	domain: [number, number];
+	minValue: number;
+	maxValue: number;
+};
+
+type DynamicAxisOptions = {
+	includeZero?: boolean;
+	paddingRatio?: number;
+	minSpan?: number;
+};
+
+function getMedian(values: number[]): number {
+	if (values.length === 0) {
+		return 0;
+	}
+
+	const sortedValues = [...values].sort((left, right) => left - right);
+	const middleIndex = Math.floor(sortedValues.length / 2);
+	if (sortedValues.length % 2 === 1) {
+		return sortedValues[middleIndex];
+	}
+
+	return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
+}
+
+/**
+ * Builds a visually stable y-axis from the visible timeline window using a median centerline.
+ */
+export function calculateDynamicAxisLayout(
+	series: TimelinePoint[],
+	{
+		includeZero = false,
+		paddingRatio = 0.18,
+		minSpan = 1,
+	}: DynamicAxisOptions = {},
+): DynamicAxisLayout {
+	const numericValues = series
+		.map((point) => point.value)
+		.filter((value) => Number.isFinite(value));
+
+	if (numericValues.length === 0) {
+		return {
+			centerValue: 0,
+			domain: [-1, 1],
+			minValue: 0,
+			maxValue: 0,
+		};
+	}
+
+	const minValue = Math.min(...numericValues);
+	const maxValue = Math.max(...numericValues);
+	const centerValue = getMedian(numericValues);
+
+	const safeMinSpan = Math.max(minSpan, 1e-6);
+	const baseSpread = Math.max(
+		Math.abs(maxValue - centerValue),
+		Math.abs(minValue - centerValue),
+	);
+	const spread = Math.max(baseSpread, safeMinSpan);
+	const halfRange = spread * (1 + Math.max(paddingRatio, 0));
+
+	let domainMin = centerValue - halfRange;
+	let domainMax = centerValue + halfRange;
+
+	if (includeZero) {
+		domainMin = Math.min(domainMin, 0);
+		domainMax = Math.max(domainMax, 0);
+	}
+
+	if (domainMin === domainMax) {
+		domainMin -= safeMinSpan;
+		domainMax += safeMinSpan;
+	}
+
+	return {
+		centerValue,
+		domain: [domainMin, domainMax],
+		minValue,
+		maxValue,
+	};
+}
+
 export function buildAllocationLegend(
 	allocation: AllocationSlice[],
 	totalValueCny: number,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -16,6 +16,7 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
+	calculateDynamicAxisLayout,
 	formatCompactCny,
 	formatCny,
 	formatPercentage,
@@ -55,12 +56,18 @@ type PortfolioTrendChartPoint = TimelinePoint & {
 
 export function buildPortfolioTrendChartData(
 	series: TimelinePoint[],
+	centerValue = 0,
 ): PortfolioTrendChartPoint[] {
 	return series.map((point) => ({
 		...point,
-		positiveValue: point.value > 0 ? point.value : 0,
-		negativeValue: point.value < 0 ? point.value : 0,
+		positiveValue: point.value >= centerValue ? point.value : centerValue,
+		negativeValue: point.value < centerValue ? point.value : centerValue,
 	}));
+}
+
+function formatSignedRatio(ratio: number): string {
+	const prefix = ratio > 0 ? "+" : "";
+	return `${prefix}${formatPercentage(ratio)}`;
 }
 
 export function PortfolioTrendChart({
@@ -75,10 +82,24 @@ export function PortfolioTrendChart({
 }: PortfolioTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const series = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
-	const chartData = buildPortfolioTrendChartData(series);
 	const summary = summarizeTimeline(series);
+	const axisLayout = useMemo(
+		() =>
+			calculateDynamicAxisLayout(series, {
+				minSpan: Math.max(Math.abs(summary.latestValue) * 0.02, 100),
+			}),
+		[series, summary.latestValue],
+	);
+	const chartData = buildPortfolioTrendChartData(series, axisLayout.centerValue);
 	const hasData = chartData.length > 0;
 	const changeDirection = summary.changeValue >= 0 ? "增加" : "减少";
+	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
+	const centerRatioDenominator = Math.max(
+		Math.abs(axisLayout.centerValue),
+		Math.abs(axisLayout.maxValue - axisLayout.minValue),
+		1,
+	);
+	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
 
 	return (
 		<section className="analytics-card">
@@ -112,11 +133,17 @@ export function PortfolioTrendChart({
 					<strong>
 						{changeDirection}
 						{formatCny(Math.abs(summary.changeValue))}
+						{" / "}
+						{formatSignedRatio(summary.changeRatio)}
 					</strong>
 				</div>
 				<div className="analytics-pill">
-					<span>环比幅度</span>
-					<strong>{formatPercentage(summary.changeRatio)}</strong>
+					<span>相对中线偏离</span>
+					<strong>
+						{formatCny(centerDeltaValue)}
+						{" / "}
+						{formatSignedRatio(centerDeltaRatio)}
+					</strong>
 				</div>
 			</div>
 
@@ -140,9 +167,14 @@ export function PortfolioTrendChart({
 								tickLine={false}
 								axisLine={false}
 								width={52}
+								domain={axisLayout.domain}
 								tickFormatter={formatCompactCny}
 							/>
-							<ReferenceLine y={0} stroke="rgba(214, 212, 203, 0.38)" strokeDasharray="4 4" />
+							<ReferenceLine
+								y={axisLayout.centerValue}
+								stroke="rgba(0, 155, 193, 0.65)"
+								strokeDasharray="5 5"
+							/>
 							<Tooltip
 								formatter={(value) => [
 									formatCny(Number(value ?? 0)),
@@ -159,6 +191,7 @@ export function PortfolioTrendChart({
 								stroke={POSITIVE_TREND_COLOR}
 								fill={POSITIVE_TREND_FILL}
 								strokeWidth={1.2}
+								baseValue={axisLayout.centerValue}
 								connectNulls
 							/>
 							<Area
@@ -167,6 +200,7 @@ export function PortfolioTrendChart({
 								stroke={NEGATIVE_TREND_COLOR}
 								fill={NEGATIVE_TREND_FILL}
 								strokeWidth={1.2}
+								baseValue={axisLayout.centerValue}
 								connectNulls
 							/>
 							<Line
@@ -185,14 +219,14 @@ export function PortfolioTrendChart({
 								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
 								aria-hidden="true"
 							/>
-							净值高于 0
+							净值高于中位数
 						</span>
 						<span className="return-trend-legend__item" role="listitem">
 							<span
 								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
 								aria-hidden="true"
 							/>
-							净值低于 0
+							净值低于中位数
 						</span>
 					</div>
 				</div>

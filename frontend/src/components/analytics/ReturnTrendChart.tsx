@@ -20,8 +20,10 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
+	calculateDynamicAxisLayout,
 	formatCompactPercentMetric,
 	formatPercentMetric,
+	formatPercentage,
 	getTimelineSeries,
 	summarizeCompoundedStepRate,
 	summarizeTimeline,
@@ -79,6 +81,11 @@ export function buildReturnTrendChartData(series: TimelinePoint[]): ReturnTrendC
 		positiveValue: point.value > 0 ? point.value : 0,
 		negativeValue: point.value < 0 ? point.value : 0,
 	}));
+}
+
+function formatSignedRatio(ratio: number): string {
+	const prefix = ratio > 0 ? "+" : "";
+	return `${prefix}${formatPercentage(ratio)}`;
 }
 
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
@@ -147,8 +154,23 @@ export function ReturnTrendChart({
 		: [];
 	const summary = summarizeTimeline(series);
 	const compoundedStepRate = summarizeCompoundedStepRate(series);
+	const axisLayout = useMemo(
+		() =>
+			calculateDynamicAxisLayout(series, {
+				includeZero: true,
+				minSpan: 0.3,
+			}),
+		[series],
+	);
 	const chartData = buildReturnTrendChartData(series);
 	const hasData = chartData.length > 0;
+	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
+	const centerRatioDenominator = Math.max(
+		Math.abs(axisLayout.centerValue),
+		Math.abs(axisLayout.maxValue - axisLayout.minValue),
+		1,
+	);
+	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
 
 	return (
 		<section className="analytics-card">
@@ -201,6 +223,14 @@ export function ReturnTrendChart({
 					<span>周期变化</span>
 					<strong>{formatPercentMetric(summary.changeValue, true)}</strong>
 				</div>
+				<div className="analytics-pill">
+					<span>相对中线偏离</span>
+					<strong>
+						{formatPercentMetric(centerDeltaValue, true)}
+						{" / "}
+						{formatSignedRatio(centerDeltaRatio)}
+					</strong>
+				</div>
 				{showCompoundedStepRate ? (
 					<div className="analytics-pill">
 						<span>{COMPOUNDED_STEP_LABELS[range]}</span>
@@ -227,7 +257,13 @@ export function ReturnTrendChart({
 								tickLine={false}
 								axisLine={false}
 								width={56}
+								domain={axisLayout.domain}
 								tickFormatter={formatCompactPercentMetric}
+							/>
+							<ReferenceLine
+								y={axisLayout.centerValue}
+								stroke="rgba(0, 155, 193, 0.65)"
+								strokeDasharray="5 5"
 							/>
 							<ReferenceLine y={0} stroke="rgba(214, 212, 203, 0.38)" strokeDasharray="4 4" />
 							<Tooltip
