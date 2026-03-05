@@ -1,11 +1,5 @@
 # Personal Asset Tracker
 
-## Authorship
-
-- Author: `Yiwei LI`
-- Contact: `lywyoyo0318@gmail.com`
-- Copyright (c) 2026 `Yiwei LI`
-
 ## Docker Compose
 
 Local development does not assume a host proxy:
@@ -48,3 +42,9 @@ This project is licensed under **GNU Affero General Public License v3.0** (`AGPL
 Closed-source commercial use is not permitted unless separately authorized by the author.
 
 See [LICENSE](./LICENSE) for the full license text.
+
+## Authorship
+
+- Author: `Yiwei LI`
+- Contact: `lywyoyo0318@gmail.com`
+- Copyright (c) 2026 `Yiwei LI`
