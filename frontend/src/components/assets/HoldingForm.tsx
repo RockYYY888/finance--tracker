@@ -28,6 +28,7 @@ export interface HoldingFormProps {
 	submitLabel?: string;
 	busy?: boolean;
 	errorMessage?: string | null;
+	maxStartedOnDate?: string;
 	onCreate?: (payload: HoldingInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: HoldingInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
@@ -221,6 +222,7 @@ export function HoldingForm({
 	submitLabel,
 	busy = false,
 	errorMessage = null,
+	maxStartedOnDate,
 	onCreate,
 	onEdit,
 	onDelete,
@@ -399,6 +401,9 @@ export function HoldingForm({
 			}
 			if (!allowsFractionalQuantity(draft.market) && !Number.isInteger(payload.quantity)) {
 				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
+			}
+			if (payload.started_on && maxStartedOnDate && payload.started_on > maxStartedOnDate) {
+				throw new Error(`持仓日不能晚于服务器今日日期（${maxStartedOnDate}）。`);
 			}
 
 			const duplicateHolding = findDuplicateHolding(existingHoldings, payload.symbol, recordId);
@@ -656,6 +661,7 @@ export function HoldingForm({
 					<DatePickerField
 						value={draft.started_on}
 						onChange={(nextValue) => updateDraft("started_on", nextValue)}
+						maxDate={maxStartedOnDate}
 						placeholder="选择持仓日"
 					/>
 				</label>

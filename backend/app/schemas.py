@@ -798,6 +798,7 @@ class HoldingReturnSeries(BaseModel):
 
 
 class DashboardResponse(BaseModel):
+	server_today: date
 	total_value_cny: float
 	cash_value_cny: float
 	holdings_value_cny: float

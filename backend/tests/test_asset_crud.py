@@ -594,6 +594,30 @@ def test_create_holding_persists_market_broker_and_note(session: Session) -> Non
 	assert stored_holding.note == "long term"
 
 
+def test_create_holding_rejects_future_started_on_based_on_server_date(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	future_started_on = (datetime.now(timezone.utc) + timedelta(days=2)).date()
+
+	with pytest.raises(HTTPException) as error:
+		create_holding(
+			SecurityHoldingCreate(
+				symbol="aapl",
+				name="Apple",
+				quantity=2,
+				fallback_currency="usd",
+				market="us",
+				started_on=future_started_on,
+			),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 422
+	assert "持仓日不能晚于今日" in error.value.detail
+
+
 def test_update_holding_updates_new_fields(session: Session) -> None:
 	current_user = make_user(session)
 	holding = create_holding(
@@ -631,6 +655,43 @@ def test_update_holding_updates_new_fields(session: Session) -> None:
 	assert updated_holding.market == "HK"
 	assert updated_holding.broker == "Futu"
 	assert updated_holding.note == "core position"
+
+
+def test_update_holding_rejects_future_started_on_based_on_server_date(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+	future_started_on = (datetime.now(timezone.utc) + timedelta(days=2)).date()
+
+	with pytest.raises(HTTPException) as error:
+		update_holding(
+			holding.id or 0,
+			SecurityHoldingUpdate(
+				symbol="AAPL",
+				name="Apple",
+				quantity=2,
+				fallback_currency="USD",
+				market="US",
+				started_on=future_started_on,
+			),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 422
+	assert "持仓日不能晚于今日" in error.value.detail
 
 
 def test_delete_holding_removes_record(session: Session) -> None:
@@ -1069,6 +1130,7 @@ def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
 		assert user.username == current_user.username
 		assert db_session is session
 		return DashboardResponse(
+			server_today=date(2026, 3, 1),
 			total_value_cny=0,
 			cash_value_cny=0,
 			holdings_value_cny=0,
@@ -1125,6 +1187,7 @@ def test_get_dashboard_refresh_only_clears_runtime_cache_once_within_global_wind
 		assert force_refresh is True
 		refresh_calls["dashboard_rebuild"] += 1
 		return DashboardResponse(
+			server_today=date(2026, 3, 1),
 			total_value_cny=0,
 			cash_value_cny=0,
 			holdings_value_cny=0,
@@ -1183,6 +1246,7 @@ def test_refresh_user_dashboards_clears_market_data_once_per_cycle(
 		assert force_refresh is True
 		refresh_calls["dashboard_rebuild"] += 1
 		return DashboardResponse(
+			server_today=date(2026, 3, 1),
 			total_value_cny=0,
 			cash_value_cny=0,
 			holdings_value_cny=0,

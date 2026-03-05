@@ -47,3 +47,35 @@ describe("HoldingForm search results", () => {
 		expect(screen.getByText(/Bitget/)).not.toBeNull();
 	});
 });
+
+describe("HoldingForm started_on guard", () => {
+	it("blocks submit when started_on is later than server date", async () => {
+		const onEdit = vi.fn().mockResolvedValue(undefined);
+
+		render(
+			<HoldingForm
+				mode="edit"
+				recordId={1}
+				maxStartedOnDate="2026-03-05"
+				value={{
+					symbol: "AAPL",
+					name: "Apple",
+					quantity: "2",
+					fallback_currency: "USD",
+					market: "US",
+					started_on: "2026-03-06",
+				}}
+				onEdit={onEdit}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+
+		await waitFor(() => {
+			expect(
+				screen.getByText("持仓日不能晚于服务器今日日期（2026-03-05）。"),
+			).not.toBeNull();
+		});
+		expect(onEdit).not.toHaveBeenCalled();
+	});
+});

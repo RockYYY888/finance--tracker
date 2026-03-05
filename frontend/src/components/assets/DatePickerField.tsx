@@ -6,6 +6,7 @@ type DatePickerFieldProps = {
 	value: string;
 	onChange: (nextValue: string) => void;
 	placeholder?: string;
+	maxDate?: string;
 	disabled?: boolean;
 };
 
@@ -47,22 +48,44 @@ function formatDisplayDate(value: string): string {
 	}).format(parsedDate);
 }
 
+function toDayTimestamp(value: Date): number {
+	return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+}
+
+function isAfterDate(left: Date, right: Date): boolean {
+	return toDayTimestamp(left) > toDayTimestamp(right);
+}
+
 export function DatePickerField({
 	value,
 	onChange,
 	placeholder = "请选择日期",
+	maxDate,
 	disabled = false,
 }: DatePickerFieldProps) {
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const selectedDate = useMemo(() => parseDateValue(value), [value]);
+	const maxSelectableDate = useMemo(
+		() => (maxDate ? parseDateValue(maxDate) : undefined),
+		[maxDate],
+	);
 	const [isOpen, setIsOpen] = useState(false);
-	const [month, setMonth] = useState<Date>(selectedDate ?? new Date());
+	const [month, setMonth] = useState<Date>(selectedDate ?? maxSelectableDate ?? new Date());
 
 	useEffect(() => {
 		if (selectedDate) {
+			if (maxSelectableDate && isAfterDate(selectedDate, maxSelectableDate)) {
+				setMonth(maxSelectableDate);
+				return;
+			}
 			setMonth(selectedDate);
+			return;
 		}
-	}, [selectedDate]);
+
+		if (maxSelectableDate) {
+			setMonth(maxSelectableDate);
+		}
+	}, [maxSelectableDate, selectedDate]);
 
 	useEffect(() => {
 		if (!isOpen) {
@@ -93,6 +116,9 @@ export function DatePickerField({
 		if (!nextDate) {
 			return;
 		}
+		if (maxSelectableDate && isAfterDate(nextDate, maxSelectableDate)) {
+			return;
+		}
 
 		onChange(formatDateValue(nextDate));
 		setMonth(nextDate);
@@ -105,7 +131,7 @@ export function DatePickerField({
 	}
 
 	function handleSelectToday(): void {
-		const today = new Date();
+		const today = maxSelectableDate ?? new Date();
 		onChange(formatDateValue(today));
 		setMonth(today);
 		setIsOpen(false);
@@ -146,8 +172,9 @@ export function DatePickerField({
 						onSelect={handleSelect}
 						showOutsideDays
 						fixedWeeks
+						disabled={maxSelectableDate ? { after: maxSelectableDate } : undefined}
 						startMonth={new Date(1970, 0)}
-						endMonth={new Date(new Date().getFullYear() + 20, 11)}
+						endMonth={maxSelectableDate ?? new Date(new Date().getFullYear() + 20, 11)}
 					/>
 					<div className="asset-date-popover__actions">
 						<button

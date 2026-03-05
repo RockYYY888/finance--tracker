@@ -1,6 +1,7 @@
 import type { PortfolioAnalyticsData } from "./portfolioAnalytics";
 
 export type DashboardResponse = PortfolioAnalyticsData & {
+	server_today: string;
 	cash_value_cny: number;
 	holdings_value_cny: number;
 	fixed_assets_value_cny: number;
@@ -12,6 +13,7 @@ export type DashboardResponse = PortfolioAnalyticsData & {
 };
 
 export const EMPTY_DASHBOARD: DashboardResponse = {
+	server_today: "",
 	total_value_cny: 0,
 	cash_value_cny: 0,
 	holdings_value_cny: 0,

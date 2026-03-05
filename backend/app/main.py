@@ -372,6 +372,23 @@ def _feedback_day_window(value: datetime | None = None) -> tuple[datetime, datet
 	return day_start_local.astimezone(timezone.utc), day_end_local.astimezone(timezone.utc)
 
 
+def _server_today_date(value: datetime | None = None) -> date:
+	timestamp = _coerce_utc_datetime(value or utc_now()).astimezone(FEEDBACK_TIMEZONE)
+	return timestamp.date()
+
+
+def _ensure_date_not_future(value: date | None, *, field_label: str) -> None:
+	if value is None:
+		return
+
+	server_today = _server_today_date()
+	if value > server_today:
+		raise HTTPException(
+			status_code=422,
+			detail=f"{field_label}不能晚于今日（服务器日期：{server_today.isoformat()}）。",
+		)
+
+
 def _date_start_utc(value: date) -> datetime:
 	"""Convert a local calendar date into the UTC timestamp of local 00:00."""
 	day_start_local = datetime(
@@ -1833,6 +1850,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		)
 
 	return DashboardResponse(
+		server_today=_server_today_date(now),
 		total_value_cny=total_value_cny,
 		cash_value_cny=cash_value_cny,
 		holdings_value_cny=holdings_value_cny,
@@ -4107,6 +4125,7 @@ def create_holding(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> SecurityHoldingRead:
+	_ensure_date_not_future(payload.started_on, field_label="持仓日")
 	holding = SecurityHolding(
 		user_id=current_user.username,
 		symbol=_normalize_symbol(payload.symbol, payload.market),
@@ -4164,6 +4183,7 @@ def update_holding(
 	if "broker" in payload.model_fields_set:
 		holding.broker = _normalize_optional_text(payload.broker)
 	if "started_on" in payload.model_fields_set:
+		_ensure_date_not_future(payload.started_on, field_label="持仓日")
 		holding.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		holding.note = _normalize_optional_text(payload.note)

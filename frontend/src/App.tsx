@@ -1497,6 +1497,7 @@ function App() {
 						otherAssetActions={assetManagerController.otherAssets}
 						title="资产管理"
 						description="自动同步。"
+						maxStartedOnDate={dashboard.server_today || undefined}
 						defaultSection={
 							dashboard.holdings.length > 0
 								? "investment"

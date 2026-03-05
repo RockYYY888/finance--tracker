@@ -59,6 +59,7 @@ export interface AssetManagerProps {
 	description?: string;
 	autoRefreshOnMount?: boolean;
 	refreshToken?: number;
+	maxStartedOnDate?: string;
 }
 
 function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
@@ -304,6 +305,7 @@ export function AssetManager({
 	description,
 	autoRefreshOnMount = false,
 	refreshToken = 0,
+	maxStartedOnDate,
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
 	const cashCollection = useAssetCollection({
@@ -472,6 +474,7 @@ export function AssetManager({
 								recordId={holdingCollection.editingRecord?.id ?? null}
 								busy={holdingCollection.isSubmitting}
 								errorMessage={holdingCollection.errorMessage}
+								maxStartedOnDate={maxStartedOnDate}
 								onCreate={(payload) => holdingCollection.submit(payload)}
 								onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
 								onDelete={(recordId) => removeHoldingRecord(recordId)}
