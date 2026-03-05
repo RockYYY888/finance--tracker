@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import {
+	Area,
 	CartesianGrid,
+	ComposedChart,
 	Line,
-	LineChart,
+	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
 	XAxis,
@@ -59,6 +61,25 @@ const COMPOUNDED_STEP_LABELS: Record<TimelineRange, string> = {
 	month: "月均环比",
 	year: "年均环比",
 };
+
+const POSITIVE_RETURN_COLOR = "#009BC1";
+const NEGATIVE_RETURN_COLOR = "#D7336C";
+const POSITIVE_RETURN_FILL = "rgba(0, 155, 193, 0.22)";
+const NEGATIVE_RETURN_FILL = "rgba(215, 51, 108, 0.22)";
+const RETURN_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
+
+type ReturnTrendChartPoint = TimelinePoint & {
+	positiveValue: number;
+	negativeValue: number;
+};
+
+export function buildReturnTrendChartData(series: TimelinePoint[]): ReturnTrendChartPoint[] {
+	return series.map((point) => ({
+		...point,
+		positiveValue: point.value > 0 ? point.value : 0,
+		negativeValue: point.value < 0 ? point.value : 0,
+	}));
+}
 
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
 	return items.map((item) => ({
@@ -126,7 +147,8 @@ export function ReturnTrendChart({
 		: [];
 	const summary = summarizeTimeline(series);
 	const compoundedStepRate = summarizeCompoundedStepRate(series);
-	const hasData = series.length > 0;
+	const chartData = buildReturnTrendChartData(series);
+	const hasData = chartData.length > 0;
 
 	return (
 		<section className="analytics-card">
@@ -194,7 +216,10 @@ export function ReturnTrendChart({
 			) : (
 				<div className="analytics-chart">
 					<ResponsiveContainer width="100%" height={300}>
-						<LineChart data={series} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+						<ComposedChart
+							data={chartData}
+							margin={{ top: 12, right: 12, left: 0, bottom: 0 }}
+						>
 							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
 							<XAxis dataKey="label" stroke="#d6d4cb" tickLine={false} axisLine={false} />
 							<YAxis
@@ -204,6 +229,7 @@ export function ReturnTrendChart({
 								width={56}
 								tickFormatter={formatCompactPercentMetric}
 							/>
+							<ReferenceLine y={0} stroke="rgba(214, 212, 203, 0.38)" strokeDasharray="4 4" />
 							<Tooltip
 								formatter={(value) => [
 									formatPercentMetric(Number(value ?? 0)),
@@ -214,16 +240,48 @@ export function ReturnTrendChart({
 								itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
 								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 							/>
+							<Area
+								type="monotone"
+								dataKey="positiveValue"
+								stroke={POSITIVE_RETURN_COLOR}
+								fill={POSITIVE_RETURN_FILL}
+								strokeWidth={1.2}
+								connectNulls
+							/>
+							<Area
+								type="monotone"
+								dataKey="negativeValue"
+								stroke={NEGATIVE_RETURN_COLOR}
+								fill={NEGATIVE_RETURN_FILL}
+								strokeWidth={1.2}
+								connectNulls
+							/>
 							<Line
 								type="monotone"
 								dataKey="value"
-								stroke="#63e8ff"
-								strokeWidth={3}
-								dot={{ r: 3, strokeWidth: 0, fill: "#a6ffe6" }}
-								activeDot={{ r: 5, fill: "#a6ffe6" }}
+								stroke={RETURN_LINE_COLOR}
+								strokeWidth={2.4}
+								dot={false}
+								activeDot={{ r: 4, fill: RETURN_LINE_COLOR }}
 							/>
-						</LineChart>
+						</ComposedChart>
 					</ResponsiveContainer>
+					<div className="return-trend-legend" role="list" aria-label="收益图例">
+						<span className="return-trend-legend__item" role="listitem">
+							<span
+								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
+								aria-hidden="true"
+							/>
+							正收益区
+						</span>
+						<span className="return-trend-legend__item" role="listitem">
+							<span
+								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
+								aria-hidden="true"
+							/>
+							负收益区
+						</span>
+					</div>
 				</div>
 			)}
 		</section>
