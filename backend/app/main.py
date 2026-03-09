@@ -3298,6 +3298,10 @@ def submit_feedback(
 		if source is None:
 			source = "SYSTEM" if category.startswith("SYSTEM_") else "ADMIN"
 
+		# System feedback must never remain USER source, otherwise it can hit user daily limit.
+		if category.startswith("SYSTEM_") and source == "USER":
+			source = "SYSTEM"
+
 		if category == "USER_REQUEST" and source in {"SYSTEM", "API_MONITOR", "TRADING_AGENT"}:
 			category = "SYSTEM_TASK"
 
@@ -3314,7 +3318,7 @@ def submit_feedback(
 		requested_fingerprint = None
 		requested_dedupe_window_minutes = None
 
-	if source == "USER":
+	if source == "USER" and category == "USER_REQUEST":
 		day_start, day_end = _feedback_day_window()
 		submission_count = len(
 			list(

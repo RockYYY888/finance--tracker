@@ -120,6 +120,52 @@ def test_feedback_classification_defaults_and_system_submission(session: Session
 	assert system_alert_feedback.closed_by is None
 
 
+def test_admin_system_feedback_rewrites_user_source_and_skips_daily_limit(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+
+	for index in range(5):
+		created_feedback = submit_feedback(
+			UserFeedbackCreate(
+				message=f"系统巡检心跳兼容提交：{index}",
+				category="SYSTEM_HEARTBEAT",
+				priority="LOW",
+				source="USER",
+			),
+			admin_user,
+			session,
+		)
+		assert created_feedback.category == "SYSTEM_HEARTBEAT"
+		assert created_feedback.source == "SYSTEM"
+		assert created_feedback.is_system is True
+		assert created_feedback.status == "RESOLVED"
+
+
+def test_admin_user_request_with_user_source_still_has_daily_limit(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+
+	for index in range(3):
+		created_feedback = submit_feedback(
+			UserFeedbackCreate(
+				message=f"管理员模拟用户反馈第 {index + 1} 次。",
+				source="USER",
+			),
+			admin_user,
+			session,
+		)
+		assert created_feedback.category == "USER_REQUEST"
+		assert created_feedback.source == "USER"
+
+	with pytest.raises(HTTPException, match="今日反馈次数已达上限"):
+		submit_feedback(
+			UserFeedbackCreate(
+				message="管理员模拟用户反馈第 4 次应受限。",
+				source="USER",
+			),
+			admin_user,
+			session,
+		)
+
+
 def test_submit_feedback_limits_each_user_to_three_per_day(session: Session) -> None:
 	current_user = make_user(session)
 
