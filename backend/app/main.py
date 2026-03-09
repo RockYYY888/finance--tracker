@@ -30,6 +30,7 @@ from app.models import (
 	HOLDING_TRANSACTION_SIDES,
 	INBOX_MESSAGE_KINDS,
 	HOLDING_HISTORY_SYNC_STATUSES,
+	AgentAccessToken,
 	AssetMutationAudit,
 	CashAccount,
 	DashboardCorrection,
@@ -50,6 +51,11 @@ from app.models import (
 )
 from app.schemas import (
 	ActionMessageRead,
+	AgentContextRead,
+	AgentTokenCreate,
+	AgentTokenIssueCreate,
+	AgentTokenIssueRead,
+	AgentTokenRead,
 	AdminFeedbackAcknowledgeUpdate,
 	AdminFeedbackClassifyUpdate,
 	AdminFeedbackListRead,
@@ -84,6 +90,7 @@ from app.schemas import (
 	ReleaseNoteDeliveryRead,
 	ReleaseNoteRead,
 	SecuritySearchRead,
+	SecurityQuoteRead,
 	SecurityHoldingTransactionCreate,
 	SecurityHoldingTransactionRead,
 	UserEmailUpdate,
@@ -99,7 +106,9 @@ from app.schemas import (
 	ValuedOtherAsset,
 )
 from app.security import (
-	get_session_user_id,
+	extract_bearer_token,
+	generate_agent_token,
+	hash_agent_token,
 	hash_email,
 	hash_password,
 	normalize_user_id,
@@ -133,6 +142,11 @@ FAILED_LOGIN_FORGOT_PASSWORD_THRESHOLD = 5
 MAX_LOGIN_DEVICE_ID_LENGTH = 120
 LOGIN_ATTEMPT_STATE_TTL = timedelta(hours=24)
 HOLDING_QUANTITY_EPSILON = 1e-8
+AGENT_TOKEN_LAST_USED_UPDATE_INTERVAL = timedelta(minutes=1)
+CACHE_FALLBACK_WARNING_MARKERS = (
+	"行情源不可用，已回退到最近缓存值",
+	"汇率源不可用，已回退到最近缓存值",
+)
 
 
 @dataclass(slots=True)
@@ -202,6 +216,19 @@ holding_history_sync_lock = asyncio.Lock()
 login_attempts_lock = threading.Lock()
 
 
+def _is_cache_fallback_warning(warning: str) -> bool:
+	return any(marker in warning for marker in CACHE_FALLBACK_WARNING_MARKERS)
+
+
+def _filter_dashboard_warnings_for_user(
+	warnings: list[str],
+	current_user: UserAccount,
+) -> list[str]:
+	if current_user.username == "admin":
+		return list(warnings)
+	return [warning for warning in warnings if not _is_cache_fallback_warning(warning)]
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
 	global background_refresh_task
@@ -249,8 +276,8 @@ app.add_middleware(
 	CORSMiddleware,
 	allow_origins=settings.cors_origins(),
 	allow_credentials=True,
-	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allow_headers=["Content-Type", "X-API-Key", "X-Client-Device-Id"],
+	allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+	allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Client-Device-Id"],
 )
 
 app.add_middleware(
@@ -357,7 +384,8 @@ def _record_asset_mutation(
 
 
 def _touch_model(
-	model: CashAccount
+	model: AgentAccessToken
+	| CashAccount
 	| SecurityHolding
 	| SecurityHoldingTransaction
 	| FixedAsset
@@ -474,6 +502,89 @@ def _get_user(session: Session, user_id: str) -> UserAccount | None:
 	return session.get(UserAccount, normalize_user_id(user_id))
 
 
+def _get_agent_access_token_by_digest(
+	session: Session,
+	token_digest: str,
+) -> AgentAccessToken | None:
+	return session.exec(
+		select(AgentAccessToken).where(AgentAccessToken.token_digest == token_digest),
+	).first()
+
+
+def _resolve_agent_token_expiry(expires_in_days: int | None) -> datetime | None:
+	if expires_in_days is None:
+		return None
+
+	return utc_now() + timedelta(days=expires_in_days)
+
+
+def _format_agent_token_hint(raw_token: str) -> str:
+	return f"...{raw_token[-6:]}"
+
+
+def _to_agent_token_read(token: AgentAccessToken) -> AgentTokenRead:
+	return AgentTokenRead(
+		id=token.id or 0,
+		name=token.name,
+		token_hint=token.token_hint,
+		created_at=token.created_at,
+		updated_at=token.updated_at,
+		last_used_at=token.last_used_at,
+		expires_at=token.expires_at,
+		revoked_at=token.revoked_at,
+	)
+
+
+def _create_agent_access_token(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	name: str,
+	expires_in_days: int | None,
+) -> tuple[AgentAccessToken, str]:
+	raw_token = generate_agent_token()
+	token = AgentAccessToken(
+		user_id=current_user.username,
+		name=name.strip(),
+		token_digest=hash_agent_token(raw_token),
+		token_hint=_format_agent_token_hint(raw_token),
+		expires_at=_resolve_agent_token_expiry(expires_in_days),
+	)
+	session.add(token)
+	session.commit()
+	session.refresh(token)
+	return token, raw_token
+
+
+def _authenticate_agent_access_token(session: Session, raw_token: str) -> UserAccount:
+	try:
+		token_digest = hash_agent_token(raw_token)
+	except ValueError as exc:
+		raise HTTPException(status_code=401, detail="Invalid bearer token.") from exc
+
+	token = _get_agent_access_token_by_digest(session, token_digest)
+	if token is None or token.revoked_at is not None:
+		raise HTTPException(status_code=401, detail="Invalid bearer token.")
+
+	now = utc_now()
+	if token.expires_at is not None and _coerce_utc_datetime(token.expires_at) <= now:
+		raise HTTPException(status_code=401, detail="Bearer token expired.")
+
+	user = _get_user(session, token.user_id)
+	if user is None:
+		raise HTTPException(status_code=401, detail="Bearer token user not found.")
+
+	if token.last_used_at is None or (
+		now - _coerce_utc_datetime(token.last_used_at)
+	) >= AGENT_TOKEN_LAST_USED_UPDATE_INTERVAL:
+		token.last_used_at = now
+		_touch_model(token)
+		session.add(token)
+		session.commit()
+
+	return user
+
+
 def _audit_legacy_user_ownership() -> None:
 	with Session(engine) as session:
 		for table_name in (
@@ -502,7 +613,11 @@ def _audit_legacy_user_ownership() -> None:
 				)
 
 
-def get_current_user(request: Request, session: SessionDependency, _: TokenDependency) -> UserAccount:
+def get_session_current_user(
+	request: Request,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> UserAccount:
 	user_id = require_session_user_id(request)
 	user = _get_user(session, user_id)
 	if user is None:
@@ -511,6 +626,19 @@ def get_current_user(request: Request, session: SessionDependency, _: TokenDepen
 	return user
 
 
+def get_current_user(request: Request, session: SessionDependency, _: TokenDependency) -> UserAccount:
+	authorization = request.headers.get("authorization")
+	bearer_token = extract_bearer_token(authorization)
+	if authorization and bearer_token is None:
+		raise HTTPException(status_code=401, detail="Unsupported authorization scheme.")
+
+	if bearer_token is not None:
+		return _authenticate_agent_access_token(session, bearer_token)
+
+	return get_session_current_user(request, session, None)
+
+
+SessionCurrentUserDependency = Annotated[UserAccount, Depends(get_session_current_user)]
 CurrentUserDependency = Annotated[UserAccount, Depends(get_current_user)]
 
 
@@ -2533,6 +2661,18 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			),
 		)
 
+	dashboard_warnings = [
+		*(
+			["持仓历史更新中，曲线会在回填完成后自动同步。"]
+			if history_sync_pending
+			else []
+		),
+		*fx_display_warnings,
+		*account_warnings,
+		*holding_warnings,
+		*liability_warnings,
+	]
+
 	return DashboardResponse(
 		server_today=_server_today_date(now),
 		total_value_cny=total_value_cny,
@@ -2567,17 +2707,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		holdings_return_month_series=holdings_return_month_series,
 		holdings_return_year_series=holdings_return_year_series,
 		holding_return_series=holding_return_series,
-		warnings=[
-			*(
-				["持仓历史更新中，曲线会在回填完成后自动同步。"]
-				if history_sync_pending
-				else []
-			),
-			*fx_display_warnings,
-			*account_warnings,
-			*holding_warnings,
-			*liability_warnings,
-		],
+		warnings=_filter_dashboard_warnings_for_user(dashboard_warnings, user),
 	)
 
 
@@ -3351,20 +3481,9 @@ def _apply_dashboard_corrections(
 
 @app.get("/api/auth/session", response_model=AuthSessionRead)
 def get_auth_session(
-	request: Request,
-	session: SessionDependency,
-	_: TokenDependency,
+	current_user: CurrentUserDependency,
 ) -> AuthSessionRead:
-	user_id = get_session_user_id(request)
-	if user_id is None:
-		raise HTTPException(status_code=401, detail="请先登录。")
-
-	user = _get_user(session, user_id)
-	if user is None:
-		request.session.clear()
-		raise HTTPException(status_code=401, detail="请重新登录。")
-
-	return AuthSessionRead(user_id=user.username, email=user.email)
+	return AuthSessionRead(user_id=current_user.username, email=current_user.email)
 
 
 @app.post("/api/auth/register", response_model=AuthSessionRead, status_code=201)
@@ -3423,6 +3542,83 @@ def update_user_email(
 def logout_user(request: Request, _: TokenDependency) -> Response:
 	request.session.clear()
 	return Response(status_code=204)
+
+
+@app.post("/api/agent/tokens/issue", response_model=AgentTokenIssueRead, status_code=201)
+def issue_agent_token_with_password(
+	request: Request,
+	payload: AgentTokenIssueCreate,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> AgentTokenIssueRead:
+	attempt_key = _build_login_attempt_key(request, payload.user_id)
+	current_user = _authenticate_user_account(
+		session,
+		AuthLoginCredentials(user_id=payload.user_id, password=payload.password),
+		attempt_key=attempt_key,
+	)
+	token, raw_token = _create_agent_access_token(
+		session,
+		current_user=current_user,
+		name=payload.name,
+		expires_in_days=payload.expires_in_days,
+	)
+	return AgentTokenIssueRead(
+		**_to_agent_token_read(token).model_dump(),
+		access_token=raw_token,
+	)
+
+
+@app.post("/api/agent/tokens", response_model=AgentTokenIssueRead, status_code=201)
+def create_agent_token_for_current_session(
+	payload: AgentTokenCreate,
+	current_user: SessionCurrentUserDependency,
+	session: SessionDependency,
+) -> AgentTokenIssueRead:
+	token, raw_token = _create_agent_access_token(
+		session,
+		current_user=current_user,
+		name=payload.name,
+		expires_in_days=payload.expires_in_days,
+	)
+	return AgentTokenIssueRead(
+		**_to_agent_token_read(token).model_dump(),
+		access_token=raw_token,
+	)
+
+
+@app.get("/api/agent/tokens", response_model=list[AgentTokenRead])
+def list_agent_tokens(
+	current_user: SessionCurrentUserDependency,
+	session: SessionDependency,
+) -> list[AgentTokenRead]:
+	tokens = list(
+		session.exec(
+			select(AgentAccessToken)
+			.where(AgentAccessToken.user_id == current_user.username)
+			.order_by(AgentAccessToken.created_at.desc(), AgentAccessToken.id.desc()),
+		),
+	)
+	return [_to_agent_token_read(token) for token in tokens]
+
+
+@app.delete("/api/agent/tokens/{token_id}", response_model=ActionMessageRead)
+def revoke_agent_token(
+	token_id: int,
+	current_user: SessionCurrentUserDependency,
+	session: SessionDependency,
+) -> ActionMessageRead:
+	token = session.get(AgentAccessToken, token_id)
+	if token is None or token.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Agent token not found.")
+
+	if token.revoked_at is None:
+		token.revoked_at = utc_now()
+		_touch_model(token)
+		session.add(token)
+		session.commit()
+
+	return ActionMessageRead(message="智能体访问令牌已撤销。")
 
 
 @app.post("/api/feedback", response_model=UserFeedbackRead, status_code=201)
@@ -4961,6 +5157,65 @@ def delete_holding(
 	return Response(status_code=204)
 
 
+def _list_holding_transactions_for_user(
+	session: Session,
+	*,
+	user_id: str,
+	symbol: str | None = None,
+	market: str | None = None,
+	side: str | None = None,
+	limit: int = 100,
+) -> list[SecurityHoldingTransaction]:
+	statement = (
+		select(SecurityHoldingTransaction)
+		.where(SecurityHoldingTransaction.user_id == user_id)
+		.order_by(
+			SecurityHoldingTransaction.traded_on.desc(),
+			SecurityHoldingTransaction.created_at.desc(),
+			SecurityHoldingTransaction.id.desc(),
+		)
+		.limit(limit)
+	)
+
+	if symbol:
+		statement = statement.where(
+			SecurityHoldingTransaction.symbol == _normalize_symbol(symbol, market),
+		)
+	if market:
+		statement = statement.where(
+			SecurityHoldingTransaction.market == market.strip().upper(),
+		)
+	if side:
+		statement = statement.where(
+			SecurityHoldingTransaction.side == _normalize_holding_transaction_side(side),
+		)
+
+	return list(session.exec(statement))
+
+
+@app.get(
+	"/api/holding-transactions",
+	response_model=list[SecurityHoldingTransactionRead],
+)
+def list_all_holding_transactions(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	symbol: str | None = Query(default=None),
+	market: str | None = Query(default=None),
+	side: str | None = Query(default=None),
+	limit: int = Query(default=100, ge=1, le=500),
+) -> list[SecurityHoldingTransactionRead]:
+	transactions = _list_holding_transactions_for_user(
+		session,
+		user_id=current_user.username,
+		symbol=symbol,
+		market=market,
+		side=side,
+		limit=limit,
+	)
+	return [_to_holding_transaction_read(item) for item in transactions]
+
+
 @app.get(
 	"/api/holdings/{holding_id}/transactions",
 	response_model=list[SecurityHoldingTransactionRead],
@@ -4978,18 +5233,11 @@ def list_holding_transactions(
 		session,
 		holding=holding,
 	)
-	transactions = list(
-		session.exec(
-			select(SecurityHoldingTransaction)
-			.where(SecurityHoldingTransaction.user_id == current_user.username)
-			.where(SecurityHoldingTransaction.symbol == holding.symbol)
-			.where(SecurityHoldingTransaction.market == holding.market)
-			.order_by(
-				SecurityHoldingTransaction.traded_on.desc(),
-				SecurityHoldingTransaction.created_at.desc(),
-				SecurityHoldingTransaction.id.desc(),
-			),
-		),
+	transactions = _list_holding_transactions_for_user(
+		session,
+		user_id=current_user.username,
+		symbol=holding.symbol,
+		market=holding.market,
 	)
 	return [_to_holding_transaction_read(item) for item in transactions]
 
@@ -5167,6 +5415,30 @@ def delete_holding_transaction(
 	return Response(status_code=204)
 
 
+@app.get("/api/securities/quote", response_model=SecurityQuoteRead)
+async def get_security_quote(
+	symbol: str,
+	market: str,
+	__: CurrentUserDependency,
+) -> SecurityQuoteRead:
+	normalized_market = market.strip().upper()
+	normalized_symbol = _normalize_symbol(symbol, normalized_market)
+	try:
+		quote, warnings = await market_data_client.fetch_quote(normalized_symbol, normalized_market)
+	except (QuoteLookupError, ValueError) as exc:
+		raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+	return SecurityQuoteRead(
+		symbol=quote.symbol,
+		name=quote.name,
+		market=normalized_market,
+		price=quote.price,
+		currency=_normalize_currency(quote.currency),
+		market_time=quote.market_time,
+		warnings=warnings,
+	)
+
+
 @app.get("/api/securities/search", response_model=list[SecuritySearchRead])
 async def search_securities(
 	q: str,
@@ -5177,6 +5449,52 @@ async def search_securities(
 		return []
 
 	return await market_data_client.search_securities(query)
+
+
+@app.get("/api/agent/context", response_model=AgentContextRead)
+async def get_agent_context(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	refresh: bool = False,
+	transaction_limit: int = Query(default=50, ge=1, le=500),
+) -> AgentContextRead:
+	dashboard = await get_dashboard(current_user, session, refresh)
+	recent_transactions = _list_holding_transactions_for_user(
+		session,
+		user_id=current_user.username,
+		limit=transaction_limit,
+	)
+	pending_history_sync_requests = len(
+		list(
+			session.exec(
+				select(HoldingHistorySyncRequest.id).where(
+					HoldingHistorySyncRequest.user_id == current_user.username,
+					HoldingHistorySyncRequest.status != HOLDING_HISTORY_SYNC_STATUSES[2],
+				),
+			),
+		),
+	)
+	return AgentContextRead(
+		user_id=current_user.username,
+		generated_at=utc_now(),
+		server_today=dashboard.server_today,
+		total_value_cny=dashboard.total_value_cny,
+		cash_value_cny=dashboard.cash_value_cny,
+		holdings_value_cny=dashboard.holdings_value_cny,
+		fixed_assets_value_cny=dashboard.fixed_assets_value_cny,
+		liabilities_value_cny=dashboard.liabilities_value_cny,
+		other_assets_value_cny=dashboard.other_assets_value_cny,
+		usd_cny_rate=dashboard.usd_cny_rate,
+		hkd_cny_rate=dashboard.hkd_cny_rate,
+		allocation=dashboard.allocation,
+		cash_accounts=dashboard.cash_accounts,
+		holdings=dashboard.holdings,
+		recent_holding_transactions=[
+			_to_holding_transaction_read(item) for item in recent_transactions
+		],
+		pending_history_sync_requests=pending_history_sync_requests,
+		warnings=dashboard.warnings,
+	)
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)

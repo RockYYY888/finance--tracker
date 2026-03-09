@@ -303,6 +303,41 @@ class AuthSessionRead(BaseModel):
 	email: str | None = None
 
 
+class AgentTokenCreate(BaseModel):
+	name: str = Field(min_length=1, max_length=80)
+	expires_in_days: int | None = Field(default=180, ge=1, le=3650)
+
+	@field_validator("name", mode="before")
+	@classmethod
+	def normalize_name(cls, value: str) -> str:
+		return _normalize_required_text(value, "name")
+
+
+class AgentTokenIssueCreate(AgentTokenCreate):
+	user_id: str = Field(min_length=3, max_length=32)
+	password: str = Field(min_length=1, max_length=128)
+
+	@field_validator("user_id", mode="before")
+	@classmethod
+	def validate_user_id(cls, value: str) -> str:
+		return normalize_user_id(value)
+
+
+class AgentTokenRead(UtcTimestampResponseModel):
+	id: int
+	name: str
+	token_hint: str
+	created_at: datetime
+	updated_at: datetime
+	last_used_at: datetime | None = None
+	expires_at: datetime | None = None
+	revoked_at: datetime | None = None
+
+
+class AgentTokenIssueRead(AgentTokenRead):
+	access_token: str
+
+
 class PasswordResetRequest(BaseModel):
 	user_id: str = Field(min_length=3, max_length=32)
 	email: str = Field(min_length=3, max_length=320)
@@ -713,6 +748,16 @@ class SecuritySearchRead(BaseModel):
 	source: Optional[str] = None
 
 
+class SecurityQuoteRead(UtcTimestampResponseModel):
+	symbol: str
+	name: str
+	market: str
+	price: float
+	currency: str
+	market_time: datetime | None = None
+	warnings: list[str]
+
+
 class ValuedCashAccount(BaseModel):
 	id: int
 	name: str
@@ -900,4 +945,24 @@ class DashboardResponse(BaseModel):
 	holdings_return_month_series: list[TimelinePoint]
 	holdings_return_year_series: list[TimelinePoint]
 	holding_return_series: list[HoldingReturnSeries]
+	warnings: list[str]
+
+
+class AgentContextRead(UtcTimestampResponseModel):
+	user_id: str
+	generated_at: datetime
+	server_today: date
+	total_value_cny: float
+	cash_value_cny: float
+	holdings_value_cny: float
+	fixed_assets_value_cny: float
+	liabilities_value_cny: float
+	other_assets_value_cny: float
+	usd_cny_rate: Optional[float] = None
+	hkd_cny_rate: Optional[float] = None
+	allocation: list[AllocationSlice]
+	cash_accounts: list[ValuedCashAccount]
+	holdings: list[ValuedHolding]
+	recent_holding_transactions: list[SecurityHoldingTransactionRead]
+	pending_history_sync_requests: int
 	warnings: list[str]

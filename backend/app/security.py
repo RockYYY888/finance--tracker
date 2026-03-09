@@ -19,6 +19,7 @@ SCRYPT_N = 2**14
 SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_DKLEN = 64
+AGENT_TOKEN_PREFIX = "atrk_"
 
 
 def normalize_user_id(value: str) -> str:
@@ -100,6 +101,30 @@ def verify_password(password: str, password_digest: str) -> bool:
 		return False
 
 	return hmac.compare_digest(derived_key.hex(), expected_hex)
+
+
+def generate_agent_token() -> str:
+	return f"{AGENT_TOKEN_PREFIX}{os.urandom(24).hex()}"
+
+
+def hash_agent_token(token: str) -> str:
+	normalized_token = token.strip()
+	if not normalized_token:
+		raise ValueError("Agent token cannot be empty.")
+
+	return hashlib.sha256(normalized_token.encode("utf-8")).hexdigest()
+
+
+def extract_bearer_token(authorization: str | None) -> str | None:
+	if authorization is None:
+		return None
+
+	scheme, _, credentials = authorization.strip().partition(" ")
+	if scheme.lower() != "bearer":
+		return None
+
+	token = credentials.strip()
+	return token or None
 
 
 def get_session_user_id(request: Request) -> str | None:

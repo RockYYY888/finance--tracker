@@ -53,6 +53,26 @@ class UserAccount(SQLModel, table=True):
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class AgentAccessToken(SQLModel, table=True):
+	__table_args__ = (
+		UniqueConstraint(
+			"token_digest",
+			name="uq_agent_access_token_digest",
+		),
+	)
+
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	name: str = Field(max_length=80)
+	token_digest: str = Field(index=True, max_length=64)
+	token_hint: str = Field(max_length=16)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	last_used_at: datetime | None = Field(default=None, index=True)
+	expires_at: datetime | None = Field(default=None, index=True)
+	revoked_at: datetime | None = Field(default=None, index=True)
+
+
 class UserFeedback(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
