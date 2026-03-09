@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -21,9 +21,10 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	calculateDynamicAxisLayout,
-	getChartTickInterval,
 	formatTimelineAxisLabel,
+	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
+	getChartTickInterval,
 	formatCompactPercentMetric,
 	formatPercentMetric,
 	formatPercentage,
@@ -235,6 +236,7 @@ export function ReturnTrendChart({
 }: ReturnTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [selectedKey, setSelectedKey] = useState(seriesOptions[0]?.key ?? "");
+	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 
 	const selectedOption = useMemo(() => {
 		if (seriesOptions.length === 0) {
@@ -254,8 +256,8 @@ export function ReturnTrendChart({
 		)
 		: [];
 	const series = prepareTimelineSeries(rawSeries);
-	const summary = summarizeTimeline(series);
-	const compoundedStepRate = summarizeCompoundedStepRate(series);
+	const rangeSummary = summarizeTimeline(series);
+	const rangeCompoundedStepRate = summarizeCompoundedStepRate(series);
 	const axisLayout = useMemo(
 		() =>
 			calculateDynamicAxisLayout(series, {
@@ -266,8 +268,24 @@ export function ReturnTrendChart({
 	);
 	const chartData = buildReturnTrendChartData(series, ZERO_RETURN_THRESHOLD);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
+	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
 	const hasData = chartData.length > 0;
-	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
+	const visibleSummary = activePointIndex === null
+		? rangeSummary
+		: summarizeTimeline(chartData.slice(0, activePointIndex + 1));
+	const periodLabel = formatTimelineRangeLabel(
+		chartData[0],
+		activePoint ?? chartData[chartData.length - 1],
+		activePoint?.crossingPoint ? "阈值交点" : "最新周期",
+	);
+	const visibleCompoundedStepRate = activePointIndex === null
+		? rangeCompoundedStepRate
+		: summarizeCompoundedStepRate(
+			chartData
+				.slice(0, activePointIndex + 1)
+				.filter((point) => !point.crossingPoint),
+		);
+	const centerDeltaValue = visibleSummary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
 		Math.abs(axisLayout.centerValue),
 		Math.abs(axisLayout.maxValue - axisLayout.minValue) * 0.6,
@@ -291,6 +309,11 @@ export function ReturnTrendChart({
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
+	const chartDataKey = `${selectedOption?.key ?? "none"}:${range}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+
+	useEffect(() => {
+		setActivePointIndex(null);
+	}, [chartDataKey]);
 
 	return (
 		<section className="analytics-card">
@@ -336,15 +359,15 @@ export function ReturnTrendChart({
 					<strong>{selectedOption?.label ?? "未选择"}</strong>
 				</div>
 				<div className="analytics-pill">
-					<span>当前收益率</span>
-					<strong>{formatPercentMetric(summary.latestValue)}</strong>
+					<span>{activePoint ? "所选收益率" : "当前收益率"}</span>
+					<strong>{formatPercentMetric(visibleSummary.latestValue)}</strong>
 				</div>
 				<div className="analytics-pill">
-					<span>周期变化</span>
+					<span>{periodLabel}</span>
 					<strong>
-						{summary.changeRatio === null
-							? `${formatPercentMetric(summary.changeValue, true)} / --`
-							: `${formatPercentMetric(summary.changeValue, true)} / ${formatSignedRatio(summary.changeRatio)}`}
+						{visibleSummary.changeRatio === null
+							? `${formatPercentMetric(visibleSummary.changeValue, true)} / --`
+							: `${formatPercentMetric(visibleSummary.changeValue, true)} / ${formatSignedRatio(visibleSummary.changeRatio)}`}
 					</strong>
 				</div>
 				<div className="analytics-pill">
@@ -357,8 +380,10 @@ export function ReturnTrendChart({
 				</div>
 				{showCompoundedStepRate ? (
 					<div className="analytics-pill">
-						<span>{COMPOUNDED_STEP_LABELS[range]}</span>
-						<strong>{formatPercentMetric(compoundedStepRate, true)}</strong>
+						<span>
+							{activePoint ? `至该点${COMPOUNDED_STEP_LABELS[range]}` : COMPOUNDED_STEP_LABELS[range]}
+						</span>
+						<strong>{formatPercentMetric(visibleCompoundedStepRate, true)}</strong>
 					</div>
 				) : null}
 			</div>
@@ -372,6 +397,15 @@ export function ReturnTrendChart({
 					<ResponsiveContainer width="100%" height={300}>
 						<ComposedChart
 							data={chartData}
+							onMouseMove={({ activeTooltipIndex, isTooltipActive }) => {
+								if (!isTooltipActive || typeof activeTooltipIndex !== "number") {
+									setActivePointIndex(null);
+									return;
+								}
+
+								setActivePointIndex(activeTooltipIndex);
+							}}
+							onMouseLeave={() => setActivePointIndex(null)}
 							margin={{
 								top: 12,
 								right: compactAxisMode ? 18 : 12,
