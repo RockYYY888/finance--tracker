@@ -563,6 +563,40 @@ def test_cash_account_schema_rejects_invalid_account_type() -> None:
 		)
 
 
+def test_holding_transaction_buy_rejects_sell_proceeds_fields() -> None:
+	with pytest.raises(
+		ValidationError,
+		match="买入交易不支持卖出回款处理选项。",
+	):
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 1),
+			sell_proceeds_handling="DISCARD",
+		)
+
+
+def test_holding_transaction_sell_requires_target_account_for_existing_cash_strategy() -> None:
+	with pytest.raises(
+		ValidationError,
+		match="卖出并入现有现金时必须选择目标现金账户。",
+	):
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 1),
+			sell_proceeds_handling="ADD_TO_EXISTING_CASH",
+		)
+
+
 def test_create_holding_persists_market_broker_and_note(session: Session) -> None:
 	current_user = make_user(session)
 	holding = create_holding(
@@ -742,6 +776,8 @@ def test_holding_sell_transaction_auto_creates_cash_entry_with_source(
 
 	assert applied_sell.transaction.price == 100.0
 	assert applied_sell.transaction.fallback_currency == "USD"
+	assert applied_sell.sell_proceeds_handling == "CREATE_NEW_CASH"
+	assert applied_sell.cash_account is not None
 
 	cash_entries = list(
 		session.exec(
@@ -757,6 +793,115 @@ def test_holding_sell_transaction_auto_creates_cash_entry_with_source(
 	assert cash_entries[0].started_on == date(2026, 3, 1)
 	assert "来源：卖出 Apple(AAPL)" in (cash_entries[0].note or "")
 	assert "交易ID #" in (cash_entries[0].note or "")
+
+
+def test_holding_sell_transaction_can_discard_proceeds(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+
+	applied_sell = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=50,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+			sell_proceeds_handling="DISCARD",
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_sell.sell_proceeds_handling == "DISCARD"
+	assert applied_sell.cash_account is None
+	assert (
+		session.exec(
+			select(CashAccount).where(CashAccount.user_id == current_user.username),
+		).first()
+		is None
+	)
+
+
+def test_holding_sell_transaction_can_merge_proceeds_into_existing_cash_account(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=200,
+			account_type="bank",
+			note="长期备用金",
+		),
+		current_user,
+		session,
+	)
+
+	applied_sell = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=88,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+			sell_proceeds_handling="ADD_TO_EXISTING_CASH",
+			sell_proceeds_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_sell.sell_proceeds_handling == "ADD_TO_EXISTING_CASH"
+	assert applied_sell.cash_account is not None
+	assert applied_sell.cash_account.id == cash_account.id
+	assert applied_sell.cash_account.currency == "CNY"
+	assert applied_sell.cash_account.balance == 900.0
+	assert "自动入账 700 CNY" in (applied_sell.cash_account.note or "")
+	assert "长期备用金" in (applied_sell.cash_account.note or "")
+
+	updated_account = session.get(CashAccount, cash_account.id)
+	assert updated_account is not None
+	assert updated_account.balance == 900.0
+	assert updated_account.started_on == cash_account.started_on
 
 
 def test_holding_transaction_sell_rejects_when_quantity_is_insufficient(

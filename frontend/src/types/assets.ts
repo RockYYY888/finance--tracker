@@ -21,6 +21,20 @@ export function getCashAccountTypeLabel(value: CashAccountType): string {
 
 export type SecurityMarket = "CN" | "HK" | "US" | "FUND" | "CRYPTO" | "OTHER";
 
+export type SellProceedsHandling =
+	| "DISCARD"
+	| "ADD_TO_EXISTING_CASH"
+	| "CREATE_NEW_CASH";
+
+export const SELL_PROCEEDS_HANDLING_OPTIONS: Array<{
+	value: SellProceedsHandling;
+	label: string;
+}> = [
+	{ value: "DISCARD", label: "直接从总资产移除，不转入现金" },
+	{ value: "ADD_TO_EXISTING_CASH", label: "自动换算并并入已有现金账户" },
+	{ value: "CREATE_NEW_CASH", label: "自动生成新的现金条目" },
+];
+
 export const SECURITY_MARKET_OPTIONS: Array<{
 	value: SecurityMarket;
 	label: string;
@@ -148,6 +162,8 @@ export interface HoldingInput {
 	broker?: string;
 	started_on?: string;
 	note?: string;
+	sell_proceeds_handling?: SellProceedsHandling;
+	sell_proceeds_account_id?: number;
 }
 
 export interface HoldingFormDraft {
@@ -161,6 +177,8 @@ export interface HoldingFormDraft {
 	broker: string;
 	started_on: string;
 	note: string;
+	sell_proceeds_handling: SellProceedsHandling;
+	sell_proceeds_account_id: string;
 }
 
 export interface HoldingRecord extends HoldingInput {
@@ -291,6 +309,8 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	broker: "",
 	started_on: "",
 	note: "",
+	sell_proceeds_handling: "CREATE_NEW_CASH",
+	sell_proceeds_account_id: "",
 };
 
 export type CreateAssetAction<TInput, TRecord> = (payload: TInput) => MaybePromise<TRecord>;

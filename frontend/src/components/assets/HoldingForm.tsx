@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
-import { formatSecurityMarket } from "../../lib/assetFormatting";
+import {
+	formatMoneyAmount,
+	formatSecurityMarket,
+} from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	AssetEditorMode,
+	CashAccountRecord,
 	HoldingFormDraft,
 	HoldingInput,
 	HoldingMergeRequest,
@@ -15,6 +19,7 @@ import type {
 } from "../../types/assets";
 import {
 	DEFAULT_HOLDING_FORM_DRAFT,
+	SELL_PROCEEDS_HANDLING_OPTIONS,
 	SECURITY_MARKET_OPTIONS,
 } from "../../types/assets";
 
@@ -22,6 +27,7 @@ export interface HoldingFormProps {
 	mode?: AssetEditorMode;
 	value?: Partial<HoldingFormDraft> | null;
 	existingHoldings?: HoldingRecord[];
+	cashAccounts?: CashAccountRecord[];
 	recordId?: number | null;
 	title?: string;
 	subtitle?: string;
@@ -61,6 +67,8 @@ function toHoldingDraft(value?: Partial<HoldingFormDraft> | null): HoldingFormDr
 function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 	const normalizedBroker = draft.broker.trim();
 	const normalizedNote = draft.note.trim();
+	const shouldMergeIntoExistingCash =
+		draft.side === "SELL" && draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH";
 
 	return {
 		side: draft.side,
@@ -75,6 +83,12 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 		broker: normalizedBroker || undefined,
 		started_on: draft.started_on.trim() || undefined,
 		note: normalizedNote || undefined,
+		sell_proceeds_handling:
+			draft.side === "SELL" ? draft.sell_proceeds_handling : undefined,
+		sell_proceeds_account_id:
+			shouldMergeIntoExistingCash && draft.sell_proceeds_account_id
+				? Number(draft.sell_proceeds_account_id)
+				: undefined,
 	};
 }
 
@@ -213,10 +227,15 @@ function formatPreviewPrice(value: number | null | undefined, currency: string):
 	return `${value.toFixed(2)} ${currency}`;
 }
 
+function formatCashAccountOptionLabel(account: CashAccountRecord): string {
+	return `${account.name} · ${formatMoneyAmount(account.balance, account.currency)}`;
+}
+
 export function HoldingForm({
 	mode = "create",
 	value,
 	existingHoldings = [],
+	cashAccounts = [],
 	recordId = null,
 	title,
 	subtitle,
@@ -335,6 +354,9 @@ export function HoldingForm({
 			: "数量（股/支）";
 	const quantityStep = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
 	const quantityMin = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
+	const isSellTransaction = draft.side === "SELL";
+	const shouldMergeIntoExistingCash =
+		isSellTransaction && draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH";
 
 	function updateDraft<K extends keyof HoldingFormDraft>(
 		field: K,
@@ -403,6 +425,13 @@ export function HoldingForm({
 			) {
 				throw new Error("请输入有效的成交价。");
 			}
+			if (
+				payload.side === "SELL" &&
+				payload.sell_proceeds_handling === "ADD_TO_EXISTING_CASH" &&
+				!payload.sell_proceeds_account_id
+			) {
+				throw new Error("请选择一个已有现金账户来接收卖出回款。");
+			}
 			if (!allowsFractionalQuantity(draft.market) && !Number.isInteger(payload.quantity)) {
 				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
 			}
@@ -410,7 +439,9 @@ export function HoldingForm({
 				throw new Error(`交易日不能晚于服务器今日日期（${maxStartedOnDate}）。`);
 			}
 
-			const duplicateHolding = findDuplicateHolding(existingHoldings, payload.symbol, recordId);
+			const duplicateHolding = payload.side === "BUY"
+				? findDuplicateHolding(existingHoldings, payload.symbol, recordId)
+				: null;
 			if (duplicateHolding && onMergeDuplicate) {
 				setPendingMergePreview(
 					buildHoldingMergePreview(
@@ -663,6 +694,59 @@ export function HoldingForm({
 						placeholder="可选，卖出会优先使用当前行情"
 					/>
 				</label>
+
+				{isSellTransaction ? (
+					<>
+						<label className="asset-manager__field">
+							<span>卖出回款处理</span>
+							<select
+								aria-label="卖出回款处理"
+								value={draft.sell_proceeds_handling}
+								onChange={(event) =>
+									updateDraft(
+										"sell_proceeds_handling",
+										event.target.value as HoldingFormDraft["sell_proceeds_handling"],
+									)
+								}
+							>
+								{SELL_PROCEEDS_HANDLING_OPTIONS.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</label>
+
+						{shouldMergeIntoExistingCash ? (
+							<label className="asset-manager__field">
+								<span>目标现金账户</span>
+								<select
+									aria-label="目标现金账户"
+									value={draft.sell_proceeds_account_id}
+									onChange={(event) =>
+										updateDraft("sell_proceeds_account_id", event.target.value)
+									}
+								>
+									<option value="">请选择一个现金账户</option>
+									{cashAccounts.map((account) => (
+										<option key={account.id} value={String(account.id)}>
+											{formatCashAccountOptionLabel(account)}
+										</option>
+									))}
+								</select>
+								{cashAccounts.length === 0 ? (
+									<p className="asset-manager__helper-text">
+										当前还没有现金账户，请先新增一个现金账户，或改用“自动生成新的现金条目”。
+									</p>
+								) : (
+									<p className="asset-manager__helper-text">
+										系统会按目标账户币种自动换算并累加余额，同时在备注里记录本次卖出来源。
+									</p>
+								)}
+							</label>
+						) : null}
+					</>
+				) : null}
 
 				<label className="asset-manager__field">
 					<span>来源 / 账户来源</span>

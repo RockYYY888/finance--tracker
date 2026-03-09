@@ -1649,6 +1649,66 @@ def _resolve_sell_execution_price_and_currency(
 	return round(resolved_price, 8), resolved_currency
 
 
+def _build_sell_proceeds_note(
+	*,
+	symbol: str,
+	name: str,
+	market: str,
+	quantity: float,
+	execution_price: float,
+	source_currency: str,
+	transaction_id: int | None,
+	settled_amount: float | None = None,
+	settled_currency: str | None = None,
+) -> str:
+	note = (
+		f"来源：卖出 {name}({symbol}) [{market}] "
+		f"数量 {quantity:g}，成交价 {execution_price:g} {_normalize_currency(source_currency)}"
+	)
+	if settled_amount is not None and settled_currency:
+		note += f"，自动入账 {settled_amount:g} {_normalize_currency(settled_currency)}"
+	if transaction_id is not None:
+		note += f"，交易ID #{transaction_id}"
+	return note
+
+
+def _prepend_note_entry(existing_note: str | None, entry: str) -> str:
+	normalized_existing = _normalize_optional_text(existing_note)
+	normalized_entry = entry.strip()
+	combined_note = (
+		normalized_entry
+		if normalized_existing is None
+		else f"{normalized_entry}\n{normalized_existing}"
+	)
+	if len(combined_note) <= 500:
+		return combined_note
+	return combined_note[:497].rstrip() + "..."
+
+
+def _convert_cash_amount_between_currencies(
+	*,
+	amount: float,
+	from_currency: str,
+	to_currency: str,
+) -> tuple[float, float]:
+	source_currency = _normalize_currency(from_currency)
+	target_currency = _normalize_currency(to_currency)
+	if source_currency == target_currency:
+		return round(amount, 8), 1.0
+
+	try:
+		rate, _warnings = asyncio.run(
+			market_data_client.fetch_fx_rate(source_currency, target_currency),
+		)
+	except (QuoteLookupError, ValueError) as exc:
+		raise HTTPException(
+			status_code=422,
+			detail=f"无法将卖出回款从 {source_currency} 换算为 {target_currency}: {exc}",
+		) from exc
+
+	return round(amount * rate, 8), round(rate, 8)
+
+
 def _create_auto_cash_account_from_sell(
 	session: Session,
 	*,
@@ -1671,10 +1731,14 @@ def _create_auto_cash_account_from_sell(
 		balance=proceeds,
 		account_type="OTHER",
 		started_on=traded_on,
-		note=(
-			f"来源：卖出 {name}({symbol}) [{market}] "
-			f"数量 {quantity:g}，成交价 {execution_price:g} {currency}"
-			+ (f"，交易ID #{transaction_id}" if transaction_id is not None else "")
+		note=_build_sell_proceeds_note(
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=currency,
+			transaction_id=transaction_id,
 		),
 	)
 	session.add(cash_entry)
@@ -1682,7 +1746,7 @@ def _create_auto_cash_account_from_sell(
 	_record_asset_mutation(
 		session,
 		current_user,
-		entity_type="ACCOUNT",
+		entity_type="CASH_ACCOUNT",
 		entity_id=cash_entry.id,
 		operation="CREATE",
 		before_state=None,
@@ -1690,6 +1754,106 @@ def _create_auto_cash_account_from_sell(
 		reason=f"AUTO_SELL_PROCEEDS#{transaction_id}" if transaction_id is not None else "AUTO_SELL_PROCEEDS",
 	)
 	return cash_entry
+
+
+def _add_sell_proceeds_to_existing_cash_account(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	account_id: int,
+	symbol: str,
+	name: str,
+	market: str,
+	quantity: float,
+	execution_price: float,
+	source_currency: str,
+	transaction_id: int | None,
+) -> CashAccount:
+	account = session.get(CashAccount, account_id)
+	if account is None or account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="目标现金账户不存在。")
+
+	proceeds = round(quantity * execution_price, 8)
+	converted_amount, _fx_rate = _convert_cash_amount_between_currencies(
+		amount=proceeds,
+		from_currency=source_currency,
+		to_currency=account.currency,
+	)
+	before_state = _capture_model_state(account)
+	account.balance = round(account.balance + converted_amount, 8)
+	account.note = _prepend_note_entry(
+		account.note,
+		_build_sell_proceeds_note(
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=source_currency,
+			settled_amount=converted_amount,
+			settled_currency=account.currency,
+			transaction_id=transaction_id,
+		),
+	)
+	_touch_model(account)
+	session.add(account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(account),
+		reason=f"SELL_PROCEEDS#{transaction_id}" if transaction_id is not None else "SELL_PROCEEDS",
+	)
+	return account
+
+
+def _apply_sell_proceeds_handling(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	handling: str,
+	target_account_id: int | None,
+	symbol: str,
+	name: str,
+	market: str,
+	quantity: float,
+	execution_price: float,
+	currency: str,
+	traded_on: date,
+	transaction_id: int | None,
+) -> CashAccount | None:
+	if handling == "DISCARD":
+		return None
+	if handling == "ADD_TO_EXISTING_CASH":
+		if target_account_id is None:
+			raise HTTPException(status_code=422, detail="卖出并入现有现金时必须选择目标现金账户。")
+		return _add_sell_proceeds_to_existing_cash_account(
+			session,
+			current_user=current_user,
+			account_id=target_account_id,
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=currency,
+			transaction_id=transaction_id,
+		)
+	return _create_auto_cash_account_from_sell(
+		session,
+		current_user=current_user,
+		symbol=symbol,
+		name=name,
+		market=market,
+		quantity=quantity,
+		execution_price=execution_price,
+		currency=currency,
+		traded_on=traded_on,
+		transaction_id=transaction_id,
+	)
 
 
 def _to_liability_read(entry: LiabilityEntry) -> LiabilityEntryRead:
@@ -4851,6 +5015,7 @@ def create_holding_transaction(
 	normalized_broker = _normalize_optional_text(payload.broker)
 	normalized_note = _normalize_optional_text(payload.note)
 	normalized_name = payload.name.strip()
+	sell_proceeds_handling = payload.sell_proceeds_handling or "CREATE_NEW_CASH"
 
 	existing_holdings = _list_holdings_for_symbol(
 		session,
@@ -4924,10 +5089,13 @@ def create_holding_transaction(
 		symbol=normalized_symbol,
 		market=normalized_market,
 	)
+	affected_cash_account: CashAccount | None = None
 	if side == "SELL" and execution_price is not None:
-		_create_auto_cash_account_from_sell(
+		affected_cash_account = _apply_sell_proceeds_handling(
 			session,
 			current_user=current_user,
+			handling=sell_proceeds_handling,
+			target_account_id=payload.sell_proceeds_account_id,
 			symbol=normalized_symbol,
 			name=normalized_name,
 			market=normalized_market,
@@ -4946,11 +5114,17 @@ def create_holding_transaction(
 	session.refresh(transaction)
 	if holding is not None:
 		session.refresh(holding)
+	if affected_cash_account is not None:
+		session.refresh(affected_cash_account)
 	_invalidate_dashboard_cache(current_user.username)
 
 	return HoldingTransactionApplyRead(
 		transaction=_to_holding_transaction_read(transaction),
 		holding=_to_holding_read(holding) if holding is not None else None,
+		cash_account=_to_cash_account_read(affected_cash_account)
+		if affected_cash_account is not None
+		else None,
+		sell_proceeds_handling=sell_proceeds_handling if side == "SELL" else None,
 	)
 
 

@@ -21,6 +21,7 @@ from app.models import (
 	LIABILITY_CATEGORIES,
 	LIABILITY_CURRENCIES,
 	OTHER_ASSET_CATEGORIES,
+	SELL_PROCEEDS_HANDLINGS,
 	SECURITY_MARKETS,
 )
 from app.security import normalize_email, normalize_user_id, validate_password_strength
@@ -638,6 +639,8 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	broker: Optional[str] = Field(default=None, max_length=120)
 	traded_on: date
 	note: Optional[str] = Field(default=None, max_length=500)
+	sell_proceeds_handling: Optional[str] = Field(default=None, min_length=7, max_length=32)
+	sell_proceeds_account_id: Optional[int] = Field(default=None, ge=1)
 
 	@field_validator("side", mode="before")
 	@classmethod
@@ -649,6 +652,11 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	def validate_market(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SECURITY_MARKETS, "market")
 
+	@field_validator("sell_proceeds_handling", mode="before")
+	@classmethod
+	def validate_sell_proceeds_handling(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SELL_PROCEEDS_HANDLINGS, "sell_proceeds_handling")
+
 	@field_validator("broker", "note", mode="before")
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
@@ -658,6 +666,18 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	def validate_quantity_for_market(self) -> SecurityHoldingTransactionCreate:
 		if self.market not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
 			raise ValueError("股票请使用整数数量，基金可使用份额。")
+
+		if self.side == "BUY":
+			if self.sell_proceeds_handling is not None or self.sell_proceeds_account_id is not None:
+				raise ValueError("买入交易不支持卖出回款处理选项。")
+			return self
+
+		effective_handling = self.sell_proceeds_handling or "CREATE_NEW_CASH"
+		if effective_handling == "ADD_TO_EXISTING_CASH" and self.sell_proceeds_account_id is None:
+			raise ValueError("卖出并入现有现金时必须选择目标现金账户。")
+		if effective_handling != "ADD_TO_EXISTING_CASH" and self.sell_proceeds_account_id is not None:
+			raise ValueError("只有并入现有现金时才允许传入目标现金账户。")
+
 		return self
 
 
@@ -680,6 +700,8 @@ class SecurityHoldingTransactionRead(UtcTimestampResponseModel):
 class HoldingTransactionApplyRead(UtcTimestampResponseModel):
 	transaction: SecurityHoldingTransactionRead
 	holding: SecurityHoldingRead | None = None
+	cash_account: CashAccountRead | None = None
+	sell_proceeds_handling: str | None = None
 
 
 class SecuritySearchRead(BaseModel):

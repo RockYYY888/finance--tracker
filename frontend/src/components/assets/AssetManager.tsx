@@ -85,6 +85,8 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		broker: record.broker ?? "",
 		started_on: record.started_on ?? "",
 		note: record.note ?? "",
+		sell_proceeds_handling: "CREATE_NEW_CASH",
+		sell_proceeds_account_id: "",
 	};
 }
 
@@ -486,6 +488,7 @@ export function AssetManager({
 										: null
 								}
 								existingHoldings={holdingCollection.items}
+								cashAccounts={cashCollection.items}
 								recordId={holdingCollection.editingRecord?.id ?? null}
 								busy={holdingCollection.isSubmitting}
 								errorMessage={holdingCollection.errorMessage}

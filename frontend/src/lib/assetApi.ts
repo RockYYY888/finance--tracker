@@ -80,6 +80,8 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 					broker: payload.broker,
 					traded_on: payload.started_on,
 					note: payload.note,
+					sell_proceeds_handling: payload.sell_proceeds_handling,
+					sell_proceeds_account_id: payload.sell_proceeds_account_id,
 				}),
 			},
 		);
