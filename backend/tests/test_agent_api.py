@@ -240,6 +240,69 @@ def test_list_all_holding_transactions_supports_symbol_filter(
 	assert transactions[0].market == "US"
 
 
+def test_list_all_holding_transactions_includes_sell_cash_settlement_metadata(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=2,
+			price=180,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 8),
+		),
+		current_user,
+		session,
+	)
+	cash_account = create_account(
+		CashAccountCreate(
+			name="Broker Cash",
+			platform="Futu",
+			currency="CNY",
+			balance=500,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=188.5,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 9),
+			sell_proceeds_handling="ADD_TO_EXISTING_CASH",
+			sell_proceeds_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	transactions = list_all_holding_transactions(
+		current_user,
+		session,
+		symbol="AAPL",
+		market="US",
+		side=None,
+		limit=50,
+	)
+
+	sell_transaction = next(item for item in transactions if item.side == "SELL")
+	assert sell_transaction.sell_proceeds_handling == "ADD_TO_EXISTING_CASH"
+	assert sell_transaction.sell_proceeds_account_id == cash_account.id
+
+
 def test_get_security_quote_returns_live_quote_for_agent(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,

@@ -13,4 +13,6 @@
 - [x] Holding quantity, cost basis, and holding-date edits no longer overwrite transaction history
 - [x] Sell transaction edits and deletes now reverse linked cash proceeds before replaying the new state
 - [x] Holding return charts are rebuilt from transaction history instead of current holding snapshots
+- [x] Deleting a holding now also reverses linked sell-proceeds cash effects instead of leaving stale cash behind
+- [x] Transaction list APIs now expose sell-proceeds handling metadata for agent-side reconciliation
 - Skill validator requires `PyYAML`; local system python is externally managed, so validation was executed with `/tmp/skill-validate-venv`.

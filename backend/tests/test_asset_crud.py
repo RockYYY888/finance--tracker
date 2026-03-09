@@ -1265,6 +1265,64 @@ def test_delete_holding_removes_record(session: Session) -> None:
 	assert session.exec(select(SecurityHoldingTransaction)).all() == []
 
 
+def test_delete_holding_reverses_linked_sell_cash_settlements(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=200,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=88,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+			sell_proceeds_handling="ADD_TO_EXISTING_CASH",
+			sell_proceeds_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	response = delete_holding(holding.id or 0, current_user, session)
+
+	assert response.status_code == 204
+	updated_account = session.get(CashAccount, cash_account.id)
+	assert updated_account is not None
+	assert updated_account.balance == 200.0
+	assert session.exec(select(SecurityHolding)).all() == []
+	assert session.exec(select(SecurityHoldingTransaction)).all() == []
+	assert session.exec(select(HoldingTransactionCashSettlement)).all() == []
+
+
 def test_delete_holding_returns_404_when_missing(session: Session) -> None:
 	current_user = make_user(session)
 	with pytest.raises(HTTPException) as error:

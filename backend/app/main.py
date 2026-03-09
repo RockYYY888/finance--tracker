@@ -1557,6 +1557,7 @@ def _to_holding_read(holding: SecurityHolding) -> SecurityHoldingRead:
 
 def _to_holding_transaction_read(
 	transaction: SecurityHoldingTransaction,
+	settlement: HoldingTransactionCashSettlement | None = None,
 ) -> SecurityHoldingTransactionRead:
 	return SecurityHoldingTransactionRead(
 		id=transaction.id or 0,
@@ -1570,6 +1571,8 @@ def _to_holding_transaction_read(
 		broker=transaction.broker,
 		traded_on=transaction.traded_on,
 		note=transaction.note,
+		sell_proceeds_handling=settlement.handling if settlement is not None else None,
+		sell_proceeds_account_id=settlement.cash_account_id if settlement is not None else None,
 		created_at=transaction.created_at,
 		updated_at=transaction.updated_at,
 	)
@@ -1663,13 +1666,127 @@ def _delete_holding_transactions_for_symbol(
 	user_id: str,
 	symbol: str,
 	market: str,
-) -> None:
-	session.exec(
-		delete(SecurityHoldingTransaction)
-		.where(SecurityHoldingTransaction.user_id == user_id)
-		.where(SecurityHoldingTransaction.symbol == symbol)
-		.where(SecurityHoldingTransaction.market == market),
+) -> list[SecurityHoldingTransaction]:
+	transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == user_id)
+			.where(SecurityHoldingTransaction.symbol == symbol)
+			.where(SecurityHoldingTransaction.market == market)
+			.order_by(
+				SecurityHoldingTransaction.traded_on.desc(),
+				SecurityHoldingTransaction.created_at.desc(),
+				SecurityHoldingTransaction.id.desc(),
+			),
+		),
 	)
+	if not transactions:
+		return []
+
+	transaction_ids = [transaction.id for transaction in transactions if transaction.id is not None]
+	if transaction_ids:
+		session.exec(
+			delete(HoldingTransactionCashSettlement)
+			.where(HoldingTransactionCashSettlement.user_id == user_id)
+			.where(HoldingTransactionCashSettlement.holding_transaction_id.in_(transaction_ids)),
+		)
+
+	for transaction in transactions:
+		session.delete(transaction)
+
+	return transactions
+
+
+def _reverse_and_delete_holding_transactions_for_symbol(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	symbol: str,
+	market: str,
+) -> list[SecurityHoldingTransaction]:
+	transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == current_user.username)
+			.where(SecurityHoldingTransaction.symbol == symbol)
+			.where(SecurityHoldingTransaction.market == market)
+			.order_by(
+				SecurityHoldingTransaction.traded_on.desc(),
+				SecurityHoldingTransaction.created_at.desc(),
+				SecurityHoldingTransaction.id.desc(),
+			),
+		),
+	)
+	if not transactions:
+		return []
+
+	for transaction in transactions:
+		if transaction.side != "SELL":
+			continue
+		_reverse_holding_transaction_cash_settlement(
+			session,
+			current_user=current_user,
+			transaction=transaction,
+		)
+
+	transaction_ids = [transaction.id for transaction in transactions if transaction.id is not None]
+	if transaction_ids:
+		session.exec(
+			delete(HoldingTransactionCashSettlement)
+			.where(HoldingTransactionCashSettlement.user_id == current_user.username)
+			.where(HoldingTransactionCashSettlement.holding_transaction_id.in_(transaction_ids)),
+		)
+
+	for transaction in transactions:
+		session.delete(transaction)
+
+	return transactions
+
+
+def _list_holding_transaction_settlements(
+	session: Session,
+	*,
+	user_id: str,
+	transaction_ids: list[int],
+) -> dict[int, HoldingTransactionCashSettlement]:
+	if not transaction_ids:
+		return {}
+
+	settlements = list(
+		session.exec(
+			select(HoldingTransactionCashSettlement)
+			.where(HoldingTransactionCashSettlement.user_id == user_id)
+			.where(HoldingTransactionCashSettlement.holding_transaction_id.in_(transaction_ids)),
+		),
+	)
+	return {
+		settlement.holding_transaction_id: settlement
+		for settlement in settlements
+	}
+
+
+def _to_holding_transaction_reads(
+	session: Session,
+	*,
+	user_id: str,
+	transactions: list[SecurityHoldingTransaction],
+) -> list[SecurityHoldingTransactionRead]:
+	settlement_map = _list_holding_transaction_settlements(
+		session,
+		user_id=user_id,
+		transaction_ids=[
+			transaction.id
+			for transaction in transactions
+			if transaction.id is not None
+		],
+	)
+	return [
+		_to_holding_transaction_read(
+			transaction,
+			settlement_map.get(transaction.id or 0),
+		)
+		for transaction in transactions
+	]
 
 
 def _ensure_transaction_baseline_from_holding_snapshot(
@@ -5440,8 +5557,8 @@ def update_holding(
 		entity_type="HOLDING",
 		entity_id=holding.id,
 		operation="UPDATE",
-			before_state=before_state,
-			after_state=_capture_model_state(holding),
+		before_state=before_state,
+		after_state=_capture_model_state(holding),
 	)
 	session.commit()
 	session.refresh(holding)
@@ -5460,12 +5577,23 @@ def delete_holding(
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
 	before_state = _capture_model_state(holding)
-	_delete_holding_transactions_for_symbol(
+	deleted_transactions = _reverse_and_delete_holding_transactions_for_symbol(
 		session,
-		user_id=current_user.username,
+		current_user=current_user,
 		symbol=holding.symbol,
 		market=holding.market,
 	)
+	for transaction in deleted_transactions:
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="HOLDING_TRANSACTION",
+			entity_id=transaction.id,
+			operation="DELETE",
+			before_state=_capture_model_state(transaction),
+			after_state=None,
+			reason=f"HOLDING_DELETE#{holding_id}",
+		)
 	session.delete(holding)
 	_record_asset_mutation(
 		session,
@@ -5542,7 +5670,11 @@ def list_all_holding_transactions(
 		side=side,
 		limit=limit,
 	)
-	return [_to_holding_transaction_read(item) for item in transactions]
+	return _to_holding_transaction_reads(
+		session,
+		user_id=current_user.username,
+		transactions=transactions,
+	)
 
 
 @app.get(
@@ -5568,7 +5700,11 @@ def list_holding_transactions(
 		symbol=holding.symbol,
 		market=holding.market,
 	)
-	return [_to_holding_transaction_read(item) for item in transactions]
+	return _to_holding_transaction_reads(
+		session,
+		user_id=current_user.username,
+		transactions=transactions,
+	)
 
 
 @app.post(
@@ -5701,10 +5837,15 @@ def create_holding_transaction(
 		session.refresh(holding)
 	if affected_cash_account is not None:
 		session.refresh(affected_cash_account)
+	settlement = _get_holding_transaction_cash_settlement(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
 	_invalidate_dashboard_cache(current_user.username)
 
 	return HoldingTransactionApplyRead(
-		transaction=_to_holding_transaction_read(transaction),
+		transaction=_to_holding_transaction_read(transaction, settlement),
 		holding=_to_holding_read(holding) if holding is not None else None,
 		cash_account=_to_cash_account_read(affected_cash_account)
 		if affected_cash_account is not None
@@ -5843,10 +5984,15 @@ def update_holding_transaction(
 		session.refresh(holding)
 	if affected_cash_account is not None and session.get(CashAccount, affected_cash_account.id) is not None:
 		session.refresh(affected_cash_account)
+	settlement = _get_holding_transaction_cash_settlement(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
 	_invalidate_dashboard_cache(current_user.username)
 
 	return HoldingTransactionApplyRead(
-		transaction=_to_holding_transaction_read(transaction),
+		transaction=_to_holding_transaction_read(transaction, settlement),
 		holding=_to_holding_read(holding) if holding is not None else None,
 		cash_account=_to_cash_account_read(affected_cash_account)
 		if affected_cash_account is not None and session.get(CashAccount, affected_cash_account.id) is not None
@@ -5974,9 +6120,11 @@ async def get_agent_context(
 		allocation=dashboard.allocation,
 		cash_accounts=dashboard.cash_accounts,
 		holdings=dashboard.holdings,
-		recent_holding_transactions=[
-			_to_holding_transaction_read(item) for item in recent_transactions
-		],
+		recent_holding_transactions=_to_holding_transaction_reads(
+			session,
+			user_id=current_user.username,
+			transactions=recent_transactions,
+		),
 		pending_history_sync_requests=pending_history_sync_requests,
 		warnings=dashboard.warnings,
 	)

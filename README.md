@@ -100,11 +100,11 @@ Use holding routes only for metadata reads or metadata-only edits.
 - `PUT /api/holdings/{holding_id}`
   Metadata-only edit for the current holding such as broker or note. It no longer edits quantity, cost basis, or holding date
 - `DELETE /api/holdings/{holding_id}`
-  Deletes a holding and its transaction projection
+  Deletes a holding, deletes its transaction history, and rolls back linked sell-proceeds cash effects
 - `GET /api/holding-transactions`
-  Lists all buy/sell transactions, supports `symbol`, `market`, `side`, `limit`
+  Lists all buy/sell transactions, supports `symbol`, `market`, `side`, `limit`, and returns sell-proceeds handling metadata
 - `GET /api/holdings/{holding_id}/transactions`
-  Lists transactions for one holding
+  Lists transactions for one holding with sell-proceeds handling metadata
 - `POST /api/holding-transactions`
   Appends a buy or sell transaction and rebuilds holding projection
 - `PATCH /api/holding-transactions/{transaction_id}`
