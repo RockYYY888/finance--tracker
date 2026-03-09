@@ -202,9 +202,17 @@ Default server build command (host deployment, using the host `mihomo` proxy):
 docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
 ```
 
-The proxy override file defaults to `http://host.docker.internal:10808`, which matches the
-recommended local proxy port in this project. If your local proxy listens on another port, set
-`ASSET_TRACKER_HTTP_PROXY` and `ASSET_TRACKER_HTTPS_PROXY` before rebuilding.
+The proxy override file defaults to `http://host.docker.internal:7890`, which is the server-side
+`mihomo` default expected by this project.
+
+If your local desktop proxy listens on another port such as `10808`, override it explicitly when
+rebuilding:
+
+```bash
+ASSET_TRACKER_HTTP_PROXY=http://host.docker.internal:10808 \
+ASSET_TRACKER_HTTPS_PROXY=http://host.docker.internal:10808 \
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+```
 
 If only the backend needs to be refreshed after a pull on the server:
 
