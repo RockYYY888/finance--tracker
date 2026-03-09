@@ -221,13 +221,55 @@ export function truncateLabel(label: string, maxLength = 10): string {
 	return `${label.slice(0, maxLength - 1)}…`;
 }
 
+type TimelineAxisLabelOptions = {
+	compact?: boolean;
+	range?: TimelineRange;
+};
+
 /**
  * Formats timeline labels for narrow viewports to prevent axis overflow.
  */
-export function formatTimelineAxisLabel(label: string, compact = false): string {
+export function formatTimelineAxisLabel(
+	label: string,
+	options: TimelineAxisLabelOptions | boolean = false,
+): string {
+	const compact = typeof options === "boolean" ? options : (options.compact ?? false);
+	const range = typeof options === "boolean" ? undefined : options.range;
 	const normalizedLabel = label.trim();
-	if (!compact || normalizedLabel.length <= 8) {
+	if (!compact) {
 		return normalizedLabel;
+	}
+
+	if (!range && normalizedLabel.length <= 8) {
+		return normalizedLabel;
+	}
+
+	if (range === "hour") {
+		const timeMatch = normalizedLabel.match(/(\d{1,2}:\d{2})$/);
+		if (timeMatch) {
+			return timeMatch[1];
+		}
+	}
+
+	if (range === "day") {
+		const dayMatch = normalizedLabel.match(/(\d{2}-\d{2})(?:\s+\d{1,2}:\d{2})?$/);
+		if (dayMatch) {
+			return dayMatch[1];
+		}
+	}
+
+	if (range === "month") {
+		const monthMatch = normalizedLabel.match(/(\d{4}-\d{2})$/);
+		if (monthMatch) {
+			return monthMatch[1];
+		}
+	}
+
+	if (range === "year") {
+		const yearMatch = normalizedLabel.match(/(\d{4})/);
+		if (yearMatch) {
+			return yearMatch[1];
+		}
 	}
 
 	const parts = normalizedLabel.split(/\s+/);
@@ -268,6 +310,112 @@ export function getAdaptiveYAxisWidth(
 	);
 	const estimatedWidth = longestLabelLength * perCharWidth + padding;
 	return clamp(estimatedWidth, minWidth, maxWidth);
+}
+
+type CategoryAxisLabelOptions = {
+	compact?: boolean;
+	compactMaxLength?: number;
+	regularMaxLength?: number;
+};
+
+export function formatCategoryAxisLabel(
+	label: string,
+	{
+		compact = false,
+		compactMaxLength = 8,
+		regularMaxLength = 14,
+	}: CategoryAxisLabelOptions = {},
+): string {
+	const normalizedLabel = label.trim();
+	if (!normalizedLabel) {
+		return "";
+	}
+
+	return truncateLabel(normalizedLabel, compact ? compactMaxLength : regularMaxLength);
+}
+
+type AdaptiveCategoryAxisWidthOptions = AdaptiveYAxisWidthOptions & {
+	compact?: boolean;
+	compactMaxLength?: number;
+	regularMaxLength?: number;
+};
+
+export function getAdaptiveCategoryAxisWidth(
+	labels: string[],
+	{
+		compact = false,
+		compactMaxLength = 8,
+		regularMaxLength = 14,
+		minWidth,
+		maxWidth,
+		padding = compact ? 20 : 24,
+		perCharWidth = compact ? 9 : 8,
+	}: AdaptiveCategoryAxisWidthOptions = {},
+): number {
+	const formattedLabels = labels.map((label) =>
+		formatCategoryAxisLabel(label, {
+			compact,
+			compactMaxLength,
+			regularMaxLength,
+		}),
+	);
+
+	return getAdaptiveYAxisWidth(formattedLabels, {
+		minWidth: minWidth ?? (compact ? 88 : 104),
+		maxWidth: maxWidth ?? (compact ? 120 : 168),
+		padding,
+		perCharWidth,
+	});
+}
+
+type ChartTickIntervalOptions = {
+	compact?: boolean;
+	minLabelSpacing?: number;
+	minTickCount?: number;
+	maxTickCount?: number;
+};
+
+export function getChartTickInterval(
+	itemCount: number,
+	chartWidth: number,
+	{
+		compact = false,
+		minLabelSpacing = compact ? 72 : 96,
+		minTickCount = compact ? 3 : 4,
+		maxTickCount = compact ? 5 : 8,
+	}: ChartTickIntervalOptions = {},
+): number {
+	if (itemCount <= 1) {
+		return 0;
+	}
+
+	const estimatedTickCount = chartWidth > 0
+		? Math.floor(chartWidth / Math.max(minLabelSpacing, 1))
+		: maxTickCount;
+	const visibleTickCount = clamp(estimatedTickCount, minTickCount, maxTickCount);
+	if (itemCount <= visibleTickCount) {
+		return 0;
+	}
+
+	return Math.ceil(itemCount / visibleTickCount) - 1;
+}
+
+export function getAllocationDonutLayout(
+	chartWidth: number,
+): {
+	height: number;
+	innerRadius: number;
+	outerRadius: number;
+} {
+	const safeWidth = chartWidth > 0 ? chartWidth : 260;
+	const outerRadius = clamp(Math.floor((safeWidth - 24) / 2), 72, 102);
+	const innerRadius = clamp(outerRadius - 30, 42, 72);
+
+	return {
+		height: clamp(outerRadius * 2 + 40, 220, 260),
+		innerRadius,
+		outerRadius,
+	};
 }
 
 export function summarizeTimeline(series: TimelinePoint[]): {

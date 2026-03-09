@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
 	calculateDynamicAxisLayout,
+	formatCategoryAxisLabel,
 	formatTimelineAxisLabel,
+	getAdaptiveCategoryAxisWidth,
 	getAdaptiveYAxisWidth,
+	getAllocationDonutLayout,
+	getChartTickInterval,
 	prepareTimelineSeries,
 	summarizeTimeline,
 } from "./portfolioAnalytics";
@@ -156,7 +160,30 @@ describe("formatTimelineAxisLabel", () => {
 	});
 
 	it("keeps time part in compact mode for datetime labels", () => {
-		expect(formatTimelineAxisLabel("03-01 04:00", true)).toBe("04:00");
+		expect(
+			formatTimelineAxisLabel("03-01 04:00", {
+				compact: true,
+				range: "hour",
+			}),
+		).toBe("04:00");
+	});
+
+	it("keeps date part in compact mode for day labels", () => {
+		expect(
+			formatTimelineAxisLabel("03-01 04:00", {
+				compact: true,
+				range: "day",
+			}),
+		).toBe("03-01");
+	});
+
+	it("reduces yearly labels to the year in compact mode", () => {
+		expect(
+			formatTimelineAxisLabel("2026-03", {
+				compact: true,
+				range: "year",
+			}),
+		).toBe("2026");
 	});
 
 	it("truncates long custom labels in compact mode", () => {
@@ -172,5 +199,50 @@ describe("getAdaptiveYAxisWidth", () => {
 
 	it("respects min width for short labels", () => {
 		expect(getAdaptiveYAxisWidth(["0", "-1"], { minWidth: 56, maxWidth: 80 })).toBe(56);
+	});
+});
+
+describe("formatCategoryAxisLabel", () => {
+	it("shows more text on wider layouts while keeping compact mode tighter", () => {
+		expect(formatCategoryAxisLabel("Global Brokerage Account", {})).toBe("Global Broker…");
+		expect(formatCategoryAxisLabel("Global Brokerage Account", { compact: true })).toBe(
+			"Global …",
+		);
+	});
+});
+
+describe("getAdaptiveCategoryAxisWidth", () => {
+	it("grows category width within the configured bounds", () => {
+		expect(
+			getAdaptiveCategoryAxisWidth(["Global Brokerage Account", "现金管理"], {
+				compact: false,
+			}),
+		).toBeGreaterThanOrEqual(104);
+		expect(
+			getAdaptiveCategoryAxisWidth(["Global Brokerage Account"], {
+				compact: true,
+			}),
+		).toBeLessThanOrEqual(120);
+	});
+});
+
+describe("getChartTickInterval", () => {
+	it("keeps every tick when the chart is wide enough", () => {
+		expect(getChartTickInterval(5, 560, { compact: false })).toBe(0);
+	});
+
+	it("skips ticks when there are too many labels for the container width", () => {
+		expect(getChartTickInterval(24, 220, { compact: true })).toBeGreaterThan(0);
+	});
+});
+
+describe("getAllocationDonutLayout", () => {
+	it("shrinks donut radii on narrow containers and caps them on wide layouts", () => {
+		const narrowLayout = getAllocationDonutLayout(180);
+		const wideLayout = getAllocationDonutLayout(520);
+
+		expect(narrowLayout.outerRadius).toBeLessThan(wideLayout.outerRadius);
+		expect(wideLayout.outerRadius).toBe(102);
+		expect(narrowLayout.height).toBeLessThanOrEqual(260);
 	});
 });

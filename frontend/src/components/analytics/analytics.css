@@ -145,6 +145,7 @@
 
 .analytics-chart {
 	min-width: 0;
+	width: 100%;
 }
 
 .return-trend-legend {

@@ -11,11 +11,13 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
+	getAllocationDonutLayout,
 	buildAllocationLegend,
 	formatCny,
 	formatPercentage,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type AllocationChartProps = {
 	total_value_cny: number;
@@ -32,6 +34,8 @@ export function AllocationChart({
 }: AllocationChartProps) {
 	const legendItems = buildAllocationLegend(allocation, total_value_cny);
 	const positiveAssetTotal = legendItems.reduce((sum, item) => sum + item.value_cny, 0);
+	const { chartContainerRef, chartWidth } = useResponsiveChartFrame();
+	const donutLayout = getAllocationDonutLayout(chartWidth);
 
 	return (
 		<section className="analytics-card">
@@ -45,15 +49,15 @@ export function AllocationChart({
 				<div className="analytics-empty-state">暂无资产分布数据。</div>
 			) : (
 				<div className="analytics-donut">
-					<div className="analytics-chart">
-						<ResponsiveContainer width="100%" height={260}>
+					<div className="analytics-chart" ref={chartContainerRef}>
+						<ResponsiveContainer width="100%" height={donutLayout.height}>
 							<PieChart>
 								<Pie
 									data={legendItems}
 									dataKey="value_cny"
 									nameKey="label"
-									innerRadius={72}
-									outerRadius={102}
+									innerRadius={donutLayout.innerRadius}
+									outerRadius={donutLayout.outerRadius}
 									paddingAngle={4}
 								>
 									{legendItems.map((item) => (
