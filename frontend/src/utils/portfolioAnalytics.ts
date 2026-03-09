@@ -221,6 +221,25 @@ export function truncateLabel(label: string, maxLength = 10): string {
 	return `${label.slice(0, maxLength - 1)}…`;
 }
 
+export function formatTimelinePointLabel(
+	point: Pick<TimelinePoint, "label"> | null | undefined,
+	fallbackLabel = "该点",
+): string {
+	const normalizedLabel = point?.label?.trim() ?? "";
+	return normalizedLabel || fallbackLabel;
+}
+
+export function formatTimelineRangeLabel(
+	startPoint: Pick<TimelinePoint, "label"> | null | undefined,
+	endPoint: Pick<TimelinePoint, "label"> | null | undefined,
+	endFallbackLabel = "该点",
+): string {
+	return `${formatTimelinePointLabel(startPoint, "起点")}→${formatTimelinePointLabel(
+		endPoint,
+		endFallbackLabel,
+	)}`;
+}
+
 type TimelineAxisLabelOptions = {
 	compact?: boolean;
 	range?: TimelineRange;

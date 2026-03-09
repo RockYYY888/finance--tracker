@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -17,9 +17,10 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	calculateDynamicAxisLayout,
-	getChartTickInterval,
 	formatTimelineAxisLabel,
+	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
+	getChartTickInterval,
 	formatCompactCny,
 	formatCny,
 	formatPercentage,
@@ -96,24 +97,35 @@ export function PortfolioTrendChart({
 	description = "查看 24 小时、30 天、12 个月和年度变化。",
 }: PortfolioTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
+	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 	const rawSeries = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
 	const series = prepareTimelineSeries(rawSeries);
-	const summary = summarizeTimeline(series);
+	const rangeSummary = summarizeTimeline(series);
 	const axisLayout = useMemo(
 		() =>
 			calculateDynamicAxisLayout(series, {
-				minSpan: Math.max(Math.abs(summary.latestValue) * 0.02, 100),
+				minSpan: Math.max(Math.abs(rangeSummary.latestValue) * 0.02, 100),
 			}),
-		[series, summary.latestValue],
+		[series, rangeSummary.latestValue],
 	);
 	const chartData = buildPortfolioTrendChartData(series, axisLayout.centerValue);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
+	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
 	const hasData = chartData.length > 0;
-	const changeDirection = summary.changeValue > 0 ? "增加" : summary.changeValue < 0 ? "减少" : "变化";
-	const periodLabel = summary.startLabel && summary.latestLabel
-		? `${summary.startLabel}→${summary.latestLabel}`
-		: (summary.latestLabel ?? "最新周期");
-	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
+	const visibleSummary = activePointIndex === null
+		? rangeSummary
+		: summarizeTimeline(chartData.slice(0, activePointIndex + 1));
+	const periodLabel = formatTimelineRangeLabel(
+		chartData[0],
+		activePoint ?? chartData[chartData.length - 1],
+		"最新周期",
+	);
+	const changeDirection = visibleSummary.changeValue > 0
+		? "增加"
+		: visibleSummary.changeValue < 0
+			? "减少"
+			: "变化";
+	const centerDeltaValue = visibleSummary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
 		Math.abs(axisLayout.centerValue),
 		Math.abs(axisLayout.maxValue - axisLayout.minValue) * 0.6,
@@ -137,6 +149,11 @@ export function PortfolioTrendChart({
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
+	const chartDataKey = `${range}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+
+	useEffect(() => {
+		setActivePointIndex(null);
+	}, [chartDataKey]);
 
 	return (
 		<section className="analytics-card">
@@ -162,16 +179,16 @@ export function PortfolioTrendChart({
 
 			<div className="analytics-card__meta">
 				<div className="analytics-pill">
-					<span>最新净值</span>
-					<strong>{formatCny(summary.latestValue)}</strong>
+					<span>{activePoint ? "所选净值" : "最新净值"}</span>
+					<strong>{formatCny(visibleSummary.latestValue)}</strong>
 				</div>
 				<div className="analytics-pill">
 					<span>{periodLabel}</span>
 					<strong>
 						{changeDirection}
-						{formatCny(Math.abs(summary.changeValue))}
+						{formatCny(Math.abs(visibleSummary.changeValue))}
 						{" / "}
-						{formatSignedRatio(summary.changeRatio)}
+						{formatSignedRatio(visibleSummary.changeRatio)}
 					</strong>
 				</div>
 				<div className="analytics-pill">
@@ -195,6 +212,15 @@ export function PortfolioTrendChart({
 					<ResponsiveContainer width="100%" height={320}>
 						<ComposedChart
 							data={chartData}
+							onMouseMove={({ activeTooltipIndex, isTooltipActive }) => {
+								if (!isTooltipActive || typeof activeTooltipIndex !== "number") {
+									setActivePointIndex(null);
+									return;
+								}
+
+								setActivePointIndex(activeTooltipIndex);
+							}}
+							onMouseLeave={() => setActivePointIndex(null)}
 							margin={{
 								top: 12,
 								right: compactAxisMode ? 18 : 12,
