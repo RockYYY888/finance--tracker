@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
+import httpx
 import pytest
 
 import app.main as main
@@ -8,6 +9,7 @@ from app.models import SecurityHolding
 from app.services.cache import TTLCache
 from app.services.market_data import (
 	BitgetQuoteProvider,
+	EastMoneyQuoteProvider,
 	EastMoneySecuritySearchProvider,
 	MarketDataClient,
 	Quote,
@@ -410,6 +412,38 @@ def test_parse_eastmoney_search_item_maps_hk_codes() -> None:
 	assert result is not None
 	assert result.symbol == "2015.HK"
 	assert result.market == "HK"
+
+
+def test_eastmoney_quote_provider_exposes_http_status_details(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	class FailingAsyncClient:
+		def __init__(self, *args, **kwargs) -> None:
+			pass
+
+		async def __aenter__(self) -> "FailingAsyncClient":
+			return self
+
+		async def __aexit__(self, exc_type, exc, tb) -> None:
+			return None
+
+		async def get(self, *args, **kwargs):
+			request = httpx.Request("GET", "https://push2.eastmoney.com/api/qt/stock/get")
+			response = httpx.Response(429, request=request)
+			raise httpx.HTTPStatusError(
+				"429 Too Many Requests",
+				request=request,
+				response=response,
+			)
+
+	monkeypatch.setattr("app.services.market_data.httpx.AsyncClient", FailingAsyncClient)
+	provider = EastMoneyQuoteProvider()
+
+	with pytest.raises(
+		QuoteLookupError,
+		match=r"Eastmoney quote request failed for 1810\.HK \(HTTP 429",
+	):
+		asyncio.run(provider.fetch_quote("1810.HK"))
 
 
 def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:

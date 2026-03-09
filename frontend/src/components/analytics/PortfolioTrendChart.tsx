@@ -20,7 +20,7 @@ import {
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
-	getChartTickInterval,
+	getTimelineChartTicks,
 	formatCompactCny,
 	formatCny,
 	formatPercentage,
@@ -29,6 +29,10 @@ import {
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+import {
+	buildThresholdSegmentedChartData,
+	type ThresholdSegmentedPoint,
+} from "./chartSegmentation";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type PortfolioTrendChartProps = {
@@ -55,20 +59,13 @@ const POSITIVE_TREND_FILL = "rgba(0, 155, 193, 0.22)";
 const NEGATIVE_TREND_FILL = "rgba(215, 51, 108, 0.22)";
 const TREND_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
 
-type PortfolioTrendChartPoint = TimelinePoint & {
-	positiveValue: number;
-	negativeValue: number;
-};
+type PortfolioTrendChartPoint = ThresholdSegmentedPoint;
 
 export function buildPortfolioTrendChartData(
 	series: TimelinePoint[],
-	centerValue = 0,
+	thresholdValue = 0,
 ): PortfolioTrendChartPoint[] {
-	return series.map((point) => ({
-		...point,
-		positiveValue: point.value >= centerValue ? point.value : centerValue,
-		negativeValue: point.value < centerValue ? point.value : centerValue,
-	}));
+	return buildThresholdSegmentedChartData(series, thresholdValue);
 }
 
 type TooltipPayloadEntry = {
@@ -101,14 +98,16 @@ export function PortfolioTrendChart({
 	const rawSeries = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
 	const series = prepareTimelineSeries(rawSeries);
 	const rangeSummary = summarizeTimeline(series);
+	const baselineValue = rangeSummary.startValue;
 	const axisLayout = useMemo(
 		() =>
 			calculateDynamicAxisLayout(series, {
+				referenceValue: baselineValue,
 				minSpan: Math.max(Math.abs(rangeSummary.latestValue) * 0.02, 100),
 			}),
-		[series, rangeSummary.latestValue],
+		[baselineValue, series, rangeSummary.latestValue],
 	);
-	const chartData = buildPortfolioTrendChartData(series, axisLayout.centerValue);
+	const chartData = buildPortfolioTrendChartData(series, baselineValue);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
 	const hasData = chartData.length > 0;
@@ -118,34 +117,26 @@ export function PortfolioTrendChart({
 	const periodLabel = formatTimelineRangeLabel(
 		chartData[0],
 		activePoint ?? chartData[chartData.length - 1],
-		"最新周期",
+		activePoint?.crossingPoint ? "期初资产交点" : "最新周期",
 	);
 	const changeDirection = visibleSummary.changeValue > 0
 		? "增加"
 		: visibleSummary.changeValue < 0
 			? "减少"
 			: "变化";
-	const centerDeltaValue = visibleSummary.latestValue - axisLayout.centerValue;
-	const centerRatioDenominator = Math.max(
-		Math.abs(axisLayout.centerValue),
-		Math.abs(axisLayout.maxValue - axisLayout.minValue) * 0.6,
-		1e-6,
-	);
-	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
 			formatCompactCny(axisLayout.minValue),
-			formatCompactCny(axisLayout.centerValue),
+			formatCompactCny(axisLayout.referenceValue),
 			formatCompactCny(axisLayout.maxValue),
 		],
 		{
-			minWidth: compactAxisMode ? 56 : 52,
-			maxWidth: compactAxisMode ? 76 : 72,
+			minWidth: compactAxisMode ? 60 : 56,
+			maxWidth: compactAxisMode ? 84 : 80,
 		},
 	);
-	const xAxisInterval = getChartTickInterval(chartData.length, chartWidth, {
+	const xAxisTicks = getTimelineChartTicks(series, chartWidth, {
 		compact: compactAxisMode,
-		minLabelSpacing: compactAxisMode ? 64 : 88,
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
@@ -191,14 +182,6 @@ export function PortfolioTrendChart({
 						{formatSignedRatio(visibleSummary.changeRatio)}
 					</strong>
 				</div>
-				<div className="analytics-pill">
-					<span>相对中线偏离</span>
-					<strong>
-						{formatCny(centerDeltaValue)}
-						{" / "}
-						{formatSignedRatio(centerDeltaRatio)}
-					</strong>
-				</div>
 			</div>
 
 			{loading ? (
@@ -222,10 +205,10 @@ export function PortfolioTrendChart({
 							}}
 							onMouseLeave={() => setActivePointIndex(null)}
 							margin={{
-								top: 12,
-								right: compactAxisMode ? 18 : 12,
-								left: compactAxisMode ? 8 : 0,
-								bottom: compactAxisMode ? 10 : 0,
+								top: 18,
+								right: compactAxisMode ? 28 : 20,
+								left: compactAxisMode ? 16 : 10,
+								bottom: compactAxisMode ? 16 : 8,
 							}}
 						>
 							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -235,9 +218,14 @@ export function PortfolioTrendChart({
 								tickLine={false}
 								axisLine={false}
 								height={compactAxisMode ? 30 : 24}
-								interval={xAxisInterval}
+								ticks={xAxisTicks}
+								interval={0}
 								minTickGap={compactAxisMode ? 24 : 12}
 								tickMargin={compactAxisMode ? 10 : 8}
+								padding={{
+									left: compactAxisMode ? 8 : 14,
+									right: compactAxisMode ? 16 : 24,
+								}}
 								tickFormatter={(label: string) =>
 									formatTimelineAxisLabel(label, {
 										compact: compactAxisMode,
@@ -250,13 +238,14 @@ export function PortfolioTrendChart({
 								axisLine={false}
 								width={yAxisWidth}
 								domain={axisLayout.domain}
-								tickCount={axisLayout.tickCount}
+								ticks={axisLayout.tickValues}
+								tickMargin={compactAxisMode ? 8 : 6}
 								tickFormatter={formatCompactCny}
 							/>
 							<ReferenceLine
-								y={axisLayout.centerValue}
-								stroke="rgba(0, 155, 193, 0.65)"
-								strokeDasharray="5 5"
+								y={axisLayout.referenceValue}
+								stroke="rgba(214, 212, 203, 0.38)"
+								strokeDasharray="4 4"
 							/>
 							<Tooltip
 								content={({ active, payload, label }) => {
@@ -269,17 +258,23 @@ export function PortfolioTrendChart({
 									const rawValue = Number(
 										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
 									);
+									const sourcePoint = primaryEntry?.payload as
+										| PortfolioTrendChartPoint
+										| undefined;
+										const periodLabel = sourcePoint?.crossingPoint
+											? "期初资产交点"
+											: String(label ?? "");
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
 											<p style={ANALYTICS_TOOLTIP_LABEL_STYLE}>
-												周期: {String(label ?? "")}
+												周期: {periodLabel}
 											</p>
 											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
 												资产总额: {formatCny(rawValue)}
 											</p>
 											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
-												中位中线: {formatCny(axisLayout.centerValue)}
+												期初资产: {formatCny(axisLayout.referenceValue)}
 											</p>
 										</div>
 									);
@@ -289,25 +284,25 @@ export function PortfolioTrendChart({
 								labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
 							/>
 							<Area
-								type="monotone"
+								type="linear"
 								dataKey="positiveValue"
 								stroke={POSITIVE_TREND_COLOR}
 								fill={POSITIVE_TREND_FILL}
 								strokeWidth={1.2}
-								baseValue={axisLayout.centerValue}
+								baseValue={axisLayout.referenceValue}
 								connectNulls
 							/>
 							<Area
-								type="monotone"
+								type="linear"
 								dataKey="negativeValue"
 								stroke={NEGATIVE_TREND_COLOR}
 								fill={NEGATIVE_TREND_FILL}
 								strokeWidth={1.2}
-								baseValue={axisLayout.centerValue}
+								baseValue={axisLayout.referenceValue}
 								connectNulls
 							/>
 							<Line
-								type="monotone"
+								type="linear"
 								dataKey="value"
 								stroke={TREND_LINE_COLOR}
 								strokeWidth={2.4}
@@ -317,20 +312,18 @@ export function PortfolioTrendChart({
 						</ComposedChart>
 					</ResponsiveContainer>
 					<div className="return-trend-legend" role="list" aria-label="净值图例">
-						<span className="return-trend-legend__item" role="listitem">
 							<span
-								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
-								aria-hidden="true"
-							/>
-							净值高于中位数
-						</span>
-						<span className="return-trend-legend__item" role="listitem">
+								className="return-trend-legend__item return-trend-legend__item--positive"
+								role="listitem"
+							>
+								期初资产上方区域
+							</span>
 							<span
-								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
-								aria-hidden="true"
-							/>
-							净值低于中位数
-						</span>
+								className="return-trend-legend__item return-trend-legend__item--negative"
+								role="listitem"
+							>
+								期初资产下方区域
+							</span>
 					</div>
 				</div>
 			)}

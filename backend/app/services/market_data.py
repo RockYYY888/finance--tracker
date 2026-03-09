@@ -26,6 +26,27 @@ class QuoteLookupError(RuntimeError):
 	"""Raised when the market data providers cannot return a usable value."""
 
 
+def _describe_http_error(exc: httpx.HTTPError) -> str:
+	"""Format transport failures with status code when available."""
+	if isinstance(exc, httpx.HTTPStatusError):
+		status_code = exc.response.status_code
+		reason_phrase = (exc.response.reason_phrase or "").strip()
+		if reason_phrase:
+			return f"HTTP {status_code} {reason_phrase}"
+		return f"HTTP {status_code}"
+
+	if isinstance(exc, httpx.TimeoutException):
+		return exc.__class__.__name__
+
+	if isinstance(exc, httpx.RequestError):
+		error_message = str(exc).strip()
+		if error_message:
+			return f"{exc.__class__.__name__}: {error_message}"
+		return exc.__class__.__name__
+
+	return exc.__class__.__name__
+
+
 def build_fx_symbol(from_currency: str, to_currency: str) -> str:
 	"""Translate a currency pair into a Yahoo Finance symbol."""
 	return f"{from_currency.upper()}{to_currency.upper()}=X"
@@ -528,8 +549,9 @@ class EastMoneyQuoteProvider:
 				response.raise_for_status()
 				payload = response.json()
 		except httpx.HTTPError as exc:
+			error_details = _describe_http_error(exc)
 			raise QuoteLookupError(
-				f"Eastmoney quote request failed for {normalized_symbol}.",
+				f"Eastmoney quote request failed for {normalized_symbol} ({error_details}).",
 			) from exc
 
 		data = payload.get("data") or {}

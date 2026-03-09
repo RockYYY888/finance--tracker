@@ -829,7 +829,7 @@ export function HoldingForm({
 			{isEditIntent ? (
 				<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
 					<strong>此处仅修改当前持仓资料</strong>
-					<p>买入和卖出请回到列表顶部操作</p>
+					<p className="asset-manager__helper-text">买入和卖出请回到列表顶部操作</p>
 				</div>
 			) : null}
 

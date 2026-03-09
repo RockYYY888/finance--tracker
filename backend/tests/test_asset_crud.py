@@ -98,6 +98,22 @@ class StaticMarketDataClient:
 		return None
 
 
+class WarningMarketDataClient(StaticMarketDataClient):
+	FALLBACK_WARNING = (
+		"1810.HK 行情源不可用，已回退到最近缓存值: "
+		"Eastmoney quote request failed for 1810.HK (HTTP 429 Too Many Requests)."
+	)
+	DELAY_WARNING = "1810.HK 行情返回延迟，展示最近成交价。"
+
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+	) -> tuple[Quote, list[str]]:
+		quote, _warnings = await super().fetch_quote(symbol, market)
+		return quote, [self.FALLBACK_WARNING, self.DELAY_WARNING]
+
+
 @pytest.fixture
 def session(tmp_path: Path) -> Iterator[Session]:
 	engine = create_engine(
@@ -1386,6 +1402,58 @@ def test_build_dashboard_converts_usd_liabilities_to_cny(
 	assert dashboard.cash_value_cny == 1_000.0
 	assert dashboard.liabilities_value_cny == 700.0
 	assert dashboard.total_value_cny == 300.0
+
+
+def test_build_dashboard_hides_fallback_cache_warning_for_non_admin(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session, "normal_user")
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="1810.HK",
+			name="Xiaomi",
+			quantity=2,
+			fallback_currency="hkd",
+			market="hk",
+			cost_basis_price=12.5,
+		),
+		current_user,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", WarningMarketDataClient())
+	monkeypatch.setattr(main, "_has_holding_history_sync_pending", lambda *_args, **_kwargs: False)
+
+	dashboard = asyncio.run(main._build_dashboard(session, current_user))
+
+	assert not any("已回退到最近缓存值" in warning for warning in dashboard.warnings)
+	assert WarningMarketDataClient.DELAY_WARNING in dashboard.warnings
+
+
+def test_build_dashboard_keeps_fallback_cache_warning_for_admin(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session, "admin")
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="1810.HK",
+			name="Xiaomi",
+			quantity=2,
+			fallback_currency="hkd",
+			market="hk",
+			cost_basis_price=12.5,
+		),
+		current_user,
+		session,
+	)
+	monkeypatch.setattr(main, "market_data_client", WarningMarketDataClient())
+	monkeypatch.setattr(main, "_has_holding_history_sync_pending", lambda *_args, **_kwargs: False)
+
+	dashboard = asyncio.run(main._build_dashboard(session, current_user))
+
+	assert WarningMarketDataClient.FALLBACK_WARNING in dashboard.warnings
+	assert WarningMarketDataClient.DELAY_WARNING in dashboard.warnings
 
 
 def test_holding_update_enqueues_history_sync_request(session: Session) -> None:

@@ -497,17 +497,21 @@
 	align-items: center;
 	min-height: 3rem;
 	padding: 0.8rem 1rem;
-	border: 0;
+	border: 1px solid rgba(148, 224, 241, 0.24);
 	border-radius: 18px;
-	background: linear-gradient(135deg, var(--accent-cyan), #97fff0);
-	color: #07111f;
+	background: linear-gradient(
+		135deg,
+		rgba(99, 232, 255, 0.82),
+		rgba(122, 214, 255, 0.72)
+	);
+	color: rgba(5, 18, 34, 0.96);
 	font-size: 0.95rem;
 	font-weight: 700;
 	cursor: pointer;
 	transition:
 		transform 160ms ease,
 		filter 160ms ease;
-	box-shadow: 0 12px 22px rgba(99, 232, 255, 0.16);
+	box-shadow: 0 10px 20px rgba(77, 185, 219, 0.2);
 }
 
 .asset-manager__button:hover:not(:disabled),
@@ -627,14 +631,14 @@
 }
 
 .asset-manager__helper-block--highlight p {
-	color: #ffc8d3;
+	color: var(--text-muted);
 }
 
 .asset-manager__button--danger {
-	background: linear-gradient(135deg, rgba(255, 124, 145, 0.92), rgba(255, 95, 126, 0.88));
-	color: #fff4f7;
-	border: 1px solid rgba(255, 173, 188, 0.28);
-	box-shadow: 0 14px 28px rgba(255, 95, 126, 0.22);
+	background: linear-gradient(135deg, rgba(197, 85, 110, 0.9), rgba(168, 67, 92, 0.86));
+	color: #ffe9ef;
+	border: 1px solid rgba(255, 178, 196, 0.22);
+	box-shadow: 0 12px 24px rgba(145, 55, 78, 0.26);
 }
 
 .asset-manager__message {
