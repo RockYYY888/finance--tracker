@@ -57,7 +57,7 @@ export function HoldingList({
 					{onCreateBuy ? (
 						<button
 							type="button"
-							className="asset-manager__button"
+							className="asset-manager__button asset-manager__button--legacy-add"
 							onClick={onCreateBuy}
 							disabled={isActionLocked}
 						>
@@ -67,7 +67,7 @@ export function HoldingList({
 					{onCreateSell ? (
 						<button
 							type="button"
-							className="asset-manager__button asset-manager__button--danger"
+							className="asset-manager__button asset-manager__button--legacy-delete"
 							onClick={onCreateSell}
 							disabled={isActionLocked}
 						>
