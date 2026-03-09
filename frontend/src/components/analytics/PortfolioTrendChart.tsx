@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -17,6 +17,7 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	calculateDynamicAxisLayout,
+	getChartTickInterval,
 	formatTimelineAxisLabel,
 	getAdaptiveYAxisWidth,
 	formatCompactCny,
@@ -27,32 +28,7 @@ import {
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
-
-const COMPACT_AXIS_BREAKPOINT_PX = 560;
-
-function useCompactAxisMode(breakpointPx = COMPACT_AXIS_BREAKPOINT_PX): boolean {
-	const [isCompact, setIsCompact] = useState(() => {
-		if (typeof window === "undefined") {
-			return false;
-		}
-		return window.innerWidth <= breakpointPx;
-	});
-
-	useEffect(() => {
-		if (typeof window === "undefined") {
-			return;
-		}
-
-		const handleResize = () => {
-			setIsCompact(window.innerWidth <= breakpointPx);
-		};
-
-		window.addEventListener("resize", handleResize);
-		return () => window.removeEventListener("resize", handleResize);
-	}, [breakpointPx]);
-
-	return isCompact;
-}
+import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type PortfolioTrendChartProps = {
 	hour_series: TimelinePoint[];
@@ -131,7 +107,7 @@ export function PortfolioTrendChart({
 		[series, summary.latestValue],
 	);
 	const chartData = buildPortfolioTrendChartData(series, axisLayout.centerValue);
-	const compactAxisMode = useCompactAxisMode();
+	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const hasData = chartData.length > 0;
 	const changeDirection = summary.changeValue > 0 ? "增加" : summary.changeValue < 0 ? "减少" : "变化";
 	const periodLabel = summary.startLabel && summary.latestLabel
@@ -155,6 +131,12 @@ export function PortfolioTrendChart({
 			maxWidth: compactAxisMode ? 76 : 72,
 		},
 	);
+	const xAxisInterval = getChartTickInterval(chartData.length, chartWidth, {
+		compact: compactAxisMode,
+		minLabelSpacing: compactAxisMode ? 64 : 88,
+		minTickCount: compactAxisMode ? 3 : 4,
+		maxTickCount: compactAxisMode ? 5 : 7,
+	});
 
 	return (
 		<section className="analytics-card">
@@ -209,7 +191,7 @@ export function PortfolioTrendChart({
 					还没有足够的资产快照。随着资产变动，这里会逐步形成趋势。
 				</div>
 			) : (
-				<div className="analytics-chart">
+				<div className="analytics-chart" ref={chartContainerRef}>
 					<ResponsiveContainer width="100%" height={320}>
 						<ComposedChart
 							data={chartData}
@@ -226,11 +208,15 @@ export function PortfolioTrendChart({
 								stroke="#d6d4cb"
 								tickLine={false}
 								axisLine={false}
-								interval={compactAxisMode ? "preserveStartEnd" : 0}
+								height={compactAxisMode ? 30 : 24}
+								interval={xAxisInterval}
 								minTickGap={compactAxisMode ? 24 : 12}
-								tickMargin={8}
+								tickMargin={compactAxisMode ? 10 : 8}
 								tickFormatter={(label: string) =>
-									formatTimelineAxisLabel(label, compactAxisMode)}
+									formatTimelineAxisLabel(label, {
+										compact: compactAxisMode,
+										range,
+									})}
 							/>
 							<YAxis
 								stroke="#d6d4cb"

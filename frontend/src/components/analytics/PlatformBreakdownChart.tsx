@@ -22,13 +22,15 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildPlatformBreakdown,
+	formatCategoryAxisLabel,
 	formatCompactCny,
 	formatCny,
 	formatPercentage,
+	getAdaptiveCategoryAxisWidth,
 	getBarChartHeight,
-	truncateLabel,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type PlatformBreakdownChartProps = {
 	cash_accounts: ValuedCashAccount[];
@@ -57,6 +59,11 @@ export function PlatformBreakdownChart({
 		other_assets,
 	);
 	const chartHeight = getBarChartHeight(platformBreakdown.length);
+	const { chartContainerRef, compactAxisMode } = useResponsiveChartFrame();
+	const categoryAxisWidth = getAdaptiveCategoryAxisWidth(
+		platformBreakdown.map((item) => item.label),
+		{ compact: compactAxisMode },
+	);
 
 	return (
 		<section className="analytics-card">
@@ -73,12 +80,17 @@ export function PlatformBreakdownChart({
 				<div className="analytics-empty-state">暂无入口结构数据。</div>
 			) : (
 				<>
-					<div className="analytics-chart">
+					<div className="analytics-chart" ref={chartContainerRef}>
 						<ResponsiveContainer width="100%" height={chartHeight}>
 							<BarChart
 								data={platformBreakdown}
 								layout="vertical"
-								margin={{ top: 4, right: 12, left: 8, bottom: 0 }}
+								margin={{
+									top: 4,
+									right: compactAxisMode ? 8 : 12,
+									left: compactAxisMode ? 4 : 8,
+									bottom: 0,
+								}}
 							>
 								<CartesianGrid
 									strokeDasharray="3 3"
@@ -90,16 +102,21 @@ export function PlatformBreakdownChart({
 									stroke="#d6d4cb"
 									tickLine={false}
 									axisLine={false}
+									tickMargin={8}
 									tickFormatter={formatCompactCny}
 								/>
 								<YAxis
 									type="category"
 									dataKey="label"
-									width={88}
+									width={categoryAxisWidth}
 									stroke="#d6d4cb"
 									tickLine={false}
 									axisLine={false}
-									tickFormatter={(label: string) => truncateLabel(label, 8)}
+									tickMargin={6}
+									tickFormatter={(label: string) =>
+										formatCategoryAxisLabel(label, {
+											compact: compactAxisMode,
+										})}
 								/>
 								<Tooltip
 									cursor={ANALYTICS_TOOLTIP_CURSOR_STYLE}
