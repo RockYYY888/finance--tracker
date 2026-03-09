@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 import re
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.models import (
 	CASH_ACCOUNT_TYPES,
@@ -618,31 +618,15 @@ class SecurityHoldingCreate(BaseModel):
 
 
 class SecurityHoldingUpdate(BaseModel):
-	symbol: str = Field(min_length=1, max_length=32)
-	name: str = Field(min_length=1, max_length=120)
-	quantity: float = Field(gt=0)
-	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
-	cost_basis_price: Optional[float] = Field(default=None, gt=0)
-	market: Optional[str] = Field(default=None, min_length=2, max_length=16)
-	broker: Optional[str] = Field(default=None, max_length=120)
-	started_on: Optional[date] = None
-	note: Optional[str] = Field(default=None, max_length=500)
+	model_config = ConfigDict(extra="forbid")
 
-	@field_validator("market", mode="before")
-	@classmethod
-	def validate_market(cls, value: str | None) -> str | None:
-		return _normalize_choice(value, SECURITY_MARKETS, "market")
+	broker: Optional[str] = Field(default=None, max_length=120)
+	note: Optional[str] = Field(default=None, max_length=500)
 
 	@field_validator("broker", "note", mode="before")
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
 		return _normalize_optional_text(value)
-
-	@model_validator(mode="after")
-	def validate_quantity_for_market(self) -> SecurityHoldingUpdate:
-		if (self.market or "OTHER") not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
-			raise ValueError("股票请使用整数数量，基金可使用份额。")
-		return self
 
 
 class SecurityHoldingRead(UtcTimestampResponseModel):
@@ -716,6 +700,47 @@ class SecurityHoldingTransactionCreate(BaseModel):
 		return self
 
 
+class SecurityHoldingTransactionUpdate(BaseModel):
+	model_config = ConfigDict(extra="forbid")
+
+	name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+	quantity: Optional[float] = Field(default=None, gt=0)
+	price: Optional[float] = Field(default=None, gt=0)
+	fallback_currency: Optional[str] = Field(default=None, min_length=3, max_length=8)
+	broker: Optional[str] = Field(default=None, max_length=120)
+	traded_on: Optional[date] = None
+	note: Optional[str] = Field(default=None, max_length=500)
+	sell_proceeds_handling: Optional[str] = Field(default=None, min_length=7, max_length=32)
+	sell_proceeds_account_id: Optional[int] = Field(default=None, ge=1)
+
+	@field_validator("name", mode="before")
+	@classmethod
+	def normalize_name(cls, value: str | None) -> str | None:
+		if value is None:
+			return None
+		return _normalize_required_text(value, "name")
+
+	@field_validator("sell_proceeds_handling", mode="before")
+	@classmethod
+	def validate_sell_proceeds_handling(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SELL_PROCEEDS_HANDLINGS, "sell_proceeds_handling")
+
+	@field_validator("broker", "note", mode="before")
+	@classmethod
+	def normalize_optional_fields(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+	@model_validator(mode="after")
+	def validate_sell_proceeds_fields(self) -> SecurityHoldingTransactionUpdate:
+		if (
+			self.sell_proceeds_handling is not None
+			and self.sell_proceeds_handling != "ADD_TO_EXISTING_CASH"
+			and self.sell_proceeds_account_id is not None
+		):
+			raise ValueError("只有并入现有现金时才允许传入目标现金账户。")
+		return self
+
+
 class SecurityHoldingTransactionRead(UtcTimestampResponseModel):
 	id: int
 	symbol: str
@@ -728,6 +753,8 @@ class SecurityHoldingTransactionRead(UtcTimestampResponseModel):
 	broker: Optional[str] = None
 	traded_on: date
 	note: Optional[str] = None
+	sell_proceeds_handling: Optional[str] = None
+	sell_proceeds_account_id: Optional[int] = None
 	created_at: datetime
 	updated_at: datetime
 

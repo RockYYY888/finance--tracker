@@ -475,7 +475,7 @@ export function HoldingForm({
 	);
 	const resolvedSubmitLabel = submitLabel ?? (
 		isEditIntent
-			? "保存编辑"
+			? "保存资料"
 			: isSellTransaction
 				? "确认卖出"
 				: "确认买入"
@@ -507,7 +507,7 @@ export function HoldingForm({
 	const dateLabel = dateFieldLabel;
 	const datePlaceholder = isEditIntent ? "请选择持仓日期" : "请选择交易日期";
 	const defaultSaveErrorMessage = isEditIntent
-		? "保存持仓失败，请稍后重试。"
+		? "保存持仓资料失败，请稍后重试。"
 		: isSellTransaction
 			? "新增卖出失败，请稍后重试。"
 			: "新增买入失败，请稍后重试。";
@@ -528,8 +528,9 @@ export function HoldingForm({
 		draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH" && !canSelectExistingCashAccount
 			? "CREATE_NEW_CASH"
 			: draft.sell_proceeds_handling;
-	const shouldShowSearchInput = !isSellTransaction;
-	const shouldShowIdentityFields = !isSellTransaction;
+	const shouldShowSearchInput = !isSellTransaction && !isEditIntent;
+	const shouldShowIdentityFields = !isSellTransaction && !isEditIntent;
+	const shouldShowTransactionFields = !isEditIntent;
 
 	useEffect(() => {
 		if (!isSellTransaction) {
@@ -662,7 +663,7 @@ export function HoldingForm({
 		setLocalError(null);
 
 		try {
-			if (!draft.symbol || !draft.name || !draft.market || !draft.fallback_currency) {
+			if (!isEditIntent && (!draft.symbol || !draft.name || !draft.market || !draft.fallback_currency)) {
 				throw new Error(
 					isSellTransaction
 						? "请先从当前持仓中选择要卖出的标的。"
@@ -671,29 +672,32 @@ export function HoldingForm({
 			}
 
 			const payload = toHoldingInput(draft);
-			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
+			if (!isEditIntent && (!Number.isFinite(payload.quantity) || payload.quantity <= 0)) {
 				throw new Error(isSellTransaction ? "请输入有效的卖出数量。" : "请输入有效的买入数量。");
 			}
-			if (!payload.started_on) {
+			if (!isEditIntent && !payload.started_on) {
 				throw new Error(`${dateFieldLabel}为必填项。`);
 			}
 			if (
+				!isEditIntent &&
 				payload.cost_basis_price !== undefined &&
 				(!Number.isFinite(payload.cost_basis_price) || payload.cost_basis_price <= 0)
 			) {
 				throw new Error("请输入有效的成交价。");
 			}
 			if (
+				!isEditIntent &&
 				payload.side === "SELL" &&
 				payload.sell_proceeds_handling === "ADD_TO_EXISTING_CASH" &&
 				!payload.sell_proceeds_account_id
 			) {
 				throw new Error("请选择一个已有现金账户来接收卖出回款。");
 			}
-			if (payload.side === "SELL" && selectedSellHolding == null) {
+			if (!isEditIntent && payload.side === "SELL" && selectedSellHolding == null) {
 				throw new Error("请先从当前持仓中选择要卖出的标的。");
 			}
 			if (
+				!isEditIntent &&
 				payload.side === "SELL" &&
 				selectedSellHolding != null &&
 				payload.quantity > selectedSellHolding.quantity
@@ -702,14 +706,23 @@ export function HoldingForm({
 					`卖出数量不能超过当前持仓，当前最多可卖 ${formatQuantity(selectedSellHolding.quantity)}。`,
 				);
 			}
-			if (!allowsFractionalQuantity(draft.market) && !Number.isInteger(payload.quantity)) {
+			if (
+				!isEditIntent &&
+				!allowsFractionalQuantity(draft.market) &&
+				!Number.isInteger(payload.quantity)
+			) {
 				throw new Error("股票请使用整数数量，基金和加密货币可使用小数。");
 			}
-			if (payload.started_on && maxStartedOnDate && payload.started_on > maxStartedOnDate) {
+			if (
+				!isEditIntent &&
+				payload.started_on &&
+				maxStartedOnDate &&
+				payload.started_on > maxStartedOnDate
+			) {
 				throw new Error(`${dateFieldLabel}不能晚于服务器今日日期（${maxStartedOnDate}）。`);
 			}
 
-			const duplicateHolding = payload.side === "BUY"
+			const duplicateHolding = !isEditIntent && payload.side === "BUY"
 				? findDuplicateHolding(existingHoldings, payload.symbol, recordId)
 				: null;
 			if (duplicateHolding && isEditIntent) {
@@ -829,7 +842,9 @@ export function HoldingForm({
 			{isEditIntent ? (
 				<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
 					<strong>此处仅修改当前持仓资料</strong>
-					<p className="asset-manager__helper-text">买入和卖出请回到列表顶部操作</p>
+					<p className="asset-manager__helper-text">
+						当前持仓数量 持仓成本 持仓日期 已改为交易记录驱动 需要更正请修改对应买入卖出记录
+					</p>
 				</div>
 			) : null}
 
@@ -967,7 +982,18 @@ export function HoldingForm({
 					</div>
 				) : null}
 
-				<div className="asset-manager__field-grid asset-manager__field-grid--triple">
+				{isEditIntent ? (
+					<div className="asset-manager__helper-block">
+						<p>
+							当前持仓：{draft.name || "未命名标的"}
+							{draft.symbol ? ` (${draft.symbol})` : ""}
+							{draft.market ? ` · ${formatSecurityMarket(draft.market)}` : ""}
+						</p>
+					</div>
+				) : null}
+
+				{shouldShowTransactionFields ? (
+					<div className="asset-manager__field-grid asset-manager__field-grid--triple">
 					{isSellTransaction ? (
 						<label className="asset-manager__field">
 							<span>市场</span>
@@ -1040,21 +1066,24 @@ export function HoldingForm({
 							/>
 						</label>
 					)}
-				</div>
+					</div>
+				) : null}
 
-				<label className="asset-manager__field">
-					<span>{priceLabel}</span>
-					<input
-						type="number"
-						min="0.0001"
-						step="0.0001"
-						value={draft.cost_basis_price}
-						onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
-						placeholder={pricePlaceholder}
-					/>
-				</label>
+				{shouldShowTransactionFields ? (
+					<label className="asset-manager__field">
+						<span>{priceLabel}</span>
+						<input
+							type="number"
+							min="0.0001"
+							step="0.0001"
+							value={draft.cost_basis_price}
+							onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
+							placeholder={pricePlaceholder}
+						/>
+					</label>
+				) : null}
 
-				{isSellTransaction ? (
+				{isSellTransaction && shouldShowTransactionFields ? (
 					<>
 						<label className="asset-manager__field">
 							<span>卖出回款去向</span>
@@ -1121,15 +1150,17 @@ export function HoldingForm({
 					/>
 				</label>
 
-				<label className="asset-manager__field">
-					<span>{dateLabel}</span>
-					<DatePickerField
-						value={draft.started_on}
-						onChange={(nextValue) => updateDraft("started_on", nextValue)}
-						maxDate={maxStartedOnDate}
-						placeholder={datePlaceholder}
-					/>
-				</label>
+				{shouldShowTransactionFields ? (
+					<label className="asset-manager__field">
+						<span>{dateLabel}</span>
+						<DatePickerField
+							value={draft.started_on}
+							onChange={(nextValue) => updateDraft("started_on", nextValue)}
+							maxDate={maxStartedOnDate}
+							placeholder={datePlaceholder}
+						/>
+					</label>
+				) : null}
 
 				<label className="asset-manager__field">
 					<span>备注</span>

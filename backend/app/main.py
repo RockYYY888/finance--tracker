@@ -37,6 +37,7 @@ from app.models import (
 	FixedAsset,
 	HoldingHistorySyncRequest,
 	HoldingPerformanceSnapshot,
+	HoldingTransactionCashSettlement,
 	InboxMessageVisibility,
 	LiabilityEntry,
 	OtherAsset,
@@ -97,6 +98,7 @@ from app.schemas import (
 	SecurityHoldingCreate,
 	SecurityHoldingRead,
 	SecurityHoldingUpdate,
+	SecurityHoldingTransactionUpdate,
 	UserFeedbackCreate,
 	UserFeedbackRead,
 	ValuedCashAccount,
@@ -180,6 +182,15 @@ class LiveHoldingsReturnState:
 
 
 @dataclass(slots=True)
+class AppliedSellProceeds:
+	cash_account: CashAccount
+	settled_amount: float
+	settled_currency: str
+	handling: str
+	auto_created_cash_account: bool
+
+
+@dataclass(slots=True)
 class HoldingLot:
 	quantity: float
 	traded_on: date
@@ -236,6 +247,7 @@ async def lifespan(_: FastAPI):
 	init_db()
 	_ensure_legacy_schema()
 	_migrate_legacy_holdings_to_transactions()
+	_backfill_holding_transaction_cash_settlements()
 	_audit_legacy_user_ownership()
 
 	try:
@@ -388,6 +400,7 @@ def _touch_model(
 	| CashAccount
 	| SecurityHolding
 	| SecurityHoldingTransaction
+	| HoldingTransactionCashSettlement
 	| FixedAsset
 	| LiabilityEntry
 	| OtherAsset
@@ -761,11 +774,17 @@ def _fill_hourly_prices(
 async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str) -> None:
 	now = utc_now()
 	end_hour = _current_hour_bucket(now)
-	holdings = list(
+	transactions = list(
 		session.exec(
-			select(SecurityHolding)
-			.where(SecurityHolding.user_id == user_id)
-			.order_by(SecurityHolding.symbol, SecurityHolding.name),
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == user_id)
+			.order_by(
+				SecurityHoldingTransaction.symbol,
+				SecurityHoldingTransaction.market,
+				SecurityHoldingTransaction.traded_on,
+				SecurityHoldingTransaction.created_at,
+				SecurityHoldingTransaction.id,
+			),
 		),
 	)
 
@@ -780,57 +799,98 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 	weighted_sum_by_hour: dict[datetime, float] = {}
 	total_basis_by_hour: dict[datetime, float] = {}
 	history_warnings: list[str] = []
+	transactions_by_symbol: dict[tuple[str, str], list[SecurityHoldingTransaction]] = {}
 
-	for holding in holdings:
-		if (
-			holding.cost_basis_price is None
-			or holding.cost_basis_price <= 0
-			or holding.quantity <= 0
-			or holding.started_on is None
-		):
+	for transaction in transactions:
+		transactions_by_symbol.setdefault(
+			(transaction.symbol, transaction.market),
+			[],
+		).append(transaction)
+
+	for (symbol, market), symbol_transactions in transactions_by_symbol.items():
+		sorted_transactions = sorted(symbol_transactions, key=_holding_transaction_sort_key)
+		if not sorted_transactions:
 			continue
 
-		start_at = _date_start_utc(holding.started_on)
+		start_at = _date_start_utc(sorted_transactions[0].traded_on)
 		if start_at > end_hour:
 			continue
 
 		known_points, history_currency, warnings = await market_data_client.fetch_hourly_price_series(
-			holding.symbol,
-			market=holding.market,
+			symbol,
+			market=market,
 			start_at=start_at,
 			end_at=end_hour + timedelta(hours=1),
 		)
 		history_warnings.extend(warnings)
 
-		fallback_price = holding.cost_basis_price
+		fallback_price = next(
+			(
+				item.price
+				for item in reversed(sorted_transactions)
+				if item.price is not None and item.price > 0
+			),
+			0.0,
+		)
 		currency_for_pricing = history_currency
 		if not known_points or not currency_for_pricing:
 			latest_quote, quote_warnings = await market_data_client.fetch_quote(
-				holding.symbol,
-				holding.market,
+				symbol,
+				market,
 			)
 			history_warnings.extend(quote_warnings)
 			if latest_quote.price > 0:
 				fallback_price = latest_quote.price
 			currency_for_pricing = currency_for_pricing or latest_quote.currency
 
-		currency_code = _normalize_currency(currency_for_pricing or holding.fallback_currency)
+		currency_code = _normalize_currency(
+			currency_for_pricing or sorted_transactions[-1].fallback_currency,
+		)
 		if currency_code == "CNY":
 			fx_to_cny = 1.0
 		else:
 			fx_to_cny, fx_warnings = await market_data_client.fetch_fx_rate(currency_code, "CNY")
 			history_warnings.extend(fx_warnings)
 
-		basis_value_cny = holding.cost_basis_price * holding.quantity * fx_to_cny
-		if basis_value_cny <= 0:
-			continue
-
 		hours = _build_hour_buckets(start_at, end_hour)
 		filled_prices = _fill_hourly_prices(hours, known_points, fallback_price)
 		symbol_rows: list[HoldingPerformanceSnapshot] = []
+		transactions_by_date: dict[date, list[SecurityHoldingTransaction]] = {}
+		for item in sorted_transactions:
+			transactions_by_date.setdefault(item.traded_on, []).append(item)
+
+		event_dates = sorted(transactions_by_date)
+		event_index = 0
+		first_transaction = sorted_transactions[0]
+		projected_state = ProjectedHoldingState(
+			symbol=symbol,
+			name=first_transaction.name,
+			market=market,
+			fallback_currency=first_transaction.fallback_currency,
+			broker=first_transaction.broker,
+			note=first_transaction.note,
+			lots=[],
+		)
 		for hour in hours:
+			while event_index < len(event_dates) and _date_start_utc(event_dates[event_index]) <= hour:
+				for event_transaction in transactions_by_date[event_dates[event_index]]:
+					_apply_holding_transaction_to_state(projected_state, event_transaction)
+				event_index += 1
+
+			quantity = _projected_holding_quantity(projected_state)
+			if quantity <= HOLDING_QUANTITY_EPSILON:
+				continue
+
+			cost_basis_price = _projected_holding_cost_basis(projected_state)
+			if cost_basis_price is None or cost_basis_price <= 0:
+				continue
+
+			basis_value_cny = cost_basis_price * quantity * fx_to_cny
+			if basis_value_cny <= 0:
+				continue
+
 			price = filled_prices.get(hour, 0.0)
-			return_pct = _calculate_return_pct(price, holding.cost_basis_price)
+			return_pct = _calculate_return_pct(price, cost_basis_price)
 			if return_pct is None:
 				continue
 
@@ -838,8 +898,8 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 				HoldingPerformanceSnapshot(
 					user_id=user_id,
 					scope="HOLDING",
-					symbol=holding.symbol,
-					name=holding.name,
+					symbol=symbol,
+					name=projected_state.name,
 					return_pct=return_pct,
 					created_at=hour,
 				),
@@ -1111,6 +1171,96 @@ def _migrate_legacy_holdings_to_transactions() -> None:
 					note=holding.note,
 				),
 			)
+			has_changes = True
+
+		if has_changes:
+			session.commit()
+
+
+def _extract_transaction_id_from_sell_proceeds_reason(reason: str | None) -> int | None:
+	if not reason or "#" not in reason:
+		return None
+	prefix, _, raw_id = reason.partition("#")
+	if prefix not in {"SELL_PROCEEDS", "AUTO_SELL_PROCEEDS"}:
+		return None
+	try:
+		return int(raw_id)
+	except ValueError:
+		return None
+
+
+def _backfill_holding_transaction_cash_settlements() -> None:
+	with Session(engine) as session:
+		existing_transaction_ids = set(
+			session.exec(select(HoldingTransactionCashSettlement.holding_transaction_id)).all(),
+		)
+		audits = list(
+			session.exec(
+				select(AssetMutationAudit)
+				.where(AssetMutationAudit.entity_type == "CASH_ACCOUNT")
+				.where(
+					text(
+						"(reason LIKE 'SELL_PROCEEDS#%' OR reason LIKE 'AUTO_SELL_PROCEEDS#%')",
+					),
+				)
+				.order_by(AssetMutationAudit.created_at.asc(), AssetMutationAudit.id.asc()),
+			),
+		)
+		if not audits:
+			return
+
+		has_changes = False
+		for audit in audits:
+			transaction_id = _extract_transaction_id_from_sell_proceeds_reason(audit.reason)
+			if transaction_id is None or transaction_id in existing_transaction_ids:
+				continue
+
+			transaction = session.get(SecurityHoldingTransaction, transaction_id)
+			if transaction is None:
+				continue
+
+			try:
+				before_state = json.loads(audit.before_state) if audit.before_state else None
+				after_state = json.loads(audit.after_state) if audit.after_state else None
+			except json.JSONDecodeError:
+				continue
+			if not isinstance(after_state, dict):
+				continue
+
+			after_balance = float(after_state.get("balance") or 0.0)
+			before_balance = (
+				float(before_state.get("balance") or 0.0)
+				if isinstance(before_state, dict)
+				else 0.0
+			)
+			settled_amount = (
+				after_balance
+				if (audit.reason or "").startswith("AUTO_SELL_PROCEEDS#")
+				else round(after_balance - before_balance, 8)
+			)
+			if settled_amount <= HOLDING_QUANTITY_EPSILON:
+				continue
+
+			session.add(
+				HoldingTransactionCashSettlement(
+					user_id=transaction.user_id,
+					holding_transaction_id=transaction_id,
+					cash_account_id=audit.entity_id or 0,
+					handling=(
+						"CREATE_NEW_CASH"
+						if (audit.reason or "").startswith("AUTO_SELL_PROCEEDS#")
+						else "ADD_TO_EXISTING_CASH"
+					),
+					settled_amount=round(settled_amount, 8),
+					settled_currency=_normalize_currency(
+						str(after_state.get("currency") or transaction.fallback_currency),
+					),
+					source_amount=round(transaction.quantity * (transaction.price or 0.0), 8),
+					source_currency=_normalize_currency(transaction.fallback_currency),
+					auto_created_cash_account=(audit.reason or "").startswith("AUTO_SELL_PROCEEDS#"),
+				),
+			)
+			existing_transaction_ids.add(transaction_id)
 			has_changes = True
 
 		if has_changes:
@@ -1473,6 +1623,12 @@ def _projected_holding_cost_basis(state: ProjectedHoldingState) -> float | None:
 	return round(total_cost / quantity, 8)
 
 
+def _validate_holding_quantity_for_market(quantity: float, market: str) -> None:
+	normalized_market = market.strip().upper()
+	if normalized_market not in {"FUND", "CRYPTO"} and not float(quantity).is_integer():
+		raise HTTPException(status_code=422, detail="股票请使用整数数量，基金可使用份额。")
+
+
 def _normalize_holding_transaction_side(side: str) -> str:
 	normalized = side.strip().upper()
 	if normalized not in HOLDING_TRANSACTION_SIDES:
@@ -1585,6 +1741,124 @@ def _reset_holding_transactions_from_snapshot(
 	return transaction
 
 
+def _get_latest_holding_transaction_for_symbol(
+	session: Session,
+	*,
+	user_id: str,
+	symbol: str,
+	market: str,
+) -> SecurityHoldingTransaction | None:
+	return session.exec(
+		select(SecurityHoldingTransaction)
+		.where(SecurityHoldingTransaction.user_id == user_id)
+		.where(SecurityHoldingTransaction.symbol == symbol)
+		.where(SecurityHoldingTransaction.market == market)
+		.order_by(
+			SecurityHoldingTransaction.traded_on.desc(),
+			SecurityHoldingTransaction.created_at.desc(),
+			SecurityHoldingTransaction.id.desc(),
+		)
+		.limit(1),
+	).first()
+
+
+def _apply_holding_transaction_to_state(
+	state: ProjectedHoldingState,
+	transaction: SecurityHoldingTransaction,
+) -> None:
+	side = _normalize_holding_transaction_side(transaction.side)
+	quantity = max(transaction.quantity, 0.0)
+	if quantity <= HOLDING_QUANTITY_EPSILON:
+		return
+
+	state.name = transaction.name or state.name
+	state.fallback_currency = _normalize_currency(
+		transaction.fallback_currency or state.fallback_currency,
+	)
+	state.broker = _normalize_optional_text(transaction.broker) or state.broker
+	state.note = _normalize_optional_text(transaction.note) or state.note
+
+	if side == "ADJUST":
+		cost_per_unit = (
+			transaction.price if transaction.price is not None and transaction.price > 0 else None
+		)
+		state.lots = [
+			HoldingLot(
+				quantity=quantity,
+				traded_on=transaction.traded_on,
+				cost_per_unit=cost_per_unit,
+			),
+		]
+		return
+
+	if side == "BUY":
+		state.lots.append(
+			HoldingLot(
+				quantity=quantity,
+				traded_on=transaction.traded_on,
+				cost_per_unit=transaction.price if transaction.price and transaction.price > 0 else None,
+			),
+		)
+		return
+
+	remaining_to_sell = quantity
+	next_lots: list[HoldingLot] = []
+	for lot in sorted(state.lots, key=lambda item: item.traded_on):
+		if remaining_to_sell <= HOLDING_QUANTITY_EPSILON:
+			next_lots.append(lot)
+			continue
+		if lot.quantity <= remaining_to_sell + HOLDING_QUANTITY_EPSILON:
+			remaining_to_sell -= lot.quantity
+			continue
+		next_lots.append(
+			HoldingLot(
+				quantity=round(lot.quantity - remaining_to_sell, 8),
+				traded_on=lot.traded_on,
+				cost_per_unit=lot.cost_per_unit,
+			),
+		)
+		remaining_to_sell = 0.0
+
+	if remaining_to_sell > HOLDING_QUANTITY_EPSILON:
+		raise HTTPException(
+			status_code=422,
+			detail=(
+				f"{state.symbol} 可卖数量不足。当前可卖 "
+				f"{_projected_holding_quantity(state):g}，请求卖出 {quantity:g}。"
+			),
+		)
+
+	state.lots = next_lots
+
+
+def _project_holding_state_from_sorted_transactions(
+	transactions: list[SecurityHoldingTransaction],
+	*,
+	symbol: str,
+	market: str,
+) -> ProjectedHoldingState | None:
+	if not transactions:
+		return None
+
+	sorted_transactions = sorted(transactions, key=_holding_transaction_sort_key)
+	first = sorted_transactions[0]
+	state = ProjectedHoldingState(
+		symbol=symbol,
+		name=first.name,
+		market=market,
+		fallback_currency=first.fallback_currency,
+		broker=first.broker,
+		note=first.note,
+		lots=[],
+	)
+	for transaction in sorted_transactions:
+		_apply_holding_transaction_to_state(state, transaction)
+
+	if _projected_holding_quantity(state) <= HOLDING_QUANTITY_EPSILON:
+		return None
+	return state
+
+
 def _project_holding_state_from_transactions(
 	session: Session,
 	*,
@@ -1603,87 +1877,11 @@ def _project_holding_state_from_transactions(
 	if not transactions:
 		return None
 
-	transactions.sort(key=_holding_transaction_sort_key)
-	first = transactions[0]
-	state = ProjectedHoldingState(
+	return _project_holding_state_from_sorted_transactions(
+		transactions,
 		symbol=symbol,
-		name=first.name,
 		market=market,
-		fallback_currency=first.fallback_currency,
-		broker=first.broker,
-		note=first.note,
-		lots=[],
 	)
-
-	for transaction in transactions:
-		side = _normalize_holding_transaction_side(transaction.side)
-		quantity = max(transaction.quantity, 0.0)
-		if quantity <= HOLDING_QUANTITY_EPSILON:
-			continue
-
-		# Keep metadata from the latest transaction that carries a value.
-		state.name = transaction.name or state.name
-		state.fallback_currency = _normalize_currency(
-			transaction.fallback_currency or state.fallback_currency,
-		)
-		state.broker = _normalize_optional_text(transaction.broker) or state.broker
-		state.note = _normalize_optional_text(transaction.note) or state.note
-
-		if side == "ADJUST":
-			cost_per_unit = (
-				transaction.price if transaction.price is not None and transaction.price > 0 else None
-			)
-			state.lots = [
-				HoldingLot(
-					quantity=quantity,
-					traded_on=transaction.traded_on,
-					cost_per_unit=cost_per_unit,
-				),
-			]
-			continue
-
-		if side == "BUY":
-			state.lots.append(
-				HoldingLot(
-					quantity=quantity,
-					traded_on=transaction.traded_on,
-					cost_per_unit=transaction.price if transaction.price and transaction.price > 0 else None,
-				),
-			)
-			continue
-
-		remaining_to_sell = quantity
-		next_lots: list[HoldingLot] = []
-		for lot in sorted(state.lots, key=lambda item: item.traded_on):
-			if remaining_to_sell <= HOLDING_QUANTITY_EPSILON:
-				next_lots.append(lot)
-				continue
-			if lot.quantity <= remaining_to_sell + HOLDING_QUANTITY_EPSILON:
-				remaining_to_sell -= lot.quantity
-				continue
-			next_lots.append(
-				HoldingLot(
-					quantity=round(lot.quantity - remaining_to_sell, 8),
-					traded_on=lot.traded_on,
-					cost_per_unit=lot.cost_per_unit,
-				),
-			)
-			remaining_to_sell = 0.0
-
-		if remaining_to_sell > HOLDING_QUANTITY_EPSILON:
-			raise HTTPException(
-				status_code=422,
-				detail=(
-					f"{symbol} 可卖数量不足。当前可卖 "
-					f"{_projected_holding_quantity(state):g}，请求卖出 {quantity:g}。"
-				),
-			)
-
-		state.lots = next_lots
-
-	if _projected_holding_quantity(state) <= HOLDING_QUANTITY_EPSILON:
-		return None
-	return state
 
 
 def _sync_holding_projection_for_symbol(
@@ -1849,7 +2047,7 @@ def _create_auto_cash_account_from_sell(
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,
-) -> CashAccount:
+) -> AppliedSellProceeds:
 	proceeds = round(quantity * execution_price, 8)
 	cash_entry = CashAccount(
 		user_id=current_user.username,
@@ -1881,7 +2079,13 @@ def _create_auto_cash_account_from_sell(
 		after_state=_capture_model_state(cash_entry),
 		reason=f"AUTO_SELL_PROCEEDS#{transaction_id}" if transaction_id is not None else "AUTO_SELL_PROCEEDS",
 	)
-	return cash_entry
+	return AppliedSellProceeds(
+		cash_account=cash_entry,
+		settled_amount=proceeds,
+		settled_currency=_normalize_currency(currency),
+		handling="CREATE_NEW_CASH",
+		auto_created_cash_account=True,
+	)
 
 
 def _add_sell_proceeds_to_existing_cash_account(
@@ -1896,7 +2100,7 @@ def _add_sell_proceeds_to_existing_cash_account(
 	execution_price: float,
 	source_currency: str,
 	transaction_id: int | None,
-) -> CashAccount:
+) -> AppliedSellProceeds:
 	account = session.get(CashAccount, account_id)
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="目标现金账户不存在。")
@@ -1935,6 +2139,147 @@ def _add_sell_proceeds_to_existing_cash_account(
 		after_state=_capture_model_state(account),
 		reason=f"SELL_PROCEEDS#{transaction_id}" if transaction_id is not None else "SELL_PROCEEDS",
 	)
+	return AppliedSellProceeds(
+		cash_account=account,
+		settled_amount=converted_amount,
+		settled_currency=_normalize_currency(account.currency),
+		handling="ADD_TO_EXISTING_CASH",
+		auto_created_cash_account=False,
+	)
+
+
+def _build_sell_proceeds_reversal_note(
+	*,
+	transaction_id: int,
+	settled_amount: float,
+	settled_currency: str,
+) -> str:
+	return (
+		f"冲销：撤回卖出交易ID #{transaction_id} 的回款入账 "
+		f"{settled_amount:g} {_normalize_currency(settled_currency)}"
+	)
+
+
+def _get_holding_transaction_cash_settlement(
+	session: Session,
+	*,
+	user_id: str,
+	holding_transaction_id: int,
+) -> HoldingTransactionCashSettlement | None:
+	return session.exec(
+		select(HoldingTransactionCashSettlement)
+		.where(HoldingTransactionCashSettlement.user_id == user_id)
+		.where(HoldingTransactionCashSettlement.holding_transaction_id == holding_transaction_id),
+	).first()
+
+
+def _record_holding_transaction_cash_settlement(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	transaction: SecurityHoldingTransaction,
+	applied_sell_proceeds: AppliedSellProceeds,
+) -> HoldingTransactionCashSettlement:
+	settlement = _get_holding_transaction_cash_settlement(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
+	if settlement is None:
+		settlement = HoldingTransactionCashSettlement(
+			user_id=current_user.username,
+			holding_transaction_id=transaction.id or 0,
+			cash_account_id=applied_sell_proceeds.cash_account.id or 0,
+			handling=applied_sell_proceeds.handling,
+			settled_amount=applied_sell_proceeds.settled_amount,
+			settled_currency=applied_sell_proceeds.settled_currency,
+			source_amount=round(transaction.quantity * (transaction.price or 0.0), 8),
+			source_currency=_normalize_currency(transaction.fallback_currency),
+			auto_created_cash_account=applied_sell_proceeds.auto_created_cash_account,
+		)
+	else:
+		settlement.cash_account_id = applied_sell_proceeds.cash_account.id or 0
+		settlement.handling = applied_sell_proceeds.handling
+		settlement.settled_amount = applied_sell_proceeds.settled_amount
+		settlement.settled_currency = applied_sell_proceeds.settled_currency
+		settlement.source_amount = round(transaction.quantity * (transaction.price or 0.0), 8)
+		settlement.source_currency = _normalize_currency(transaction.fallback_currency)
+		settlement.auto_created_cash_account = applied_sell_proceeds.auto_created_cash_account
+		_touch_model(settlement)
+
+	session.add(settlement)
+	session.flush()
+	return settlement
+
+
+def _reverse_holding_transaction_cash_settlement(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	transaction: SecurityHoldingTransaction,
+) -> CashAccount | None:
+	settlement = _get_holding_transaction_cash_settlement(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
+	if settlement is None:
+		return None
+
+	account = session.get(CashAccount, settlement.cash_account_id)
+	if account is None or account.user_id != current_user.username:
+		raise HTTPException(
+			status_code=409,
+			detail="关联现金账户不存在，无法回滚这笔卖出回款，请先修复现金账户。",
+		)
+	if account.balance + HOLDING_QUANTITY_EPSILON < settlement.settled_amount:
+		raise HTTPException(
+			status_code=409,
+			detail="关联现金账户余额已低于这笔卖出回款，无法自动回滚，请先调整现金账户。",
+		)
+
+	before_state = _capture_model_state(account)
+	account.balance = round(account.balance - settlement.settled_amount, 8)
+	account_should_delete = (
+		settlement.auto_created_cash_account
+		and account.platform == "交易回款"
+		and account.balance <= HOLDING_QUANTITY_EPSILON
+	)
+	if account_should_delete:
+		session.delete(account)
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_ACCOUNT",
+			entity_id=account.id,
+			operation="DELETE",
+			before_state=before_state,
+			after_state=None,
+			reason=f"SELL_PROCEEDS_REVERSAL#{transaction.id}",
+		)
+	else:
+		account.note = _prepend_note_entry(
+			account.note,
+			_build_sell_proceeds_reversal_note(
+				transaction_id=transaction.id or 0,
+				settled_amount=settlement.settled_amount,
+				settled_currency=settlement.settled_currency,
+			),
+		)
+		_touch_model(account)
+		session.add(account)
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_ACCOUNT",
+			entity_id=account.id,
+			operation="UPDATE",
+			before_state=before_state,
+			after_state=_capture_model_state(account),
+			reason=f"SELL_PROCEEDS_REVERSAL#{transaction.id}",
+		)
+
+	session.delete(settlement)
 	return account
 
 
@@ -1952,7 +2297,7 @@ def _apply_sell_proceeds_handling(
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,
-) -> CashAccount | None:
+) -> AppliedSellProceeds | None:
 	if handling == "DISCARD":
 		return None
 	if handling == "ADD_TO_EXISTING_CASH":
@@ -5069,50 +5414,34 @@ def update_holding(
 	if holding is None or holding.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
-	previous_symbol = holding.symbol
-	previous_market = holding.market
 	before_state = _capture_model_state(holding)
-	holding.symbol = _normalize_symbol(payload.symbol, payload.market or holding.market)
-	holding.name = payload.name.strip()
-	holding.quantity = payload.quantity
-	holding.fallback_currency = _normalize_currency(payload.fallback_currency)
-	if "cost_basis_price" in payload.model_fields_set:
-		holding.cost_basis_price = payload.cost_basis_price
-	if payload.market is not None:
-		holding.market = payload.market
 	if "broker" in payload.model_fields_set:
 		holding.broker = _normalize_optional_text(payload.broker)
-	if "started_on" in payload.model_fields_set:
-		_ensure_date_not_future(payload.started_on, field_label="持仓日")
-		holding.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
 		holding.note = _normalize_optional_text(payload.note)
 	_touch_model(holding)
 	session.add(holding)
-	if previous_symbol != holding.symbol or previous_market != holding.market:
-		_delete_holding_transactions_for_symbol(
-			session,
-			user_id=current_user.username,
-			symbol=previous_symbol,
-			market=previous_market,
-		)
-	_reset_holding_transactions_from_snapshot(
+	latest_transaction = _get_latest_holding_transaction_for_symbol(
 		session,
-		holding=holding,
+		user_id=current_user.username,
+		symbol=holding.symbol,
+		market=holding.market,
 	)
+	if latest_transaction is not None:
+		if "broker" in payload.model_fields_set:
+			latest_transaction.broker = _normalize_optional_text(payload.broker)
+		if "note" in payload.model_fields_set:
+			latest_transaction.note = _normalize_optional_text(payload.note)
+		_touch_model(latest_transaction)
+		session.add(latest_transaction)
 	_record_asset_mutation(
 		session,
 		current_user,
 		entity_type="HOLDING",
 		entity_id=holding.id,
 		operation="UPDATE",
-		before_state=before_state,
-		after_state=_capture_model_state(holding),
-	)
-	_enqueue_holding_history_sync_request(
-		session,
-		user_id=current_user.username,
-		trigger_symbol=holding.symbol,
+			before_state=before_state,
+			after_state=_capture_model_state(holding),
 	)
 	session.commit()
 	session.refresh(holding)
@@ -5339,7 +5668,7 @@ def create_holding_transaction(
 	)
 	affected_cash_account: CashAccount | None = None
 	if side == "SELL" and execution_price is not None:
-		affected_cash_account = _apply_sell_proceeds_handling(
+		applied_sell_proceeds = _apply_sell_proceeds_handling(
 			session,
 			current_user=current_user,
 			handling=sell_proceeds_handling,
@@ -5353,6 +5682,14 @@ def create_holding_transaction(
 			traded_on=payload.traded_on,
 			transaction_id=transaction.id,
 		)
+		if applied_sell_proceeds is not None:
+			affected_cash_account = applied_sell_proceeds.cash_account
+			_record_holding_transaction_cash_settlement(
+				session,
+				current_user=current_user,
+				transaction=transaction,
+				applied_sell_proceeds=applied_sell_proceeds,
+			)
 	_enqueue_holding_history_sync_request(
 		session,
 		user_id=current_user.username,
@@ -5376,6 +5713,148 @@ def create_holding_transaction(
 	)
 
 
+@app.patch(
+	"/api/holding-transactions/{transaction_id}",
+	response_model=HoldingTransactionApplyRead,
+)
+def update_holding_transaction(
+	transaction_id: int,
+	payload: SecurityHoldingTransactionUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> HoldingTransactionApplyRead:
+	transaction = session.get(SecurityHoldingTransaction, transaction_id)
+	if transaction is None or transaction.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Holding transaction not found.")
+
+	if payload.traded_on is not None:
+		_ensure_date_not_future(payload.traded_on, field_label="交易日")
+	if payload.quantity is not None:
+		_validate_holding_quantity_for_market(payload.quantity, transaction.market)
+	if transaction.side != "SELL" and (
+		payload.sell_proceeds_handling is not None
+		or payload.sell_proceeds_account_id is not None
+	):
+		raise HTTPException(status_code=422, detail="只有卖出交易允许设置卖出回款处理。")
+
+	original_settlement = _get_holding_transaction_cash_settlement(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
+	affected_cash_account: CashAccount | None = None
+	if transaction.side == "SELL":
+		affected_cash_account = _reverse_holding_transaction_cash_settlement(
+			session,
+			current_user=current_user,
+			transaction=transaction,
+		)
+
+	before_state = _capture_model_state(transaction)
+	if payload.name is not None:
+		transaction.name = payload.name
+	if payload.quantity is not None:
+		transaction.quantity = payload.quantity
+	if "price" in payload.model_fields_set:
+		transaction.price = payload.price
+	if payload.fallback_currency is not None:
+		transaction.fallback_currency = _normalize_currency(payload.fallback_currency)
+	if "broker" in payload.model_fields_set:
+		transaction.broker = _normalize_optional_text(payload.broker)
+	if payload.traded_on is not None:
+		transaction.traded_on = payload.traded_on
+	if "note" in payload.model_fields_set:
+		transaction.note = _normalize_optional_text(payload.note)
+	_touch_model(transaction)
+	session.add(transaction)
+
+	holding = _sync_holding_projection_for_symbol(
+		session,
+		user_id=current_user.username,
+		symbol=transaction.symbol,
+		market=transaction.market,
+	)
+
+	sell_proceeds_handling: str | None = None
+	if transaction.side == "SELL":
+		sell_proceeds_handling = (
+			payload.sell_proceeds_handling
+			or (original_settlement.handling if original_settlement is not None else "DISCARD")
+		)
+		sell_proceeds_account_id = (
+			payload.sell_proceeds_account_id
+			if "sell_proceeds_account_id" in payload.model_fields_set
+			else (
+				original_settlement.cash_account_id
+				if original_settlement is not None and not original_settlement.auto_created_cash_account
+				else None
+			)
+		)
+		if sell_proceeds_handling == "ADD_TO_EXISTING_CASH" and sell_proceeds_account_id is None:
+			raise HTTPException(status_code=422, detail="卖出并入现有现金时必须选择目标现金账户。")
+		if sell_proceeds_handling != "ADD_TO_EXISTING_CASH":
+			sell_proceeds_account_id = None
+		if transaction.price is None or transaction.price <= 0:
+			raise HTTPException(
+				status_code=422,
+				detail="卖出交易需要有效成交价后才能重新处理卖出回款。",
+			)
+
+		applied_sell_proceeds = _apply_sell_proceeds_handling(
+			session,
+			current_user=current_user,
+			handling=sell_proceeds_handling,
+			target_account_id=sell_proceeds_account_id,
+			symbol=transaction.symbol,
+			name=transaction.name,
+			market=transaction.market,
+			quantity=transaction.quantity,
+			execution_price=transaction.price,
+			currency=transaction.fallback_currency,
+			traded_on=transaction.traded_on,
+			transaction_id=transaction.id,
+		)
+		if applied_sell_proceeds is not None:
+			affected_cash_account = applied_sell_proceeds.cash_account
+			_record_holding_transaction_cash_settlement(
+				session,
+				current_user=current_user,
+				transaction=transaction,
+				applied_sell_proceeds=applied_sell_proceeds,
+			)
+
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="HOLDING_TRANSACTION",
+		entity_id=transaction.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(transaction),
+	)
+	_enqueue_holding_history_sync_request(
+		session,
+		user_id=current_user.username,
+		trigger_symbol=transaction.symbol,
+	)
+	session.commit()
+	session.refresh(transaction)
+	if holding is not None:
+		session.refresh(holding)
+	if affected_cash_account is not None and session.get(CashAccount, affected_cash_account.id) is not None:
+		session.refresh(affected_cash_account)
+	_invalidate_dashboard_cache(current_user.username)
+
+	return HoldingTransactionApplyRead(
+		transaction=_to_holding_transaction_read(transaction),
+		holding=_to_holding_read(holding) if holding is not None else None,
+		cash_account=_to_cash_account_read(affected_cash_account)
+		if affected_cash_account is not None and session.get(CashAccount, affected_cash_account.id) is not None
+		else None,
+		sell_proceeds_handling=sell_proceeds_handling if transaction.side == "SELL" else None,
+	)
+
+
 @app.delete("/api/holding-transactions/{transaction_id}", status_code=204)
 def delete_holding_transaction(
 	transaction_id: int,
@@ -5389,6 +5868,12 @@ def delete_holding_transaction(
 	before_state = _capture_model_state(transaction)
 	symbol = transaction.symbol
 	market = transaction.market
+	if transaction.side == "SELL":
+		_reverse_holding_transaction_cash_settlement(
+			session,
+			current_user=current_user,
+			transaction=transaction,
+		)
 	session.delete(transaction)
 	_record_asset_mutation(
 		session,

@@ -195,6 +195,28 @@ class SecurityHoldingTransaction(SQLModel, table=True):
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class HoldingTransactionCashSettlement(SQLModel, table=True):
+	__table_args__ = (
+		UniqueConstraint(
+			"holding_transaction_id",
+			name="uq_holding_transaction_cash_settlement_transaction",
+		),
+	)
+
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	holding_transaction_id: int = Field(index=True)
+	cash_account_id: int = Field(index=True)
+	handling: str = Field(max_length=32)
+	settled_amount: float = Field(default=0)
+	settled_currency: str = Field(default="CNY", max_length=8)
+	source_amount: float = Field(default=0)
+	source_currency: str = Field(default="CNY", max_length=8)
+	auto_created_cash_account: bool = Field(default=False)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class FixedAsset(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)

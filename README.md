@@ -80,6 +80,9 @@ These session-based token-management routes are meant for interactive human cont
 
 ### Core Endpoints For An Agent
 
+Trading events are now the source of truth for holdings and holding-return charts.
+Use holding routes only for metadata reads or metadata-only edits.
+
 - `GET /api/agent/context`
   Returns portfolio summary, cash accounts, holdings, recent holding transactions, pending sync count, and warnings
 - `GET /api/dashboard`
@@ -95,7 +98,7 @@ These session-based token-management routes are meant for interactive human cont
 - `GET /api/holdings`
   Lists current holdings
 - `PUT /api/holdings/{holding_id}`
-  Edits current holding data only
+  Metadata-only edit for the current holding such as broker or note. It no longer edits quantity, cost basis, or holding date
 - `DELETE /api/holdings/{holding_id}`
   Deletes a holding and its transaction projection
 - `GET /api/holding-transactions`
@@ -104,8 +107,10 @@ These session-based token-management routes are meant for interactive human cont
   Lists transactions for one holding
 - `POST /api/holding-transactions`
   Appends a buy or sell transaction and rebuilds holding projection
+- `PATCH /api/holding-transactions/{transaction_id}`
+  Edits one existing transaction and replays the holding projection plus any linked sell-proceeds cash effect
 - `DELETE /api/holding-transactions/{transaction_id}`
-  Deletes one transaction and reconciles the holding projection
+  Deletes one transaction, reconciles the holding projection, and rolls back linked sell-proceeds cash effects
 - `GET /api/securities/search?q=...`
   Searches tradable symbols
 - `GET /api/securities/quote?symbol=...&market=...`
@@ -123,6 +128,9 @@ These session-based token-management routes are meant for interactive human cont
    Submit the decided buy or sell
 5. `GET /api/agent/context`
    Re-read the portfolio after execution
+
+If the agent needs to correct a previously recorded trade, prefer `PATCH /api/holding-transactions/{transaction_id}`.
+Do not patch `/api/holdings/{holding_id}` for quantity, cost, or dates.
 
 ### Buy Example
 
@@ -167,6 +175,27 @@ curl -X POST http://127.0.0.1:8080/api/holding-transactions \
     "sell_proceeds_account_id": 9
   }'
 ```
+
+### Trade Correction Example
+
+```bash
+curl -X PATCH http://127.0.0.1:8080/api/holding-transactions/42 \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'X-API-Key: <server_api_token_if_configured>' \
+  -d '{
+    "traded_on": "2026-03-07",
+    "quantity": 2,
+    "price": 191.2,
+    "note": "corrected after broker confirmation"
+  }'
+```
+
+### Chart Semantics
+
+- Holding return charts are rebuilt from transaction history, not from the current holding snapshot
+- Editing a transaction date will move the affected holding return curve because replay starts from the updated trade date
+- Portfolio total value charts are still based on stored portfolio snapshots rather than a full cash ledger replay
 
 ### Secret Handling Guidance
 

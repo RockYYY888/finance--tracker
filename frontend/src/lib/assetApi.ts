@@ -35,14 +35,7 @@ function toJsonBody(
 
 function toHoldingUpdateBody(payload: HoldingInput): string {
 	return JSON.stringify({
-		symbol: payload.symbol,
-		name: payload.name,
-		quantity: payload.quantity,
-		fallback_currency: payload.fallback_currency,
-		cost_basis_price: payload.cost_basis_price,
-		market: payload.market,
 		broker: payload.broker,
-		started_on: payload.started_on,
 		note: payload.note,
 	});
 }

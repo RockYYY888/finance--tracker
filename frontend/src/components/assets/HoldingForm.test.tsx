@@ -63,7 +63,7 @@ describe("HoldingForm create defaults", () => {
 });
 
 describe("HoldingForm started_on guard", () => {
-	it("blocks submit when started_on is later than server date", async () => {
+	it("allows editing holding metadata without validating transaction date fields", async () => {
 		const onEdit = vi.fn().mockResolvedValue(undefined);
 
 		render(
@@ -83,14 +83,14 @@ describe("HoldingForm started_on guard", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "保存编辑" }));
+		fireEvent.change(screen.getByLabelText("账户 / 来源"), {
+			target: { value: "Futu" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "保存资料" }));
 
 		await waitFor(() => {
-			expect(
-				screen.getByText("持仓日不能晚于服务器今日日期（2026-03-05）。"),
-			).not.toBeNull();
+			expect(onEdit).toHaveBeenCalledTimes(1);
 		});
-		expect(onEdit).not.toHaveBeenCalled();
 	});
 });
 
@@ -114,7 +114,9 @@ describe("HoldingForm edit intent", () => {
 
 		expect(screen.queryByLabelText("卖出回款去向")).toBeNull();
 		expect(screen.queryByText("交易类型")).toBeNull();
-		expect(screen.getByRole("button", { name: "保存编辑" })).not.toBeNull();
+		expect(screen.queryByLabelText("交易日")).toBeNull();
+		expect(screen.queryByLabelText("数量（股/支）")).toBeNull();
+		expect(screen.getByRole("button", { name: "保存资料" })).not.toBeNull();
 		expect(screen.getByRole("button", { name: "取消编辑" })).not.toBeNull();
 	});
 });
