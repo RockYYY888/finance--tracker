@@ -52,6 +52,16 @@ describe("HoldingForm search results", () => {
 	});
 });
 
+describe("HoldingForm create defaults", () => {
+	it("does not prefill market, currency, or quantity before choosing a security", () => {
+		render(<HoldingForm maxStartedOnDate="2026-03-09" />);
+
+		expect((screen.getByLabelText("市场") as HTMLSelectElement).value).toBe("");
+		expect((screen.getByLabelText("计价币种") as HTMLInputElement).value).toBe("");
+		expect((screen.getByLabelText("数量") as HTMLInputElement).value).toBe("");
+	});
+});
+
 describe("HoldingForm started_on guard", () => {
 	it("blocks submit when started_on is later than server date", async () => {
 		const onEdit = vi.fn().mockResolvedValue(undefined);
@@ -98,31 +108,43 @@ describe("HoldingForm edit intent", () => {
 					market: "US",
 					started_on: "2026-03-05",
 				}}
+				onCancel={vi.fn()}
 			/>,
 		);
 
 		expect(screen.queryByLabelText("卖出回款去向")).toBeNull();
 		expect(screen.queryByText("交易类型")).toBeNull();
 		expect(screen.getByRole("button", { name: "保存编辑" })).not.toBeNull();
+		expect(screen.getByRole("button", { name: "取消编辑" })).not.toBeNull();
 	});
 });
 
 describe("HoldingForm sell proceeds handling", () => {
+	const existingHoldings = [
+		{
+			id: 1,
+			side: "BUY" as const,
+			symbol: "AAPL",
+			name: "Apple",
+			quantity: 3,
+			fallback_currency: "USD",
+			cost_basis_price: 80,
+			market: "US" as const,
+			broker: "Futu",
+			started_on: "2026-03-01",
+			price: 188,
+			price_currency: "USD",
+		},
+	];
+
 	it("requires selecting an existing cash account when sell proceeds are merged", async () => {
 		const onCreate = vi.fn().mockResolvedValue(undefined);
 
 		render(
 			<HoldingForm
 				intent="sell"
-				value={{
-					side: "SELL",
-					symbol: "AAPL",
-					name: "Apple",
-					quantity: "1",
-					fallback_currency: "USD",
-					market: "US",
-					started_on: "2026-03-05",
-				}}
+				maxStartedOnDate="2026-03-09"
+				existingHoldings={existingHoldings}
 				cashAccounts={[
 					{
 						id: 9,
@@ -137,8 +159,16 @@ describe("HoldingForm sell proceeds handling", () => {
 			/>,
 		);
 
+		expect(screen.queryByLabelText("搜索投资标的")).toBeNull();
+
+		fireEvent.change(screen.getByLabelText("卖出持仓"), {
+			target: { value: "AAPL::US" },
+		});
 		fireEvent.change(screen.getByLabelText("卖出回款去向"), {
 			target: { value: "ADD_TO_EXISTING_CASH" },
+		});
+		fireEvent.change(screen.getByLabelText(/数量/), {
+			target: { value: "1" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "确认卖出" }));
 
@@ -156,15 +186,8 @@ describe("HoldingForm sell proceeds handling", () => {
 		render(
 			<HoldingForm
 				intent="sell"
-				value={{
-					side: "SELL",
-					symbol: "AAPL",
-					name: "Apple",
-					quantity: "1",
-					fallback_currency: "USD",
-					market: "US",
-					started_on: "2026-03-05",
-				}}
+				maxStartedOnDate="2026-03-09"
+				existingHoldings={existingHoldings}
 				cashAccounts={[
 					{
 						id: 9,
@@ -179,8 +202,14 @@ describe("HoldingForm sell proceeds handling", () => {
 			/>,
 		);
 
+		fireEvent.change(screen.getByLabelText("卖出持仓"), {
+			target: { value: "AAPL::US" },
+		});
 		fireEvent.change(screen.getByLabelText("卖出回款去向"), {
 			target: { value: "ADD_TO_EXISTING_CASH" },
+		});
+		fireEvent.change(screen.getByLabelText(/数量/), {
+			target: { value: "1" },
 		});
 		fireEvent.change(screen.getByLabelText("目标现金账户"), {
 			target: { value: "9" },
@@ -191,10 +220,59 @@ describe("HoldingForm sell proceeds handling", () => {
 			expect(onCreate).toHaveBeenCalledWith(
 				expect.objectContaining({
 					side: "SELL",
+					symbol: "AAPL",
+					market: "US",
+					fallback_currency: "USD",
+					cost_basis_price: 188,
+					started_on: "2026-03-09",
 					sell_proceeds_handling: "ADD_TO_EXISTING_CASH",
 					sell_proceeds_account_id: 9,
 				}),
 			);
+		});
+	});
+
+	it("disables merging into an existing cash account when no cash account exists", () => {
+		render(
+			<HoldingForm
+				intent="sell"
+				existingHoldings={existingHoldings}
+				maxStartedOnDate="2026-03-09"
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("卖出持仓"), {
+			target: { value: "AAPL::US" },
+		});
+
+		expect(screen.queryByRole("option", { name: "并入现有现金账户" })).toBeNull();
+		expect(
+			screen.getByText("当前没有现金账户 如需并入现有账户 请先新增现金账户"),
+		).not.toBeNull();
+		expect((screen.getByLabelText("卖出价（计价币种）") as HTMLInputElement).value).toBe("188");
+	});
+
+	it("falls back to auto create cash when stale sell proceeds selection has no cash account", async () => {
+		render(
+			<HoldingForm
+				intent="sell"
+				existingHoldings={existingHoldings}
+				maxStartedOnDate="2026-03-09"
+				value={{
+					side: "SELL",
+					symbol: "AAPL",
+					name: "Apple",
+					market: "US",
+					fallback_currency: "USD",
+					sell_proceeds_handling: "ADD_TO_EXISTING_CASH",
+				}}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(
+				(screen.getByLabelText("卖出回款去向") as HTMLSelectElement).value,
+			).toBe("CREATE_NEW_CASH");
 		});
 	});
 });

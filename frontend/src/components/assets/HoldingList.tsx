@@ -67,7 +67,7 @@ export function HoldingList({
 					{onCreateSell ? (
 						<button
 							type="button"
-							className="asset-manager__button asset-manager__button--secondary"
+							className="asset-manager__button asset-manager__button--danger"
 							onClick={onCreateSell}
 							disabled={isActionLocked}
 						>
@@ -94,100 +94,100 @@ export function HoldingList({
 
 						return (
 							<li key={holding.id} className="asset-manager__card">
-							<div className="asset-manager__card-top">
-								<div className="asset-manager__card-title">
-									<div className="asset-manager__badge-row">
-										<span className="asset-manager__badge">{holding.symbol}</span>
-										<span className="asset-manager__badge asset-manager__badge--muted">
-											{formatSecurityMarket(holding.market)}
-										</span>
+								<div className="asset-manager__card-top">
+									<div className="asset-manager__card-title">
+										<div className="asset-manager__badge-row">
+											<span className="asset-manager__badge">{holding.symbol}</span>
+											<span className="asset-manager__badge asset-manager__badge--muted">
+												{formatSecurityMarket(holding.market)}
+											</span>
+										</div>
+										<h3>{holding.name}</h3>
+										<p className="asset-manager__card-note">
+											更新：{quotePending ? "更新中" : formatTimestamp(holding.last_updated)}
+											{shouldShowHoldingSource(holding.broker?.trim())
+												? ` · ${holding.broker?.trim()}`
+												: ""}
+											{holding.note?.trim() ? ` · ${holding.note}` : ""}
+										</p>
 									</div>
-									<h3>{holding.name}</h3>
-									<p className="asset-manager__card-note">
-										更新：{quotePending ? "更新中" : formatTimestamp(holding.last_updated)}
-										{shouldShowHoldingSource(holding.broker?.trim())
-											? ` · ${holding.broker?.trim()}`
-											: ""}
-										{holding.note?.trim() ? ` · ${holding.note}` : ""}
-									</p>
+									<div className="asset-manager__card-actions">
+										{onEdit ? (
+											<button
+												type="button"
+												className="asset-manager__button asset-manager__button--secondary"
+												onClick={() => onEdit(holding)}
+												disabled={isActionLocked}
+											>
+												编辑
+											</button>
+										) : null}
+									</div>
 								</div>
-								<div className="asset-manager__card-actions">
-									{onEdit ? (
-										<button
-											type="button"
-											className="asset-manager__button asset-manager__button--secondary"
-											onClick={() => onEdit(holding)}
-											disabled={isActionLocked}
-										>
-											编辑
-										</button>
-									) : null}
-								</div>
-							</div>
 
-							<div className="asset-manager__metric-grid">
-								<div className="asset-manager__metric">
-									<span>
-										{holding.market === "FUND"
-											? "份额"
-											: holding.market === "CRYPTO"
-												? "数量"
-												: "数量（股/支）"}
-									</span>
-									<strong>{formatQuantity(holding.quantity)}</strong>
+								<div className="asset-manager__metric-grid">
+									<div className="asset-manager__metric">
+										<span>
+											{holding.market === "FUND"
+												? "份额"
+												: holding.market === "CRYPTO"
+													? "数量"
+													: "数量（股/支）"}
+										</span>
+										<strong>{formatQuantity(holding.quantity)}</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>折算人民币</span>
+										<strong>
+											{quotePending ? "更新中" : formatCnyAmount(holding.value_cny)}
+										</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>现价</span>
+										<strong>
+											{quotePending
+												? "更新中"
+												: formatPriceAmount(
+													holding.price ?? 0,
+													holding.price_currency ?? holding.fallback_currency,
+												)}
+										</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>持仓价</span>
+										<strong>
+											{holding.cost_basis_price != null
+												? formatPriceAmount(
+													holding.cost_basis_price,
+													holding.fallback_currency,
+												)
+												: "待填写"}
+										</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>收益率</span>
+										<strong>
+											{quotePending
+												? "更新中"
+												: holding.return_pct != null
+												? formatPercentValue(holding.return_pct)
+												: "待计算"}
+										</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>计价币种</span>
+										<strong>{holding.fallback_currency}</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>市场</span>
+										<strong>{formatSecurityMarket(holding.market)}</strong>
+									</div>
+									<div className="asset-manager__metric">
+										<span>持仓日</span>
+										<strong>{formatDateValue(holding.started_on)}</strong>
+									</div>
 								</div>
-								<div className="asset-manager__metric">
-									<span>折算人民币</span>
-									<strong>
-										{quotePending ? "更新中" : formatCnyAmount(holding.value_cny)}
-									</strong>
-								</div>
-								<div className="asset-manager__metric">
-									<span>现价</span>
-									<strong>
-										{quotePending
-											? "更新中"
-											: formatPriceAmount(
-												holding.price ?? 0,
-												holding.price_currency ?? holding.fallback_currency,
-											)}
-									</strong>
-								</div>
-								<div className="asset-manager__metric">
-									<span>持仓价</span>
-									<strong>
-										{holding.cost_basis_price != null
-											? formatPriceAmount(
-												holding.cost_basis_price,
-												holding.fallback_currency,
-											)
-											: "待填写"}
-									</strong>
-								</div>
-								<div className="asset-manager__metric">
-									<span>收益率</span>
-									<strong>
-										{quotePending
-											? "更新中"
-											: holding.return_pct != null
-											? formatPercentValue(holding.return_pct)
-											: "待计算"}
-									</strong>
-								</div>
-								<div className="asset-manager__metric">
-									<span>计价币种</span>
-									<strong>{holding.fallback_currency}</strong>
-								</div>
-								<div className="asset-manager__metric">
-									<span>市场</span>
-									<strong>{formatSecurityMarket(holding.market)}</strong>
-								</div>
-								<div className="asset-manager__metric">
-									<span>持仓日</span>
-									<strong>{formatDateValue(holding.started_on)}</strong>
-								</div>
-							</div>
-						</li>
+							</li>
 						);
 					})}
 				</ul>

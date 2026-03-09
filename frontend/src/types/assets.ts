@@ -30,9 +30,9 @@ export const SELL_PROCEEDS_HANDLING_OPTIONS: Array<{
 	value: SellProceedsHandling;
 	label: string;
 }> = [
-	{ value: "DISCARD", label: "不记录到现金账户" },
-	{ value: "ADD_TO_EXISTING_CASH", label: "转入已有现金账户" },
-	{ value: "CREATE_NEW_CASH", label: "新建一笔现金入账" },
+	{ value: "DISCARD", label: "不登记到现金账户" },
+	{ value: "ADD_TO_EXISTING_CASH", label: "并入现有现金账户" },
+	{ value: "CREATE_NEW_CASH", label: "自动新建现金账户" },
 ];
 
 export const SECURITY_MARKET_OPTIONS: Array<{
@@ -175,7 +175,7 @@ export interface HoldingFormDraft {
 	quantity: string;
 	fallback_currency: string;
 	cost_basis_price: string;
-	market: SecurityMarket;
+	market: SecurityMarket | "";
 	broker: string;
 	started_on: string;
 	note: string;
@@ -304,10 +304,10 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	side: "BUY",
 	symbol: "",
 	name: "",
-	quantity: "1",
-	fallback_currency: "HKD",
+	quantity: "",
+	fallback_currency: "",
 	cost_basis_price: "",
-	market: "HK",
+	market: "",
 	broker: "",
 	started_on: "",
 	note: "",

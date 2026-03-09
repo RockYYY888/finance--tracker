@@ -534,7 +534,11 @@ export function AssetManager({
 							busy={holdingCollection.isSubmitting}
 							errorMessage={holdingCollection.errorMessage}
 							onCreateBuy={holdingCollection.isEditorOpen ? undefined : openHoldingBuyEditor}
-							onCreateSell={holdingCollection.isEditorOpen ? undefined : openHoldingSellEditor}
+							onCreateSell={
+								holdingCollection.isEditorOpen || holdingCollection.items.length === 0
+									? undefined
+									: openHoldingSellEditor
+							}
 							onEdit={(holding) => openHoldingEditEditor(holding)}
 						/>
 					</>
