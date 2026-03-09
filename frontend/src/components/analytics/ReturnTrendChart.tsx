@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -21,6 +21,8 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	calculateDynamicAxisLayout,
+	formatTimelineAxisLabel,
+	getAdaptiveYAxisWidth,
 	formatCompactPercentMetric,
 	formatPercentMetric,
 	formatPercentage,
@@ -30,6 +32,32 @@ import {
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+
+const COMPACT_AXIS_BREAKPOINT_PX = 560;
+
+function useCompactAxisMode(breakpointPx = COMPACT_AXIS_BREAKPOINT_PX): boolean {
+	const [isCompact, setIsCompact] = useState(() => {
+		if (typeof window === "undefined") {
+			return false;
+		}
+		return window.innerWidth <= breakpointPx;
+	});
+
+	useEffect(() => {
+		if (typeof window === "undefined") {
+			return;
+		}
+
+		const handleResize = () => {
+			setIsCompact(window.innerWidth <= breakpointPx);
+		};
+
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	}, [breakpointPx]);
+
+	return isCompact;
+}
 
 type ReturnTrendSeriesOption = {
 	key: string;
@@ -261,6 +289,7 @@ export function ReturnTrendChart({
 		[series],
 	);
 	const chartData = buildReturnTrendChartData(series, ZERO_RETURN_THRESHOLD);
+	const compactAxisMode = useCompactAxisMode();
 	const hasData = chartData.length > 0;
 	const centerDeltaValue = summary.latestValue - axisLayout.centerValue;
 	const centerRatioDenominator = Math.max(
@@ -269,6 +298,17 @@ export function ReturnTrendChart({
 		1e-6,
 	);
 	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
+	const yAxisWidth = getAdaptiveYAxisWidth(
+		[
+			formatCompactPercentMetric(axisLayout.minValue),
+			formatCompactPercentMetric(axisLayout.centerValue),
+			formatCompactPercentMetric(axisLayout.maxValue),
+		],
+		{
+			minWidth: compactAxisMode ? 60 : 56,
+			maxWidth: compactAxisMode ? 80 : 76,
+		},
+	);
 
 	return (
 		<section className="analytics-card">
@@ -350,15 +390,30 @@ export function ReturnTrendChart({
 					<ResponsiveContainer width="100%" height={300}>
 						<ComposedChart
 							data={chartData}
-							margin={{ top: 12, right: 12, left: 0, bottom: 0 }}
+							margin={{
+								top: 12,
+								right: compactAxisMode ? 18 : 12,
+								left: compactAxisMode ? 8 : 0,
+								bottom: compactAxisMode ? 10 : 0,
+							}}
 						>
 							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-							<XAxis dataKey="label" stroke="#d6d4cb" tickLine={false} axisLine={false} />
+							<XAxis
+								dataKey="label"
+								stroke="#d6d4cb"
+								tickLine={false}
+								axisLine={false}
+								interval={compactAxisMode ? "preserveStartEnd" : 0}
+								minTickGap={compactAxisMode ? 24 : 12}
+								tickMargin={8}
+								tickFormatter={(label: string) =>
+									formatTimelineAxisLabel(label, compactAxisMode)}
+							/>
 							<YAxis
 								stroke="#d6d4cb"
 								tickLine={false}
 								axisLine={false}
-								width={56}
+								width={yAxisWidth}
 								domain={axisLayout.domain}
 								tickCount={axisLayout.tickCount}
 								tickFormatter={formatCompactPercentMetric}

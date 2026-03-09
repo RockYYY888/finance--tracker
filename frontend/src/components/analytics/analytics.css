@@ -346,6 +346,10 @@
 		grid-template-columns: 1fr;
 	}
 
+	.analytics-chart {
+		padding-inline: 0.15rem;
+	}
+
 	.analytics-segmented {
 		width: 100%;
 		justify-content: space-between;

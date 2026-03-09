@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	calculateDynamicAxisLayout,
+	formatTimelineAxisLabel,
+	getAdaptiveYAxisWidth,
 	prepareTimelineSeries,
 	summarizeTimeline,
 } from "./portfolioAnalytics";
@@ -145,5 +147,30 @@ describe("summarizeTimeline", () => {
 
 		expect(summary.changeValue).toBe(239_687.62);
 		expect(summary.changeRatio).toBeNull();
+	});
+});
+
+describe("formatTimelineAxisLabel", () => {
+	it("keeps full label on regular viewport mode", () => {
+		expect(formatTimelineAxisLabel("03-01 04:00", false)).toBe("03-01 04:00");
+	});
+
+	it("keeps time part in compact mode for datetime labels", () => {
+		expect(formatTimelineAxisLabel("03-01 04:00", true)).toBe("04:00");
+	});
+
+	it("truncates long custom labels in compact mode", () => {
+		expect(formatTimelineAxisLabel("custom-label-long", true)).toBe("custom-…");
+	});
+});
+
+describe("getAdaptiveYAxisWidth", () => {
+	it("expands width for long negative labels and caps at max width", () => {
+		expect(getAdaptiveYAxisWidth(["-12500k", "120k"], { minWidth: 52, maxWidth: 72 })).toBe(61);
+		expect(getAdaptiveYAxisWidth(["-1234567890.12%"], { minWidth: 52, maxWidth: 72 })).toBe(72);
+	});
+
+	it("respects min width for short labels", () => {
+		expect(getAdaptiveYAxisWidth(["0", "-1"], { minWidth: 56, maxWidth: 80 })).toBe(56);
 	});
 });

@@ -221,6 +221,55 @@ export function truncateLabel(label: string, maxLength = 10): string {
 	return `${label.slice(0, maxLength - 1)}…`;
 }
 
+/**
+ * Formats timeline labels for narrow viewports to prevent axis overflow.
+ */
+export function formatTimelineAxisLabel(label: string, compact = false): string {
+	const normalizedLabel = label.trim();
+	if (!compact || normalizedLabel.length <= 8) {
+		return normalizedLabel;
+	}
+
+	const parts = normalizedLabel.split(/\s+/);
+	const lastPart = parts[parts.length - 1] ?? normalizedLabel;
+	if (/^\d{1,2}:\d{2}$/.test(lastPart)) {
+		return lastPart;
+	}
+
+	if (/^\d{2}-\d{2}$/.test(normalizedLabel) || /^\d{4}-\d{2}$/.test(normalizedLabel)) {
+		return normalizedLabel;
+	}
+
+	return truncateLabel(normalizedLabel, 8);
+}
+
+type AdaptiveYAxisWidthOptions = {
+	minWidth?: number;
+	maxWidth?: number;
+	padding?: number;
+	perCharWidth?: number;
+};
+
+/**
+ * Estimates axis width from formatted tick labels so long negatives are not clipped.
+ */
+export function getAdaptiveYAxisWidth(
+	labels: string[],
+	{
+		minWidth = 52,
+		maxWidth = 72,
+		padding = 12,
+		perCharWidth = 7,
+	}: AdaptiveYAxisWidthOptions = {},
+): number {
+	const longestLabelLength = labels.reduce(
+		(maxLength, label) => Math.max(maxLength, label.length),
+		0,
+	);
+	const estimatedWidth = longestLabelLength * perCharWidth + padding;
+	return clamp(estimatedWidth, minWidth, maxWidth);
+}
+
 export function summarizeTimeline(series: TimelinePoint[]): {
 	startLabel: string | null;
 	latestLabel: string | null;
