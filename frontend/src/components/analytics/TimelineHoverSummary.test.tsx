@@ -127,7 +127,6 @@ describe("timeline hover summaries", () => {
 
 		expectPillToContain("最新净值", "¥150.00");
 		expectPillToContain("03-01→03-03", "增加¥50.00 / +50.00%");
-		expectPillToContain("相对中线偏离", "¥30.00 / +25.00%");
 
 		const { onMouseMove, onMouseLeave } = getLatestChartHandlers();
 		expect(onMouseMove).toBeDefined();
@@ -144,7 +143,6 @@ describe("timeline hover summaries", () => {
 			expectPillToContain("所选净值", "¥120.00");
 		});
 		expectPillToContain("03-01→03-02", "增加¥20.00 / +20.00%");
-		expectPillToContain("相对中线偏离", "¥0.00 / 0.00%");
 
 		act(() => {
 			onMouseLeave?.();
@@ -195,7 +193,6 @@ describe("timeline hover summaries", () => {
 			expectPillToContain("所选收益率", "12.00%");
 		});
 		expectPillToContain("03-01→03-02", "+2.00% / +20.00%");
-		expectPillToContain("相对中线偏离", "0.00% / 0.00%");
 		expectPillToContain("至该点日均环比", "+1.82%");
 
 		act(() => {

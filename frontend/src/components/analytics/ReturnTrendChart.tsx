@@ -24,7 +24,7 @@ import {
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
-	getChartTickInterval,
+	getTimelineChartTicks,
 	formatCompactPercentMetric,
 	formatPercentMetric,
 	formatPercentage,
@@ -34,6 +34,10 @@ import {
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+import {
+	buildThresholdSegmentedChartData,
+	type ThresholdSegmentedPoint,
+} from "./chartSegmentation";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type ReturnTrendSeriesOption = {
@@ -76,107 +80,13 @@ const POSITIVE_RETURN_FILL = "rgba(0, 155, 193, 0.22)";
 const NEGATIVE_RETURN_FILL = "rgba(215, 51, 108, 0.22)";
 const RETURN_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
 const ZERO_RETURN_THRESHOLD = 0;
-const CROSSING_EPSILON = 1e-8;
-
-type ReturnTrendChartPoint = TimelinePoint & {
-	positiveValue: number;
-	negativeValue: number;
-	crossingPoint?: boolean;
-};
-
-function toTimestampMs(point: TimelinePoint): number | null {
-	if (!point.timestamp_utc) {
-		return null;
-	}
-
-	const parsedTimestamp = Date.parse(point.timestamp_utc);
-	if (!Number.isFinite(parsedTimestamp)) {
-		return null;
-	}
-
-	return parsedTimestamp;
-}
-
-function buildThresholdCrossingPoint(
-	left: TimelinePoint,
-	right: TimelinePoint,
-	thresholdValue: number,
-): TimelinePoint {
-	const denominator = right.value - left.value;
-	const ratio = Math.min(
-		1,
-		Math.max(
-			0,
-			denominator === 0 ? 0 : (thresholdValue - left.value) / denominator,
-		),
-	);
-	const leftTimestampMs = toTimestampMs(left);
-	const rightTimestampMs = toTimestampMs(right);
-	const interpolatedTimestamp =
-		leftTimestampMs === null || rightTimestampMs === null
-			? undefined
-			: new Date(
-				Math.round(leftTimestampMs + (rightTimestampMs - leftTimestampMs) * ratio),
-			).toISOString();
-
-	return {
-		label: "",
-		value: thresholdValue,
-		timestamp_utc: interpolatedTimestamp,
-		corrected: false,
-	};
-}
-
-function shouldInsertCrossingPoint(
-	left: TimelinePoint,
-	right: TimelinePoint,
-	thresholdValue: number,
-): boolean {
-	const leftDelta = left.value - thresholdValue;
-	const rightDelta = right.value - thresholdValue;
-	if (Math.abs(leftDelta) <= CROSSING_EPSILON || Math.abs(rightDelta) <= CROSSING_EPSILON) {
-		return false;
-	}
-
-	return leftDelta * rightDelta < 0;
-}
+type ReturnTrendChartPoint = ThresholdSegmentedPoint;
 
 export function buildReturnTrendChartData(
 	series: TimelinePoint[],
 	thresholdValue = 0,
 ): ReturnTrendChartPoint[] {
-	if (series.length <= 1) {
-		return series.map((point) => ({
-			...point,
-			positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
-			negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
-		}));
-	}
-
-	const segmentedSeries: TimelinePoint[] = [];
-	segmentedSeries.push(series[0]);
-	for (let index = 1; index < series.length; index += 1) {
-		const previousPoint = series[index - 1];
-		const currentPoint = series[index];
-
-		if (shouldInsertCrossingPoint(previousPoint, currentPoint, thresholdValue)) {
-			segmentedSeries.push(
-				buildThresholdCrossingPoint(previousPoint, currentPoint, thresholdValue),
-			);
-		}
-		segmentedSeries.push(currentPoint);
-	}
-
-	return segmentedSeries.map((point) => {
-		const isCrossingPoint =
-			Math.abs(point.value - thresholdValue) <= CROSSING_EPSILON && !point.label;
-		return {
-			...point,
-			...(isCrossingPoint ? { crossingPoint: true } : {}),
-			positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
-			negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
-		};
-	});
+	return buildThresholdSegmentedChartData(series, thresholdValue);
 }
 
 function formatSignedRatio(ratio: number): string {
@@ -261,7 +171,7 @@ export function ReturnTrendChart({
 	const axisLayout = useMemo(
 		() =>
 			calculateDynamicAxisLayout(series, {
-				includeZero: true,
+				referenceValue: ZERO_RETURN_THRESHOLD,
 				minSpan: 0.3,
 			}),
 		[series],
@@ -276,7 +186,7 @@ export function ReturnTrendChart({
 	const periodLabel = formatTimelineRangeLabel(
 		chartData[0],
 		activePoint ?? chartData[chartData.length - 1],
-		activePoint?.crossingPoint ? "阈值交点" : "最新周期",
+		activePoint?.crossingPoint ? "基准线交点" : "最新周期",
 	);
 	const visibleCompoundedStepRate = activePointIndex === null
 		? rangeCompoundedStepRate
@@ -285,27 +195,19 @@ export function ReturnTrendChart({
 				.slice(0, activePointIndex + 1)
 				.filter((point) => !point.crossingPoint),
 		);
-	const centerDeltaValue = visibleSummary.latestValue - axisLayout.centerValue;
-	const centerRatioDenominator = Math.max(
-		Math.abs(axisLayout.centerValue),
-		Math.abs(axisLayout.maxValue - axisLayout.minValue) * 0.6,
-		1e-6,
-	);
-	const centerDeltaRatio = centerDeltaValue / centerRatioDenominator;
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
 			formatCompactPercentMetric(axisLayout.minValue),
-			formatCompactPercentMetric(axisLayout.centerValue),
+			formatCompactPercentMetric(axisLayout.referenceValue),
 			formatCompactPercentMetric(axisLayout.maxValue),
 		],
 		{
-			minWidth: compactAxisMode ? 60 : 56,
-			maxWidth: compactAxisMode ? 80 : 76,
+			minWidth: compactAxisMode ? 64 : 60,
+			maxWidth: compactAxisMode ? 84 : 80,
 		},
 	);
-	const xAxisInterval = getChartTickInterval(chartData.length, chartWidth, {
+	const xAxisTicks = getTimelineChartTicks(series, chartWidth, {
 		compact: compactAxisMode,
-		minLabelSpacing: compactAxisMode ? 64 : 88,
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
@@ -370,14 +272,6 @@ export function ReturnTrendChart({
 							: `${formatPercentMetric(visibleSummary.changeValue, true)} / ${formatSignedRatio(visibleSummary.changeRatio)}`}
 					</strong>
 				</div>
-				<div className="analytics-pill">
-					<span>相对中线偏离</span>
-					<strong>
-						{formatPercentMetric(centerDeltaValue, true)}
-						{" / "}
-						{formatSignedRatio(centerDeltaRatio)}
-					</strong>
-				</div>
 				{showCompoundedStepRate ? (
 					<div className="analytics-pill">
 						<span>
@@ -407,10 +301,10 @@ export function ReturnTrendChart({
 							}}
 							onMouseLeave={() => setActivePointIndex(null)}
 							margin={{
-								top: 12,
-								right: compactAxisMode ? 18 : 12,
-								left: compactAxisMode ? 8 : 0,
-								bottom: compactAxisMode ? 10 : 0,
+								top: 18,
+								right: compactAxisMode ? 28 : 20,
+								left: compactAxisMode ? 16 : 10,
+								bottom: compactAxisMode ? 16 : 8,
 							}}
 						>
 							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -420,9 +314,14 @@ export function ReturnTrendChart({
 								tickLine={false}
 								axisLine={false}
 								height={compactAxisMode ? 30 : 24}
-								interval={xAxisInterval}
+								ticks={xAxisTicks}
+								interval={0}
 								minTickGap={compactAxisMode ? 24 : 12}
 								tickMargin={compactAxisMode ? 10 : 8}
+								padding={{
+									left: compactAxisMode ? 8 : 14,
+									right: compactAxisMode ? 16 : 24,
+								}}
 								tickFormatter={(label: string) =>
 									formatTimelineAxisLabel(label, {
 										compact: compactAxisMode,
@@ -435,15 +334,15 @@ export function ReturnTrendChart({
 								axisLine={false}
 								width={yAxisWidth}
 								domain={axisLayout.domain}
-								tickCount={axisLayout.tickCount}
+								ticks={axisLayout.tickValues}
+								tickMargin={compactAxisMode ? 8 : 6}
 								tickFormatter={formatCompactPercentMetric}
 							/>
 							<ReferenceLine
-								y={axisLayout.centerValue}
+								y={axisLayout.referenceValue}
 								stroke="rgba(0, 155, 193, 0.65)"
 								strokeDasharray="5 5"
 							/>
-							<ReferenceLine y={0} stroke="rgba(214, 212, 203, 0.38)" strokeDasharray="4 4" />
 							<Tooltip
 								content={({ active, payload, label }) => {
 									if (!active || !payload || payload.length === 0) {
@@ -459,7 +358,7 @@ export function ReturnTrendChart({
 										| ReturnTrendChartPoint
 										| undefined;
 									const periodLabel = sourcePoint?.crossingPoint
-										? "阈值交点"
+										? "基准线交点"
 										: String(label ?? "");
 
 									return (
@@ -471,7 +370,7 @@ export function ReturnTrendChart({
 												收益率: {formatPercentMetric(rawValue)}
 											</p>
 											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
-												中位中线: {formatPercentMetric(axisLayout.centerValue)}
+												基准线: {formatPercentMetric(axisLayout.referenceValue)}
 											</p>
 										</div>
 									);
@@ -499,7 +398,7 @@ export function ReturnTrendChart({
 								connectNulls
 							/>
 							<Line
-								type="monotone"
+								type="linear"
 								dataKey="value"
 								stroke={RETURN_LINE_COLOR}
 								strokeWidth={2.4}
@@ -509,19 +408,17 @@ export function ReturnTrendChart({
 						</ComposedChart>
 					</ResponsiveContainer>
 					<div className="return-trend-legend" role="list" aria-label="收益图例">
-						<span className="return-trend-legend__item" role="listitem">
-							<span
-								className="return-trend-legend__swatch return-trend-legend__swatch--positive"
-								aria-hidden="true"
-							/>
-							高于 0%
+						<span
+							className="return-trend-legend__item return-trend-legend__item--positive"
+							role="listitem"
+						>
+							基准线上方区域
 						</span>
-						<span className="return-trend-legend__item" role="listitem">
-							<span
-								className="return-trend-legend__swatch return-trend-legend__swatch--negative"
-								aria-hidden="true"
-							/>
-							低于 0%
+						<span
+							className="return-trend-legend__item return-trend-legend__item--negative"
+							role="listitem"
+						>
+							基准线下方区域
 						</span>
 					</div>
 				</div>

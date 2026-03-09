@@ -32,31 +32,62 @@ describe("buildPortfolioTrendChartData", () => {
 		]);
 	});
 
-	it("supports splitting around a custom center value", () => {
+	it("inserts an explicit zero crossing point before switching fill color", () => {
 		const source = [
-			{ label: "03-01 10:00", value: 12_300 },
-			{ label: "03-01 11:00", value: 11_500 },
-			{ label: "03-01 12:00", value: 10_100 },
+			{ label: "03-01 10:00", value: -8_000 },
+			{ label: "03-01 11:00", value: 12_000 },
 		];
 
-		expect(buildPortfolioTrendChartData(source, 11_500)).toEqual([
+		expect(buildPortfolioTrendChartData(source)).toEqual([
 			{
 				label: "03-01 10:00",
-				value: 12_300,
-				positiveValue: 12_300,
-				negativeValue: 11_500,
+				value: -8_000,
+				positiveValue: 0,
+				negativeValue: -8_000,
+			},
+			{
+				label: "",
+				value: 0,
+				corrected: false,
+				crossingPoint: true,
+				positiveValue: 0,
+				negativeValue: 0,
 			},
 			{
 				label: "03-01 11:00",
-				value: 11_500,
-				positiveValue: 11_500,
-				negativeValue: 11_500,
+				value: 12_000,
+				positiveValue: 12_000,
+				negativeValue: 0,
+			},
+		]);
+	});
+
+	it("supports custom baseline crossings for asset trend charts", () => {
+		const source = [
+			{ label: "03-01 10:00", value: 120_000 },
+			{ label: "03-01 11:00", value: 96_000 },
+		];
+
+		expect(buildPortfolioTrendChartData(source, 100_000)).toEqual([
+			{
+				label: "03-01 10:00",
+				value: 120_000,
+				positiveValue: 120_000,
+				negativeValue: 100_000,
 			},
 			{
-				label: "03-01 12:00",
-				value: 10_100,
-				positiveValue: 11_500,
-				negativeValue: 10_100,
+				label: "",
+				value: 100_000,
+				corrected: false,
+				crossingPoint: true,
+				positiveValue: 100_000,
+				negativeValue: 100_000,
+			},
+			{
+				label: "03-01 11:00",
+				value: 96_000,
+				positiveValue: 100_000,
+				negativeValue: 96_000,
 			},
 		]);
 	});

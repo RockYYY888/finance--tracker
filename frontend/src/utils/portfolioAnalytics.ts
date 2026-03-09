@@ -394,29 +394,32 @@ type ChartTickIntervalOptions = {
 	maxTickCount?: number;
 };
 
-export function getChartTickInterval(
-	itemCount: number,
+function resolveTimelineTickCount(
 	chartWidth: number,
 	{
 		compact = false,
-		minLabelSpacing = compact ? 72 : 96,
 		minTickCount = compact ? 3 : 4,
 		maxTickCount = compact ? 5 : 8,
 	}: ChartTickIntervalOptions = {},
 ): number {
-	if (itemCount <= 1) {
-		return 0;
+	if (chartWidth <= 0) {
+		return clamp(compact ? 4 : 6, minTickCount, maxTickCount);
 	}
 
-	const estimatedTickCount = chartWidth > 0
-		? Math.floor(chartWidth / Math.max(minLabelSpacing, 1))
-		: maxTickCount;
-	const visibleTickCount = clamp(estimatedTickCount, minTickCount, maxTickCount);
-	if (itemCount <= visibleTickCount) {
-		return 0;
+	let resolvedTickCount = compact ? 4 : 6;
+	if (chartWidth <= 280) {
+		resolvedTickCount = 3;
+	} else if (chartWidth <= 420) {
+		resolvedTickCount = 4;
+	} else if (chartWidth <= 640) {
+		resolvedTickCount = compact ? 4 : 5;
+	} else if (chartWidth <= 860) {
+		resolvedTickCount = compact ? 5 : 6;
+	} else {
+		resolvedTickCount = compact ? 5 : 7;
 	}
 
-	return Math.ceil(itemCount / visibleTickCount) - 1;
+	return clamp(resolvedTickCount, minTickCount, maxTickCount);
 }
 
 export function getAllocationDonutLayout(
@@ -439,6 +442,7 @@ export function getAllocationDonutLayout(
 
 export function summarizeTimeline(series: TimelinePoint[]): {
 	startLabel: string | null;
+	startValue: number;
 	latestLabel: string | null;
 	latestValue: number;
 	changeValue: number;
@@ -453,6 +457,7 @@ export function summarizeTimeline(series: TimelinePoint[]): {
 
 	return {
 		startLabel: startPoint?.label ?? null,
+		startValue,
 		latestLabel: latestPoint?.label ?? null,
 		latestValue,
 		changeValue,
@@ -496,88 +501,145 @@ export function summarizeCompoundedStepRate(series: TimelinePoint[]): number {
 }
 
 export type DynamicAxisLayout = {
-	centerValue: number;
+	referenceValue: number;
 	domain: [number, number];
 	minValue: number;
 	maxValue: number;
-	tickCount: number;
+	tickValues: number[];
 };
 
 type DynamicAxisOptions = {
-	includeZero?: boolean;
+	referenceValue?: number;
+	includeReference?: boolean;
 	paddingRatio?: number;
 	minSpan?: number;
+	targetTickCount?: number;
 };
-
-function getMedian(values: number[]): number {
-	if (values.length === 0) {
-		return 0;
-	}
-
-	const sortedValues = [...values].sort((left, right) => left - right);
-	const middleIndex = Math.floor(sortedValues.length / 2);
-	if (sortedValues.length % 2 === 1) {
-		return sortedValues[middleIndex];
-	}
-
-	return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
-}
 
 function clamp(value: number, minValue: number, maxValue: number): number {
 	return Math.min(Math.max(value, minValue), maxValue);
 }
 
-function getQuantile(sortedValues: number[], quantile: number): number {
-	if (sortedValues.length === 0) {
-		return 0;
+function resolveNiceStep(rawStep: number): number {
+	if (!Number.isFinite(rawStep) || rawStep <= 0) {
+		return 1;
 	}
 
-	const safeQuantile = clamp(quantile, 0, 1);
-	const position = (sortedValues.length - 1) * safeQuantile;
-	const lowerIndex = Math.floor(position);
-	const upperIndex = Math.ceil(position);
-	if (lowerIndex === upperIndex) {
-		return sortedValues[lowerIndex];
+	const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+	const normalizedStep = rawStep / magnitude;
+	if (normalizedStep <= 1) {
+		return magnitude;
 	}
-
-	const ratio = position - lowerIndex;
-	return sortedValues[lowerIndex] * (1 - ratio) + sortedValues[upperIndex] * ratio;
+	if (normalizedStep <= 2) {
+		return 2 * magnitude;
+	}
+	if (normalizedStep <= 2.5) {
+		return 2.5 * magnitude;
+	}
+	if (normalizedStep <= 5) {
+		return 5 * magnitude;
+	}
+	return 10 * magnitude;
 }
 
-function summarizeRelativeStepVolatility(values: number[], scale: number): number {
-	if (values.length < 2) {
-		return 0;
+function buildAxisTicks(
+	domainMin: number,
+	domainMax: number,
+	step: number,
+): number[] {
+	const tickValues: number[] = [];
+	const safeStep = Math.max(step, 1e-9);
+	const maxTickCount = 12;
+	let currentValue = domainMin;
+	let guard = 0;
+
+	while (currentValue <= domainMax + safeStep / 2 && guard < maxTickCount) {
+		tickValues.push(Number(currentValue.toFixed(6)));
+		currentValue += safeStep;
+		guard += 1;
 	}
 
-	let totalChange = 0;
-	for (let index = 1; index < values.length; index += 1) {
-		totalChange += Math.abs(values[index] - values[index - 1]) / scale;
+	if (tickValues.length === 0 || tickValues[tickValues.length - 1] !== domainMax) {
+		tickValues.push(Number(domainMax.toFixed(6)));
 	}
-	return totalChange / (values.length - 1);
+
+	return tickValues;
 }
 
-function resolveDynamicTickCount(relativeVolatility: number): number {
-	if (relativeVolatility >= 0.25) {
-		return 7;
+function pickEvenlyDistributedIndices(itemCount: number, targetTickCount: number): number[] {
+	if (itemCount <= 0) {
+		return [];
 	}
-	if (relativeVolatility >= 0.14) {
-		return 6;
+
+	if (itemCount <= targetTickCount) {
+		return Array.from({ length: itemCount }, (_, index) => index);
 	}
-	if (relativeVolatility >= 0.05) {
-		return 5;
+
+	const lastIndex = itemCount - 1;
+	const selectedIndices = new Set<number>();
+	for (let tickIndex = 0; tickIndex < targetTickCount; tickIndex += 1) {
+		selectedIndices.add(
+			Math.round((lastIndex * tickIndex) / Math.max(targetTickCount - 1, 1)),
+		);
 	}
-	return 4;
+
+	while (selectedIndices.size < targetTickCount) {
+		let bestIndex = 0;
+		let bestDistance = -1;
+		for (let candidateIndex = 0; candidateIndex < itemCount; candidateIndex += 1) {
+			if (selectedIndices.has(candidateIndex)) {
+				continue;
+			}
+
+			let nearestDistance = Number.POSITIVE_INFINITY;
+			for (const selectedIndex of selectedIndices) {
+				nearestDistance = Math.min(
+					nearestDistance,
+					Math.abs(candidateIndex - selectedIndex),
+				);
+			}
+
+			if (nearestDistance > bestDistance) {
+				bestDistance = nearestDistance;
+				bestIndex = candidateIndex;
+			}
+		}
+
+		selectedIndices.add(bestIndex);
+	}
+
+	return [...selectedIndices].sort((left, right) => left - right);
+}
+
+export function getTimelineChartTicks(
+	series: Pick<TimelinePoint, "label">[],
+	chartWidth: number,
+	options: ChartTickIntervalOptions = {},
+): string[] {
+	const labels = series
+		.map((point) => point.label.trim())
+		.filter((label) => label.length > 0);
+	if (labels.length <= 1) {
+		return labels;
+	}
+
+	const targetTickCount = resolveTimelineTickCount(chartWidth, options);
+	return pickEvenlyDistributedIndices(labels.length, targetTickCount).map(
+		(index) => labels[index]!,
+	);
 }
 
 /**
- * Builds a visually stable y-axis from the visible timeline window using a median centerline.
+ * Builds a key-point-driven y-axis from period start/end, visible min/max, and the reference line.
  */
 export function calculateDynamicAxisLayout(
 	series: TimelinePoint[],
 	{
-		includeZero = false,
-		paddingRatio = 0.18,
+		referenceValue,
+		includeReference = true,
+		paddingRatio = 0.12,
 		minSpan = 1,
+		targetTickCount = 5,
 	}: DynamicAxisOptions = {},
 ): DynamicAxisLayout {
 	const numericValues = series
@@ -585,54 +647,51 @@ export function calculateDynamicAxisLayout(
 		.filter((value) => Number.isFinite(value));
 
 	if (numericValues.length === 0) {
+		const fallbackReferenceValue = referenceValue ?? 0;
 		return {
-			centerValue: 0,
+			referenceValue: fallbackReferenceValue,
 			domain: [-1, 1],
 			minValue: 0,
 			maxValue: 0,
-			tickCount: 4,
+			tickValues: [-1, 0, 1],
 		};
 	}
 
+	const startValue = series[0]?.value ?? numericValues[0]!;
+	const endValue = series[series.length - 1]?.value ?? numericValues[numericValues.length - 1]!;
 	const minValue = Math.min(...numericValues);
 	const maxValue = Math.max(...numericValues);
-	const sortedValues = [...numericValues].sort((left, right) => left - right);
-	const centerValue = getMedian(numericValues);
-
 	const safeMinSpan = Math.max(minSpan, 1e-6);
-	const fullSpread = Math.max(
-		Math.abs(maxValue - centerValue),
-		Math.abs(minValue - centerValue),
-	);
-	const lowerQuantile = getQuantile(sortedValues, 0.1);
-	const upperQuantile = getQuantile(sortedValues, 0.9);
-	const robustSpread = Math.max(
-		Math.abs(lowerQuantile - centerValue),
-		Math.abs(upperQuantile - centerValue),
-	);
-	const outlierRatio = fullSpread / Math.max(robustSpread, safeMinSpan);
-	const spreadBlendRatio = outlierRatio <= 1.8 ? 1 : 0.45;
-	const effectiveSpread = Math.max(
-		robustSpread + (fullSpread - robustSpread) * spreadBlendRatio,
-		safeMinSpan,
-	);
+	const explicitReferenceValue =
+		typeof referenceValue === "number" && Number.isFinite(referenceValue)
+			? referenceValue
+			: undefined;
+	const resolvedReferenceValue = explicitReferenceValue ?? startValue;
+	const anchorValues = [startValue, endValue, minValue, maxValue];
+	if (includeReference) {
+		anchorValues.push(resolvedReferenceValue);
+	}
 
-	const volatilityScale = Math.max(Math.abs(centerValue), fullSpread, 1);
-	const relativeVolatility = summarizeRelativeStepVolatility(numericValues, volatilityScale);
-	const adaptivePaddingRatio = clamp(
-		Math.max(paddingRatio, 0) - relativeVolatility * 0.08,
-		0.08,
-		0.28,
+	const anchorMin = Math.min(...anchorValues);
+	const anchorMax = Math.max(...anchorValues);
+	const anchorSpan = Math.max(anchorMax - anchorMin, safeMinSpan);
+	const edgePadding = Math.max(anchorSpan * Math.max(paddingRatio, 0), safeMinSpan * 0.45);
+	let domainMin = anchorMin - edgePadding;
+	let domainMax = anchorMax + edgePadding;
+
+	const rawStep = Math.max(
+		(domainMax - domainMin) / Math.max(targetTickCount - 1, 1),
+		safeMinSpan / 2,
 	);
-	const halfRange = effectiveSpread * (1 + adaptivePaddingRatio);
-	const tickCount = resolveDynamicTickCount(relativeVolatility);
+	const step = resolveNiceStep(rawStep);
+	domainMin = Math.floor(domainMin / step) * step;
+	domainMax = Math.ceil(domainMax / step) * step;
 
-	let domainMin = centerValue - halfRange;
-	let domainMax = centerValue + halfRange;
-
-	if (includeZero) {
-		domainMin = Math.min(domainMin, 0);
-		domainMax = Math.max(domainMax, 0);
+	if (anchorMin === 0 && anchorValues.every((value) => value >= 0)) {
+		domainMin = 0;
+	}
+	if (anchorMax === 0 && anchorValues.every((value) => value <= 0)) {
+		domainMax = 0;
 	}
 
 	if (domainMin === domainMax) {
@@ -641,11 +700,11 @@ export function calculateDynamicAxisLayout(
 	}
 
 	return {
-		centerValue,
+		referenceValue: resolvedReferenceValue,
 		domain: [domainMin, domainMax],
 		minValue,
 		maxValue,
-		tickCount,
+		tickValues: buildAxisTicks(domainMin, domainMax, step),
 	};
 }
 

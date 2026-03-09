@@ -152,9 +152,13 @@ describe("analytics charts responsive layout", () => {
 		const xAxisProps = getLastRecordedProps(rechartsState.xAxes) as {
 			height: number;
 			interval: number;
+			ticks: string[];
+			padding: { left: number; right: number };
 			tickFormatter: (label: string) => string;
 		};
-		expect(xAxisProps.interval).toBeGreaterThan(0);
+		expect(xAxisProps.interval).toBe(0);
+		expect(xAxisProps.ticks).toHaveLength(3);
+		expect(xAxisProps.padding.right).toBeGreaterThan(0);
 		expect(xAxisProps.tickFormatter("03-08 04:00")).toBe("03-08");
 	});
 
@@ -186,9 +190,13 @@ describe("analytics charts responsive layout", () => {
 		const xAxisProps = getLastRecordedProps(rechartsState.xAxes) as {
 			height: number;
 			interval: number;
+			ticks: string[];
+			padding: { left: number; right: number };
 			tickFormatter: (label: string) => string;
 		};
-		expect(xAxisProps.interval).toBeGreaterThan(0);
+		expect(xAxisProps.interval).toBe(0);
+		expect(xAxisProps.ticks).toHaveLength(3);
+		expect(xAxisProps.padding.right).toBeGreaterThan(0);
 		expect(xAxisProps.tickFormatter("2026-03")).toBe("2026");
 	});
 

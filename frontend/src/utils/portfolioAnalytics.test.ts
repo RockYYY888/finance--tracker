@@ -7,13 +7,13 @@ import {
 	getAdaptiveCategoryAxisWidth,
 	getAdaptiveYAxisWidth,
 	getAllocationDonutLayout,
-	getChartTickInterval,
+	getTimelineChartTicks,
 	prepareTimelineSeries,
 	summarizeTimeline,
 } from "./portfolioAnalytics";
 
 describe("calculateDynamicAxisLayout", () => {
-	it("uses the median as center and symmetric padded domain", () => {
+	it("uses start/end/min/max and reference value to build the visible domain", () => {
 		const layout = calculateDynamicAxisLayout(
 			[
 				{ label: "A", value: 100 },
@@ -21,33 +21,31 @@ describe("calculateDynamicAxisLayout", () => {
 				{ label: "C", value: 140 },
 				{ label: "D", value: 150 },
 			],
-			{ paddingRatio: 0.18, minSpan: 1 },
+			{ referenceValue: 100, paddingRatio: 0.12, minSpan: 1 },
 		);
 
-		expect(layout.centerValue).toBe(125);
+		expect(layout.referenceValue).toBe(100);
 		expect(layout.domain[0]).toBeLessThanOrEqual(100);
 		expect(layout.domain[1]).toBeGreaterThanOrEqual(150);
-		expect(layout.centerValue - layout.domain[0]).toBeCloseTo(
-			layout.domain[1] - layout.centerValue,
-			6,
-		);
-		expect(layout.tickCount).toBeGreaterThanOrEqual(4);
+		expect(layout.tickValues.length).toBeGreaterThanOrEqual(4);
+		expect(layout.tickValues[0]).toBe(layout.domain[0]);
+		expect(layout.tickValues[layout.tickValues.length - 1]).toBe(layout.domain[1]);
 	});
 
-	it("extends domain to include zero when requested", () => {
+	it("keeps zero pinned when it is the reference floor", () => {
 		const layout = calculateDynamicAxisLayout(
 			[
 				{ label: "A", value: 12 },
 				{ label: "B", value: 15 },
 				{ label: "C", value: 17 },
 			],
-			{ includeZero: true, minSpan: 1 },
+			{ referenceValue: 0, minSpan: 1 },
 		);
 
-		expect(layout.centerValue).toBe(15);
-		expect(layout.domain[0]).toBeLessThanOrEqual(0);
+		expect(layout.referenceValue).toBe(0);
+		expect(layout.domain[0]).toBe(0);
 		expect(layout.domain[1]).toBeGreaterThan(15);
-		expect(layout.tickCount).toBeGreaterThanOrEqual(4);
+		expect(layout.tickValues).toContain(0);
 	});
 
 	it("keeps a visible range for flat data with minSpan", () => {
@@ -57,40 +55,32 @@ describe("calculateDynamicAxisLayout", () => {
 				{ label: "B", value: 10 },
 				{ label: "C", value: 10 },
 			],
-			{ minSpan: 0.5 },
+			{ referenceValue: 10, minSpan: 0.5 },
 		);
 
-		expect(layout.centerValue).toBe(10);
-		expect(layout.domain[1] - layout.domain[0]).toBeGreaterThan(0.5);
-		expect(layout.tickCount).toBe(4);
+		expect(layout.referenceValue).toBe(10);
+		expect(layout.domain[1] - layout.domain[0]).toBeGreaterThanOrEqual(0.5);
+		expect(layout.tickValues.length).toBeGreaterThanOrEqual(3);
 	});
 
-	it("limits outlier influence while keeping dynamic chart detail", () => {
-		const baselinePoints = Array.from({ length: 20 }, (_, index) => ({
-			label: `P-${index}`,
-			value: 100 + index,
-		}));
-		const seriesWithOutlier = [
-			...baselinePoints,
+	it("keeps the visible peak in range when max value is far from the baseline", () => {
+		const layout = calculateDynamicAxisLayout(
+			[
+				{ label: "P-0", value: 100 },
+				{ label: "P-1", value: 115 },
+				{ label: "P-2", value: 1000 },
+				{ label: "P-3", value: 140 },
+			],
 			{
-				label: "OUTLIER",
-				value: 1000,
+				referenceValue: 100,
+				paddingRatio: 0.1,
+				minSpan: 1,
 			},
-		];
-		const layout = calculateDynamicAxisLayout(seriesWithOutlier, {
-			paddingRatio: 0.18,
-			minSpan: 1,
-		});
-		const outlierCenteredSpread = Math.max(
-			Math.abs(1000 - layout.centerValue),
-			Math.abs(100 - layout.centerValue),
 		);
 
-		expect(layout.centerValue).toBe(110);
-		expect(layout.domain[1] - layout.domain[0]).toBeLessThan(
-			outlierCenteredSpread * 2 * 1.18,
-		);
-		expect(layout.tickCount).toBeGreaterThanOrEqual(5);
+		expect(layout.domain[0]).toBeLessThanOrEqual(100);
+		expect(layout.domain[1]).toBeGreaterThanOrEqual(1000);
+		expect(layout.maxValue).toBe(1000);
 	});
 });
 
@@ -138,6 +128,7 @@ describe("summarizeTimeline", () => {
 		]);
 
 		expect(summary.startLabel).toBe("03-01");
+		expect(summary.startValue).toBe(100);
 		expect(summary.latestLabel).toBe("03-03");
 		expect(summary.changeValue).toBe(50);
 		expect(summary.changeRatio).toBe(0.5);
@@ -226,13 +217,35 @@ describe("getAdaptiveCategoryAxisWidth", () => {
 	});
 });
 
-describe("getChartTickInterval", () => {
-	it("keeps every tick when the chart is wide enough", () => {
-		expect(getChartTickInterval(5, 560, { compact: false })).toBe(0);
+describe("getTimelineChartTicks", () => {
+	it("keeps every label when the series is short", () => {
+		expect(
+			getTimelineChartTicks(
+				[
+					{ label: "03-01" },
+					{ label: "03-02" },
+					{ label: "03-03" },
+					{ label: "03-04" },
+					{ label: "03-05" },
+				],
+				560,
+				{ compact: false },
+			),
+		).toEqual(["03-01", "03-02", "03-03", "03-04", "03-05"]);
 	});
 
-	it("skips ticks when there are too many labels for the container width", () => {
-		expect(getChartTickInterval(24, 220, { compact: true })).toBeGreaterThan(0);
+	it("selects evenly distributed ticks while preserving the first and last labels", () => {
+		const tickLabels = getTimelineChartTicks(
+			Array.from({ length: 24 }, (_, index) => ({
+				label: `03-${String(index + 1).padStart(2, "0")}`,
+			})),
+			220,
+			{ compact: true },
+		);
+
+		expect(tickLabels.length).toBe(3);
+		expect(tickLabels[0]).toBe("03-01");
+		expect(tickLabels[tickLabels.length - 1]).toBe("03-24");
 	});
 });
 

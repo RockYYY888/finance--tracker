@@ -158,31 +158,32 @@
 .return-trend-legend__item {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.38rem;
-	padding: 0.34rem 0.58rem;
+	justify-content: center;
+	padding: 0.42rem 0.8rem;
 	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.03);
-	border: 1px solid rgba(255, 255, 255, 0.15);
+	border: 1px solid rgba(255, 255, 255, 0.12);
 	color: var(--text-soft);
 	font-size: 0.8rem;
 	line-height: 1.2;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-.return-trend-legend__swatch {
-	width: 0.62rem;
-	height: 0.62rem;
-	border-radius: 999px;
-	display: inline-block;
+.return-trend-legend__item--positive {
+	background:
+		linear-gradient(135deg, rgba(0, 155, 193, 0.14), rgba(0, 155, 193, 0.06)),
+		rgba(255, 255, 255, 0.02);
+	border-color: rgba(0, 155, 193, 0.34);
+	color: rgba(181, 241, 255, 0.96);
 }
 
-.return-trend-legend__swatch--positive {
-	background: rgba(0, 155, 193, 0.24);
-	border: 1px solid rgba(0, 155, 193, 0.95);
-}
-
-.return-trend-legend__swatch--negative {
-	background: rgba(215, 51, 108, 0.24);
-	border: 1px solid rgba(215, 51, 108, 0.95);
+.return-trend-legend__item--negative {
+	background:
+		linear-gradient(135deg, rgba(215, 51, 108, 0.14), rgba(215, 51, 108, 0.06)),
+		rgba(255, 255, 255, 0.02);
+	border-color: rgba(215, 51, 108, 0.34);
+	color: rgba(255, 196, 216, 0.96);
 }
 
 .analytics-legend {
