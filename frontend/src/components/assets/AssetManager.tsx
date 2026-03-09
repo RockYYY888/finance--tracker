@@ -18,6 +18,7 @@ import type {
 	FixedAssetFormDraft,
 	FixedAssetInput,
 	FixedAssetRecord,
+	HoldingEditorIntent,
 	HoldingFormDraft,
 	HoldingInput,
 	HoldingRecord,
@@ -149,22 +150,25 @@ function updateLocalCashAccount(
 	};
 }
 
-function createLocalHolding(payload: HoldingInput, nextId: number): HoldingRecord {
-	const quantityDelta = payload.side === "SELL" ? -payload.quantity : payload.quantity;
+function createLocalHolding(payload: HoldingInput, nextId: number): HoldingRecord | null {
+	if (payload.side === "SELL") {
+		return null;
+	}
+
 	return {
 		id: nextId,
 		side: payload.side,
 		symbol: payload.symbol,
 		name: payload.name,
-		quantity: quantityDelta,
+		quantity: payload.quantity,
 		fallback_currency: payload.fallback_currency,
 		cost_basis_price: payload.cost_basis_price,
-			market: payload.market,
-			broker: payload.broker,
-			started_on: payload.started_on,
-			note: payload.note,
-			price: null,
-			price_currency: payload.fallback_currency,
+		market: payload.market,
+		broker: payload.broker,
+		started_on: payload.started_on,
+		note: payload.note,
+		price: null,
+		price_currency: payload.fallback_currency,
 		value_cny: 0,
 		return_pct: null,
 		last_updated: null,
@@ -175,22 +179,21 @@ function updateLocalHolding(
 	currentRecord: HoldingRecord,
 	payload: HoldingInput,
 ): HoldingRecord {
-	const quantityDelta = payload.side === "SELL" ? -payload.quantity : payload.quantity;
-	const nextQuantity = Number((currentRecord.quantity + quantityDelta).toFixed(8));
 	return {
 		...currentRecord,
+		side: "BUY",
 		symbol: payload.symbol,
 		name: payload.name,
-		quantity: nextQuantity > 0 ? nextQuantity : 0,
+		quantity: payload.quantity,
 		fallback_currency: payload.fallback_currency,
 		cost_basis_price: payload.cost_basis_price,
-			market: payload.market,
-			broker: payload.broker,
-			started_on: payload.started_on,
-			note: payload.note,
-			price_currency: currentRecord.price_currency ?? payload.fallback_currency,
-		};
-	}
+		market: payload.market,
+		broker: payload.broker,
+		started_on: payload.started_on,
+		note: payload.note,
+		price_currency: currentRecord.price_currency ?? payload.fallback_currency,
+	};
+}
 
 function createLocalFixedAsset(
 	payload: FixedAssetInput,
@@ -325,6 +328,7 @@ export function AssetManager({
 	maxStartedOnDate,
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
+	const [holdingEditorIntent, setHoldingEditorIntent] = useState<HoldingEditorIntent>("buy");
 	const cashCollection = useAssetCollection({
 		initialItems: initialCashAccounts ?? EMPTY_CASH_ACCOUNTS,
 		actions: cashActions,
@@ -355,6 +359,26 @@ export function AssetManager({
 		createLocalRecord: createLocalOtherAsset,
 		updateLocalRecord: updateLocalOtherAsset,
 	});
+
+	function openHoldingBuyEditor(): void {
+		setHoldingEditorIntent("buy");
+		holdingCollection.openCreate();
+	}
+
+	function openHoldingSellEditor(): void {
+		setHoldingEditorIntent("sell");
+		holdingCollection.openCreate();
+	}
+
+	function openHoldingEditEditor(record: HoldingRecord): void {
+		setHoldingEditorIntent("edit");
+		holdingCollection.openEdit(record);
+	}
+
+	function closeHoldingEditor(): void {
+		holdingCollection.closeEditor();
+		setHoldingEditorIntent("buy");
+	}
 
 	useEffect(() => {
 		if (!autoRefreshOnMount && refreshToken === 0) {
@@ -482,10 +506,13 @@ export function AssetManager({
 						{holdingCollection.isEditorOpen ? (
 							<HoldingForm
 								mode={holdingCollection.editingRecord ? "edit" : "create"}
+								intent={holdingCollection.editingRecord ? "edit" : holdingEditorIntent}
 								value={
 									holdingCollection.editingRecord
 										? toHoldingDraft(holdingCollection.editingRecord)
-										: null
+										: {
+											side: holdingEditorIntent === "sell" ? "SELL" : "BUY",
+										}
 								}
 								existingHoldings={holdingCollection.items}
 								cashAccounts={cashCollection.items}
@@ -498,7 +525,7 @@ export function AssetManager({
 								onDelete={(recordId) => removeHoldingRecord(recordId)}
 								onSearch={holdingActions?.onSearch}
 								onMergeDuplicate={holdingActions?.onMergeDuplicate}
-								onCancel={holdingCollection.closeEditor}
+								onCancel={closeHoldingEditor}
 							/>
 						) : null}
 						<HoldingList
@@ -506,9 +533,9 @@ export function AssetManager({
 							loading={holdingCollection.isRefreshing}
 							busy={holdingCollection.isSubmitting}
 							errorMessage={holdingCollection.errorMessage}
-							onCreate={holdingCollection.isEditorOpen ? undefined : holdingCollection.openCreate}
-							onEdit={(holding) => holdingCollection.openEdit(holding)}
-							onDelete={(recordId) => removeHoldingRecord(recordId)}
+							onCreateBuy={holdingCollection.isEditorOpen ? undefined : openHoldingBuyEditor}
+							onCreateSell={holdingCollection.isEditorOpen ? undefined : openHoldingSellEditor}
+							onEdit={(holding) => openHoldingEditEditor(holding)}
 						/>
 					</>
 				) : null}

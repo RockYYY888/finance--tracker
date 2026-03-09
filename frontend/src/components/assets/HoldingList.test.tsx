@@ -1,0 +1,50 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HoldingList } from "./HoldingList";
+
+afterEach(() => {
+	cleanup();
+});
+
+describe("HoldingList actions", () => {
+	it("renders separate buy and sell entry points and keeps delete out of the list", () => {
+		const onCreateBuy = vi.fn();
+		const onCreateSell = vi.fn();
+		const onEdit = vi.fn();
+
+		render(
+			<HoldingList
+				holdings={[
+					{
+						id: 1,
+						side: "BUY",
+						symbol: "AAPL",
+						name: "Apple",
+						quantity: 10,
+						fallback_currency: "USD",
+						market: "US",
+						started_on: "2026-03-05",
+						price: 185,
+						price_currency: "USD",
+						value_cny: 9000,
+						return_pct: 5.2,
+						last_updated: "2026-03-05T08:00:00Z",
+					},
+				]}
+				onCreateBuy={onCreateBuy}
+				onCreateSell={onCreateSell}
+				onEdit={onEdit}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "新增买入" }));
+		fireEvent.click(screen.getByRole("button", { name: "新增卖出" }));
+		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+
+		expect(onCreateBuy).toHaveBeenCalledTimes(1);
+		expect(onCreateSell).toHaveBeenCalledTimes(1);
+		expect(onEdit).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "记一笔" })).toBeNull();
+	});
+});

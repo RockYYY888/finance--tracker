@@ -43,6 +43,7 @@ import type {
 	AssetManagerController,
 	CashAccountRecord,
 	FixedAssetRecord,
+	HoldingInput,
 	HoldingRecord,
 	LiabilityCurrency,
 	LiabilityRecord,
@@ -200,6 +201,32 @@ function replaceRecordById<T extends { id: number }>(records: T[], nextRecord: T
 	});
 
 	return hasReplacement ? updatedRecords : records;
+}
+
+function normalizeHoldingIdentity(value: string): string {
+	return value.trim().toUpperCase();
+}
+
+function applyHoldingTransactionResult(
+	records: DashboardResponse["holdings"],
+	payload: HoldingInput,
+	nextRecord: HoldingRecord | null,
+): DashboardResponse["holdings"] {
+	if (nextRecord) {
+		return upsertRecordById(records, toDashboardHolding(nextRecord));
+	}
+
+	if (payload.side !== "SELL") {
+		return records;
+	}
+
+	const targetSymbol = normalizeHoldingIdentity(payload.symbol);
+	const targetMarket = normalizeHoldingIdentity(payload.market);
+	return records.filter(
+		(record) =>
+			normalizeHoldingIdentity(record.symbol) !== targetSymbol ||
+			normalizeHoldingIdentity(record.market) !== targetMarket,
+	);
 }
 
 function sumValuedRecords<T extends { value_cny?: number | null }>(records: T[]): number {
@@ -1096,9 +1123,10 @@ function App() {
 				const createdRecord = await defaultAssetApiClient.createHolding(payload);
 				patchDashboard((currentDashboard) => ({
 					...currentDashboard,
-					holdings: upsertRecordById(
+					holdings: applyHoldingTransactionResult(
 						currentDashboard.holdings,
-						toDashboardHolding(createdRecord),
+						payload,
+						createdRecord,
 					),
 				}));
 				void loadDashboard();

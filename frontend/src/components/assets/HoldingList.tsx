@@ -1,4 +1,3 @@
-import { useState } from "react";
 import "./asset-components.css";
 import {
 	formatCnyAmount,
@@ -9,8 +8,7 @@ import {
 	formatSecurityMarket,
 	formatTimestamp,
 } from "../../lib/assetFormatting";
-import { toErrorMessage } from "../../lib/apiClient";
-import type { HoldingRecord, MaybePromise } from "../../types/assets";
+import type { HoldingRecord } from "../../types/assets";
 
 function shouldShowHoldingSource(source?: string | null): boolean {
 	return Boolean(source && source !== "代码推断" && source !== "本地映射");
@@ -24,9 +22,9 @@ export interface HoldingListProps {
 	busy?: boolean;
 	errorMessage?: string | null;
 	emptyMessage?: string;
-	onCreate?: () => void;
+	onCreateBuy?: () => void;
+	onCreateSell?: () => void;
 	onEdit?: (holding: HoldingRecord) => void;
-	onDelete?: (recordId: number) => MaybePromise<unknown>;
 }
 
 export function HoldingList({
@@ -37,35 +35,14 @@ export function HoldingList({
 	busy = false,
 	errorMessage = null,
 	emptyMessage = "暂无投资类资产。",
-	onCreate,
+	onCreateBuy,
+	onCreateSell,
 	onEdit,
-	onDelete,
 }: HoldingListProps) {
-	const [localError, setLocalError] = useState<string | null>(null);
-	const [deletingId, setDeletingId] = useState<number | null>(null);
-
-	const effectiveError = localError ?? errorMessage;
 	const isActionLocked = busy;
 
 	function isHoldingQuotePending(holding: HoldingRecord): boolean {
 		return !holding.last_updated || (holding.price ?? 0) <= 0;
-	}
-
-	async function handleDelete(recordId: number): Promise<void> {
-		if (!onDelete) {
-			return;
-		}
-
-		setLocalError(null);
-		setDeletingId(recordId);
-
-		try {
-			await onDelete(recordId);
-		} catch (error) {
-			setLocalError(toErrorMessage(error, "删除持仓失败，请稍后重试。"));
-		} finally {
-			setDeletingId(null);
-		}
 	}
 
 	return (
@@ -77,22 +54,32 @@ export function HoldingList({
 					{subtitle ? <p>{subtitle}</p> : null}
 				</div>
 				<div className="asset-manager__mini-actions">
-					{onCreate ? (
+					{onCreateBuy ? (
 						<button
 							type="button"
 							className="asset-manager__button"
-							onClick={onCreate}
+							onClick={onCreateBuy}
 							disabled={isActionLocked}
 						>
-							新增
+							新增买入
+						</button>
+					) : null}
+					{onCreateSell ? (
+						<button
+							type="button"
+							className="asset-manager__button asset-manager__button--secondary"
+							onClick={onCreateSell}
+							disabled={isActionLocked}
+						>
+							新增卖出
 						</button>
 					) : null}
 				</div>
 			</div>
 
-			{effectiveError ? (
+			{errorMessage ? (
 				<div className="asset-manager__message asset-manager__message--error">
-					{effectiveError}
+					{errorMessage}
 				</div>
 			) : null}
 
@@ -132,17 +119,7 @@ export function HoldingList({
 											onClick={() => onEdit(holding)}
 											disabled={isActionLocked}
 										>
-											记一笔
-										</button>
-									) : null}
-									{onDelete ? (
-										<button
-											type="button"
-											className="asset-manager__button asset-manager__button--danger"
-											onClick={() => void handleDelete(holding.id)}
-											disabled={busy || deletingId === holding.id}
-										>
-											{deletingId === holding.id ? "删除中..." : "删除"}
+											编辑
 										</button>
 									) : null}
 								</div>

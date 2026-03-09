@@ -10,6 +10,7 @@ import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	AssetEditorMode,
 	CashAccountRecord,
+	HoldingEditorIntent,
 	HoldingFormDraft,
 	HoldingInput,
 	HoldingMergeRequest,
@@ -25,6 +26,7 @@ import {
 
 export interface HoldingFormProps {
 	mode?: AssetEditorMode;
+	intent?: HoldingEditorIntent;
 	value?: Partial<HoldingFormDraft> | null;
 	existingHoldings?: HoldingRecord[];
 	cashAccounts?: CashAccountRecord[];
@@ -233,6 +235,7 @@ function formatCashAccountOptionLabel(account: CashAccountRecord): string {
 
 export function HoldingForm({
 	mode = "create",
+	intent,
 	value,
 	existingHoldings = [],
 	cashAccounts = [],
@@ -250,7 +253,19 @@ export function HoldingForm({
 	onMergeDuplicate,
 	onCancel,
 }: HoldingFormProps) {
-	const [draft, setDraft] = useState<HoldingFormDraft>(() => toHoldingDraft(value));
+	const resolvedIntent = intent ?? (
+		mode === "edit"
+			? "edit"
+			: value?.side === "SELL"
+				? "sell"
+				: "buy"
+	);
+	const [draft, setDraft] = useState<HoldingFormDraft>(() =>
+		toHoldingDraft({
+			...value,
+			side: resolvedIntent === "sell" ? "SELL" : "BUY",
+		}),
+	);
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [searchError, setSearchError] = useState<string | null>(null);
 	const [pendingMergePreview, setPendingMergePreview] = useState<HoldingMergePreview | null>(null);
@@ -263,7 +278,10 @@ export function HoldingForm({
 	const searchEnabled = Boolean(onSearch);
 
 	useEffect(() => {
-		const nextDraft = toHoldingDraft(value);
+		const nextDraft = toHoldingDraft({
+			...value,
+			side: resolvedIntent === "sell" ? "SELL" : "BUY",
+		});
 		setDraft(nextDraft);
 		setSearchQuery(nextDraft.name || nextDraft.symbol);
 		setSearchResults([]);
@@ -271,7 +289,7 @@ export function HoldingForm({
 		setSearchError(null);
 		setLocalError(null);
 		setPendingMergePreview(null);
-	}, [mode, value]);
+	}, [resolvedIntent, value]);
 
 	useEffect(() => {
 		if (!onSearch) {
@@ -344,19 +362,51 @@ export function HoldingForm({
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
-	const resolvedTitle = title ?? (mode === "edit" ? "登记投资交易" : "新增投资交易");
-	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "提交交易" : "登记交易");
-	const cancelLabel = mode === "edit" ? "取消登记" : "取消";
-	const quantityLabel = draft.market === "FUND"
+	const isEditIntent = resolvedIntent === "edit";
+	const isSellTransaction = resolvedIntent === "sell";
+	const resolvedTitle = title ?? (
+		isEditIntent
+			? "编辑投资持仓"
+			: isSellTransaction
+				? "新增卖出"
+				: "新增买入"
+	);
+	const resolvedSubmitLabel = submitLabel ?? (
+		isEditIntent
+			? "保存编辑"
+			: isSellTransaction
+				? "确认卖出"
+				: "确认买入"
+	);
+	const cancelLabel = isEditIntent ? "取消编辑" : "取消";
+	const quantityLabelBase = draft.market === "FUND"
 		? "份额"
 		: draft.market === "CRYPTO"
 			? "数量"
 			: "数量（股/支）";
+	const quantityLabel = isEditIntent ? `当前${quantityLabelBase}` : quantityLabelBase;
 	const quantityStep = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
 	const quantityMin = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
-	const isSellTransaction = draft.side === "SELL";
 	const shouldMergeIntoExistingCash =
 		isSellTransaction && draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH";
+	const priceLabel = isEditIntent
+		? "持仓均价（计价币种）"
+		: isSellTransaction
+			? "卖出价（计价币种）"
+			: "买入价（计价币种）";
+	const pricePlaceholder = isEditIntent
+		? "可选，用于修正当前持仓均价"
+		: isSellTransaction
+			? "可选，不填则优先使用当前行情"
+			: "可选，建议填写实际买入成交价";
+	const dateFieldLabel = isEditIntent ? "持仓日" : "交易日";
+	const dateLabel = `${dateFieldLabel}（必填）`;
+	const datePlaceholder = isEditIntent ? "请选择持仓日期" : "请选择交易日期";
+	const defaultSaveErrorMessage = isEditIntent
+		? "保存持仓失败，请稍后重试。"
+		: isSellTransaction
+			? "新增卖出失败，请稍后重试。"
+			: "新增买入失败，请稍后重试。";
 
 	function updateDraft<K extends keyof HoldingFormDraft>(
 		field: K,
@@ -417,7 +467,7 @@ export function HoldingForm({
 				throw new Error("请输入有效的持仓数量。");
 			}
 			if (!payload.started_on) {
-				throw new Error("交易日为必填项。");
+				throw new Error(`${dateFieldLabel}为必填项。`);
 			}
 			if (
 				payload.cost_basis_price !== undefined &&
@@ -436,18 +486,21 @@ export function HoldingForm({
 				throw new Error("股票请使用整数数量；基金和加密货币可使用小数。");
 			}
 			if (payload.started_on && maxStartedOnDate && payload.started_on > maxStartedOnDate) {
-				throw new Error(`交易日不能晚于服务器今日日期（${maxStartedOnDate}）。`);
+				throw new Error(`${dateFieldLabel}不能晚于服务器今日日期（${maxStartedOnDate}）。`);
 			}
 
 			const duplicateHolding = payload.side === "BUY"
 				? findDuplicateHolding(existingHoldings, payload.symbol, recordId)
 				: null;
+			if (duplicateHolding && isEditIntent) {
+				throw new Error("该标的已存在持仓，请使用“新增买入”追加，或先处理现有持仓。");
+			}
 			if (duplicateHolding && onMergeDuplicate) {
 				setPendingMergePreview(
 					buildHoldingMergePreview(
 						duplicateHolding,
 						payload,
-						mode === "edit" ? recordId : null,
+						isEditIntent ? recordId : null,
 					),
 				);
 				return;
@@ -455,17 +508,20 @@ export function HoldingForm({
 
 			setIsWorking(true);
 
-			if (mode === "edit" && recordId !== null) {
+			if (isEditIntent && recordId !== null) {
 				await onEdit?.(recordId, payload);
 			} else {
 				await onCreate?.(payload);
-				setDraft(DEFAULT_HOLDING_FORM_DRAFT);
+				setDraft({
+					...DEFAULT_HOLDING_FORM_DRAFT,
+					side: isSellTransaction ? "SELL" : "BUY",
+				});
 				setSearchQuery("");
 				setSearchResults([]);
 				setIsSearchOpen(false);
 			}
 		} catch (error) {
-			setLocalError(toErrorMessage(error, "保存持仓失败，请稍后重试。"));
+			setLocalError(toErrorMessage(error, defaultSaveErrorMessage));
 		} finally {
 			setIsWorking(false);
 		}
@@ -486,8 +542,11 @@ export function HoldingForm({
 				mergedPayload: pendingMergePreview.mergedPayload,
 			});
 			setPendingMergePreview(null);
-			if (mode === "create") {
-				setDraft(DEFAULT_HOLDING_FORM_DRAFT);
+			if (!isEditIntent) {
+				setDraft({
+					...DEFAULT_HOLDING_FORM_DRAFT,
+					side: isSellTransaction ? "SELL" : "BUY",
+				});
 				setSearchQuery("");
 				setSearchResults([]);
 				setIsSearchOpen(false);
@@ -538,6 +597,12 @@ export function HoldingForm({
 			{effectiveError ? (
 				<div className="asset-manager__message asset-manager__message--error">
 					{effectiveError}
+				</div>
+			) : null}
+
+			{isEditIntent ? (
+				<div className="asset-manager__helper-block">
+					<p>这里修改的是当前持仓资料；新增买入和新增卖出请回到列表顶部操作。</p>
 				</div>
 			) : null}
 
@@ -629,19 +694,6 @@ export function HoldingForm({
 
 				<div className="asset-manager__field-grid asset-manager__field-grid--triple">
 					<label className="asset-manager__field">
-						<span>交易类型</span>
-						<select
-							value={draft.side}
-							onChange={(event) =>
-								updateDraft("side", event.target.value as HoldingFormDraft["side"])
-							}
-						>
-							<option value="BUY">买入</option>
-							<option value="SELL">卖出</option>
-						</select>
-					</label>
-
-					<label className="asset-manager__field">
 						<span>市场</span>
 						<select
 							value={draft.market}
@@ -684,23 +736,23 @@ export function HoldingForm({
 				</div>
 
 				<label className="asset-manager__field">
-					<span>成交价（计价币种）</span>
+					<span>{priceLabel}</span>
 					<input
 						type="number"
 						min="0.0001"
 						step="0.0001"
 						value={draft.cost_basis_price}
 						onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
-						placeholder="可选，卖出会优先使用当前行情"
+						placeholder={pricePlaceholder}
 					/>
 				</label>
 
 				{isSellTransaction ? (
 					<>
 						<label className="asset-manager__field">
-							<span>卖出回款处理</span>
+							<span>卖出回款去向</span>
 							<select
-								aria-label="卖出回款处理"
+								aria-label="卖出回款去向"
 								value={draft.sell_proceeds_handling}
 								onChange={(event) =>
 									updateDraft(
@@ -714,7 +766,7 @@ export function HoldingForm({
 										{option.label}
 									</option>
 								))}
-							</select>
+								</select>
 						</label>
 
 						{shouldMergeIntoExistingCash ? (
@@ -736,7 +788,7 @@ export function HoldingForm({
 								</select>
 								{cashAccounts.length === 0 ? (
 									<p className="asset-manager__helper-text">
-										当前还没有现金账户，请先新增一个现金账户，或改用“自动生成新的现金条目”。
+										当前还没有现金账户，请先新增一个现金账户，或改用“新建一笔现金入账”。
 									</p>
 								) : (
 									<p className="asset-manager__helper-text">
@@ -749,7 +801,7 @@ export function HoldingForm({
 				) : null}
 
 				<label className="asset-manager__field">
-					<span>来源 / 账户来源</span>
+					<span>账户 / 来源</span>
 					<input
 						value={draft.broker}
 						onChange={(event) => updateDraft("broker", event.target.value)}
@@ -758,12 +810,12 @@ export function HoldingForm({
 				</label>
 
 				<label className="asset-manager__field">
-					<span>交易日（必填）</span>
+					<span>{dateLabel}</span>
 					<DatePickerField
 						value={draft.started_on}
 						onChange={(nextValue) => updateDraft("started_on", nextValue)}
 						maxDate={maxStartedOnDate}
-						placeholder="请选择交易日期"
+						placeholder={datePlaceholder}
 					/>
 				</label>
 
@@ -796,7 +848,7 @@ export function HoldingForm({
 						</button>
 					) : null}
 
-					{mode === "edit" && recordId !== null && onDelete ? (
+					{isEditIntent && recordId !== null && onDelete ? (
 						<button
 							type="button"
 							className="asset-manager__button asset-manager__button--danger"

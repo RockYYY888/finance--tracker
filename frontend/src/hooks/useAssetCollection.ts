@@ -9,7 +9,7 @@ type IdentifiableRecord = {
 export interface UseAssetCollectionOptions<TInput, TRecord extends IdentifiableRecord> {
 	initialItems?: TRecord[];
 	actions?: AssetCollectionActions<TInput, TRecord>;
-	createLocalRecord: (payload: TInput, nextId: number) => TRecord;
+	createLocalRecord: (payload: TInput, nextId: number) => TRecord | null;
 	updateLocalRecord: (current: TRecord, payload: TInput) => TRecord;
 }
 
@@ -154,8 +154,13 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 					),
 				);
 			} else {
-				const optimisticRecord = options.createLocalRecord(payload, nextLocalIdRef.current++);
-				setItems((currentItems) => [optimisticRecord, ...currentItems]);
+				const optimisticRecord = options.createLocalRecord(
+					payload,
+					nextLocalIdRef.current++,
+				);
+				if (optimisticRecord) {
+					setItems((currentItems) => [optimisticRecord, ...currentItems]);
+				}
 
 				let nextRecord = optimisticRecord;
 				try {
@@ -163,17 +168,40 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 						? await options.actions.onCreate(payload)
 						: optimisticRecord;
 				} catch (error) {
-					setItems((currentItems) =>
-						currentItems.filter((item) => item.id !== optimisticRecord.id),
-					);
+					if (optimisticRecord) {
+						setItems((currentItems) =>
+							currentItems.filter((item) => item.id !== optimisticRecord.id),
+						);
+					}
 					throw error;
 				}
 
-				setItems((currentItems) =>
-					currentItems.map((item) =>
-						item.id === optimisticRecord.id ? nextRecord : item,
-					),
-				);
+				if (nextRecord) {
+					setItems((currentItems) => {
+						const existingRecordWithServerId = currentItems.find((item) =>
+							item.id === nextRecord.id &&
+							item.id !== optimisticRecord?.id
+						);
+
+						if (existingRecordWithServerId) {
+							return currentItems
+								.filter((item) => item.id !== optimisticRecord?.id)
+								.map((item) => (item.id === nextRecord.id ? nextRecord : item));
+						}
+
+						if (optimisticRecord) {
+							return currentItems.map((item) =>
+								item.id === optimisticRecord.id ? nextRecord : item,
+							);
+						}
+
+						return [nextRecord, ...currentItems];
+					});
+				} else if (optimisticRecord) {
+					setItems((currentItems) =>
+						currentItems.filter((item) => item.id !== optimisticRecord.id),
+					);
+				}
 			}
 
 			closeEditor();

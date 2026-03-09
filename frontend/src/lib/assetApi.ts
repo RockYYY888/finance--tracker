@@ -33,35 +33,27 @@ function toJsonBody(
 	return JSON.stringify(payload);
 }
 
-function buildSyntheticHoldingFromPayload(
-	payload: HoldingInput,
-): HoldingRecord {
-	const nextId = -Date.now();
-	return {
-		id: nextId,
-		side: payload.side,
+function toHoldingUpdateBody(payload: HoldingInput): string {
+	return JSON.stringify({
 		symbol: payload.symbol,
 		name: payload.name,
-		quantity: payload.side === "SELL" ? 0 : payload.quantity,
+		quantity: payload.quantity,
 		fallback_currency: payload.fallback_currency,
 		cost_basis_price: payload.cost_basis_price,
 		market: payload.market,
 		broker: payload.broker,
 		started_on: payload.started_on,
 		note: payload.note,
-		price: null,
-		price_currency: payload.fallback_currency,
-		value_cny: 0,
-		return_pct: null,
-		last_updated: null,
-	};
+	});
 }
 
 /**
  * Creates the replaceable asset API adapter for later integration work.
  */
 export function createAssetApiClient(apiClient: ApiClient = createApiClient()): AssetApiClient {
-	const applyHoldingTransaction = async (payload: HoldingInput): Promise<HoldingRecord> => {
+	const applyHoldingTransaction = async (
+		payload: HoldingInput,
+	): Promise<HoldingRecord | null> => {
 		if (!payload.started_on) {
 			throw new Error("交易日为必填项。");
 		}
@@ -91,7 +83,8 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 				side: "BUY",
 			};
 		}
-		return buildSyntheticHoldingFromPayload(payload);
+
+		return null;
 	};
 
 	return {
@@ -118,8 +111,19 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			}));
 		},
 		createHolding: (payload) => applyHoldingTransaction(payload),
-		updateHolding: async (_recordId, payload) => {
-			return await applyHoldingTransaction(payload);
+		updateHolding: async (recordId, payload) => {
+			const updatedHolding = await apiClient.request<HoldingRecord>(
+				`/api/holdings/${recordId}`,
+				{
+					method: "PUT",
+					body: toHoldingUpdateBody(payload),
+				},
+			);
+
+			return {
+				...updatedHolding,
+				side: "BUY",
+			};
 		},
 		deleteHolding: (recordId) =>
 			apiClient.request<void>(`/api/holdings/${recordId}`, {

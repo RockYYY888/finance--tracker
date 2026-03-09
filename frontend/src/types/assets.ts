@@ -30,9 +30,9 @@ export const SELL_PROCEEDS_HANDLING_OPTIONS: Array<{
 	value: SellProceedsHandling;
 	label: string;
 }> = [
-	{ value: "DISCARD", label: "直接从总资产移除，不转入现金" },
-	{ value: "ADD_TO_EXISTING_CASH", label: "自动换算并并入已有现金账户" },
-	{ value: "CREATE_NEW_CASH", label: "自动生成新的现金条目" },
+	{ value: "DISCARD", label: "不记录到现金账户" },
+	{ value: "ADD_TO_EXISTING_CASH", label: "转入已有现金账户" },
+	{ value: "CREATE_NEW_CASH", label: "新建一笔现金入账" },
 ];
 
 export const SECURITY_MARKET_OPTIONS: Array<{
@@ -165,6 +165,8 @@ export interface HoldingInput {
 	sell_proceeds_handling?: SellProceedsHandling;
 	sell_proceeds_account_id?: number;
 }
+
+export type HoldingEditorIntent = "buy" | "sell" | "edit";
 
 export interface HoldingFormDraft {
 	side: "BUY" | "SELL";
@@ -313,7 +315,9 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	sell_proceeds_account_id: "",
 };
 
-export type CreateAssetAction<TInput, TRecord> = (payload: TInput) => MaybePromise<TRecord>;
+export type CreateAssetAction<TInput, TRecord> = (
+	payload: TInput,
+) => MaybePromise<TRecord | null>;
 
 export type EditAssetAction<TInput, TRecord> = (
 	recordId: number,
@@ -362,7 +366,7 @@ export interface AssetApiClient {
 	updateCashAccount: (recordId: number, payload: CashAccountInput) => Promise<CashAccountRecord>;
 	deleteCashAccount: (recordId: number) => Promise<void>;
 	listHoldings: () => Promise<HoldingRecord[]>;
-	createHolding: (payload: HoldingInput) => Promise<HoldingRecord>;
+	createHolding: (payload: HoldingInput) => Promise<HoldingRecord | null>;
 	updateHolding: (recordId: number, payload: HoldingInput) => Promise<HoldingRecord>;
 	deleteHolding: (recordId: number) => Promise<void>;
 	listFixedAssets: () => Promise<FixedAssetRecord[]>;

@@ -73,26 +73,49 @@ describe("HoldingForm started_on guard", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "提交交易" }));
+		fireEvent.click(screen.getByRole("button", { name: "保存编辑" }));
 
 		await waitFor(() => {
 			expect(
-				screen.getByText("交易日不能晚于服务器今日日期（2026-03-05）。"),
+				screen.getByText("持仓日不能晚于服务器今日日期（2026-03-05）。"),
 			).not.toBeNull();
 		});
 		expect(onEdit).not.toHaveBeenCalled();
 	});
 });
 
-describe("HoldingForm sell proceeds handling", () => {
-	it("requires selecting an existing cash account when sell proceeds are merged", async () => {
-		const onEdit = vi.fn().mockResolvedValue(undefined);
-
+describe("HoldingForm edit intent", () => {
+	it("hides transaction-only controls when editing a holding", () => {
 		render(
 			<HoldingForm
 				mode="edit"
 				recordId={1}
 				value={{
+					symbol: "AAPL",
+					name: "Apple",
+					quantity: "2",
+					fallback_currency: "USD",
+					market: "US",
+					started_on: "2026-03-05",
+				}}
+			/>,
+		);
+
+		expect(screen.queryByLabelText("卖出回款去向")).toBeNull();
+		expect(screen.queryByText("交易类型")).toBeNull();
+		expect(screen.getByRole("button", { name: "保存编辑" })).not.toBeNull();
+	});
+});
+
+describe("HoldingForm sell proceeds handling", () => {
+	it("requires selecting an existing cash account when sell proceeds are merged", async () => {
+		const onCreate = vi.fn().mockResolvedValue(undefined);
+
+		render(
+			<HoldingForm
+				intent="sell"
+				value={{
+					side: "SELL",
 					symbol: "AAPL",
 					name: "Apple",
 					quantity: "1",
@@ -110,34 +133,31 @@ describe("HoldingForm sell proceeds handling", () => {
 						account_type: "BANK",
 					},
 				]}
-				onEdit={onEdit}
+				onCreate={onCreate}
 			/>,
 		);
 
-		fireEvent.change(screen.getByLabelText("交易类型"), {
-			target: { value: "SELL" },
-		});
-		fireEvent.change(screen.getByLabelText("卖出回款处理"), {
+		fireEvent.change(screen.getByLabelText("卖出回款去向"), {
 			target: { value: "ADD_TO_EXISTING_CASH" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "提交交易" }));
+		fireEvent.click(screen.getByRole("button", { name: "确认卖出" }));
 
 		await waitFor(() => {
 			expect(
 				screen.getByText("请选择一个已有现金账户来接收卖出回款。"),
 			).not.toBeNull();
 		});
-		expect(onEdit).not.toHaveBeenCalled();
+		expect(onCreate).not.toHaveBeenCalled();
 	});
 
 	it("submits sell proceeds handling and target cash account", async () => {
-		const onEdit = vi.fn().mockResolvedValue(undefined);
+		const onCreate = vi.fn().mockResolvedValue(undefined);
 
 		render(
 			<HoldingForm
-				mode="edit"
-				recordId={1}
+				intent="sell"
 				value={{
+					side: "SELL",
 					symbol: "AAPL",
 					name: "Apple",
 					quantity: "1",
@@ -155,24 +175,20 @@ describe("HoldingForm sell proceeds handling", () => {
 						account_type: "BANK",
 					},
 				]}
-				onEdit={onEdit}
+				onCreate={onCreate}
 			/>,
 		);
 
-		fireEvent.change(screen.getByLabelText("交易类型"), {
-			target: { value: "SELL" },
-		});
-		fireEvent.change(screen.getByLabelText("卖出回款处理"), {
+		fireEvent.change(screen.getByLabelText("卖出回款去向"), {
 			target: { value: "ADD_TO_EXISTING_CASH" },
 		});
 		fireEvent.change(screen.getByLabelText("目标现金账户"), {
 			target: { value: "9" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "提交交易" }));
+		fireEvent.click(screen.getByRole("button", { name: "确认卖出" }));
 
 		await waitFor(() => {
-			expect(onEdit).toHaveBeenCalledWith(
-				1,
+			expect(onCreate).toHaveBeenCalledWith(
 				expect.objectContaining({
 					side: "SELL",
 					sell_proceeds_handling: "ADD_TO_EXISTING_CASH",
