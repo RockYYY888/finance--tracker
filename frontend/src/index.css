@@ -2,6 +2,7 @@
 
 html {
 	overflow-x: hidden;
+	scrollbar-gutter: stable both-edges;
 }
 
 :root {
@@ -46,6 +47,7 @@ body {
 	min-width: 320px;
 	min-height: 100vh;
 	overflow-x: hidden;
+	scrollbar-gutter: stable both-edges;
 	background: var(--bg-deep);
 }
 
@@ -733,6 +735,7 @@ h3 {
 	gap: 14px;
 	max-height: min(58vh, 560px);
 	overflow-y: auto;
+	scrollbar-gutter: stable;
 }
 
 .admin-feedback-card {

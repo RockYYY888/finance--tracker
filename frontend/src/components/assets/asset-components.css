@@ -443,6 +443,7 @@
 	max-height: 280px;
 	padding: 0.5rem;
 	overflow-y: auto;
+	scrollbar-gutter: stable;
 	border-radius: 18px;
 	border: 1px solid var(--line-strong);
 	background: rgba(7, 15, 28, 0.98);
