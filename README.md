@@ -44,3 +44,23 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-
 
 `backend` and `worker` now run Alembic migrations automatically on startup. Schema changes must ship
 as Alembic revisions; `create_all()` is no longer the runtime source of truth.
+
+## Schema Migrations
+
+When `backend/app/models.py` changes:
+
+```bash
+cd backend
+uv run alembic revision --autogenerate -m "describe change"
+uv run alembic upgrade head
+uv run pytest
+```
+
+Server deploy:
+
+```bash
+git pull
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build
+```
+
+Deploy startup automatically runs `alembic upgrade head`.
