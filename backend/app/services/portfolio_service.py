@@ -1,79 +1,37 @@
-from app.services.core_support import (
-	create_account,
-	create_cash_ledger_adjustment,
-	create_cash_transfer,
-	create_fixed_asset,
-	create_holding,
-	create_holding_legacy_endpoint,
-	create_holding_transaction,
-	create_liability,
-	create_other_asset,
-	delete_account,
-	delete_cash_ledger_adjustment,
-	delete_cash_transfer,
-	delete_fixed_asset,
-	delete_holding,
-	delete_holding_transaction,
-	delete_liability,
-	delete_other_asset,
-	get_security_quote,
-	list_accounts,
-	list_all_holding_transactions,
-	list_asset_mutation_audits,
-	list_cash_ledger_entries,
-	list_cash_transfers,
-	list_fixed_assets,
-	list_holding_transactions,
-	list_holdings,
-	list_liabilities,
-	list_other_assets,
-	search_securities,
-	update_account,
-	update_cash_ledger_adjustment,
-	update_cash_transfer,
-	update_fixed_asset,
-	update_holding,
-	update_holding_transaction,
-	update_liability,
-	update_other_asset,
+from __future__ import annotations
+
+"""Compatibility shim for portfolio domain services.
+
+This module preserves the historical import surface while the implementation
+is split across smaller domain-focused modules.
+"""
+
+from app.services import (
+	asset_entry_service as _asset_entry_service,
+	cash_account_service as _cash_account_service,
+	holding_projection_service as _holding_projection_service,
+	holding_transaction_service as _holding_transaction_service,
+	portfolio_read_service as _portfolio_read_service,
 )
 
-__all__ = [
-	"create_account",
-	"create_cash_ledger_adjustment",
-	"create_cash_transfer",
-	"create_fixed_asset",
-	"create_holding",
-	"create_holding_legacy_endpoint",
-	"create_holding_transaction",
-	"create_liability",
-	"create_other_asset",
-	"delete_account",
-	"delete_cash_ledger_adjustment",
-	"delete_cash_transfer",
-	"delete_fixed_asset",
-	"delete_holding",
-	"delete_holding_transaction",
-	"delete_liability",
-	"delete_other_asset",
-	"get_security_quote",
-	"list_accounts",
-	"list_all_holding_transactions",
-	"list_asset_mutation_audits",
-	"list_cash_ledger_entries",
-	"list_cash_transfers",
-	"list_fixed_assets",
-	"list_holding_transactions",
-	"list_holdings",
-	"list_liabilities",
-	"list_other_assets",
-	"search_securities",
-	"update_account",
-	"update_cash_ledger_adjustment",
-	"update_cash_transfer",
-	"update_fixed_asset",
-	"update_holding",
-	"update_holding_transaction",
-	"update_liability",
-	"update_other_asset",
-]
+
+def _reexport(module: object) -> None:
+	for name, value in vars(module).items():
+		if name.startswith("__"):
+			continue
+		globals()[name] = value
+
+
+for _module in (
+	_portfolio_read_service,
+	_holding_projection_service,
+	_cash_account_service,
+	_asset_entry_service,
+	_holding_transaction_service,
+):
+	_reexport(_module)
+
+
+del _module
+
+__all__ = [name for name in globals() if not name.startswith("__")]

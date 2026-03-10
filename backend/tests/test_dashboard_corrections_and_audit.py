@@ -18,6 +18,7 @@ from app.main import (
 )
 from app.models import AssetMutationAudit, PortfolioSnapshot, UserAccount
 from app.schemas import CashAccountCreate, CashAccountUpdate, DashboardCorrectionCreate
+from app.services import service_context
 
 
 class StaticMarketDataClient:
@@ -88,7 +89,7 @@ def test_dashboard_correction_override_and_delete_are_applied_to_hour_series(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	user = make_user(session, "correction_user")
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	now = datetime.now(timezone.utc)
 	older_point_at = now - timedelta(hours=2)

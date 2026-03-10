@@ -14,7 +14,7 @@ from app.main import create_holding_transaction
 from app.models import OutboxJob, UserAccount
 from app.schemas import SecurityHoldingTransactionCreate
 from app.security import hash_password
-from app.services import job_service
+from app.services import dashboard_service, history_service, job_service, legacy_service, service_context
 
 
 class StaticDashboardMarketDataClient:
@@ -55,7 +55,7 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session
 	SQLModel.metadata.create_all(engine)
 	monkeypatch.setattr(database, "engine", engine)
 	monkeypatch.setattr(job_service, "engine", engine)
-	monkeypatch.setattr(main.core_support, "engine", engine)
+	monkeypatch.setattr(legacy_service, "engine", engine)
 
 	with Session(engine) as db_session:
 		yield db_session
@@ -95,15 +95,15 @@ def test_api_lifespan_only_initializes_db(
 		raise AssertionError("Legacy startup backfill should not run during app lifespan.")
 
 	monkeypatch.setattr(main, "init_db", fake_init_db)
-	monkeypatch.setattr(main.core_support, "_ensure_legacy_schema", fail_heavy_startup)
-	monkeypatch.setattr(main.core_support, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
+	monkeypatch.setattr(legacy_service, "_ensure_legacy_schema", fail_heavy_startup)
+	monkeypatch.setattr(legacy_service, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
 	monkeypatch.setattr(
-		main.core_support,
+		legacy_service,
 		"_backfill_holding_transaction_cash_settlements",
 		fail_heavy_startup,
 	)
-	monkeypatch.setattr(main.core_support, "_backfill_cash_ledger_entries", fail_heavy_startup)
-	monkeypatch.setattr(main.core_support, "_audit_legacy_user_ownership", fail_heavy_startup)
+	monkeypatch.setattr(legacy_service, "_backfill_cash_ledger_entries", fail_heavy_startup)
+	monkeypatch.setattr(legacy_service, "_audit_legacy_user_ownership", fail_heavy_startup)
 
 	async def exercise_lifespan() -> None:
 		async with main.lifespan(main.app):
@@ -185,7 +185,7 @@ def test_create_holding_transaction_only_schedules_snapshot_rebuild(
 		raise AssertionError("Holding writes should not rebuild snapshots synchronously.")
 
 	monkeypatch.setattr(
-		main.core_support,
+		history_service,
 		"_rebuild_user_portfolio_snapshots",
 		fail_sync_rebuild,
 	)
@@ -224,8 +224,8 @@ def test_get_cached_dashboard_does_not_execute_snapshot_jobs_inline(
 	async def fail_sync_rebuild(*_args, **_kwargs) -> None:
 		raise AssertionError("Dashboard reads should not rebuild snapshots inline.")
 
-	monkeypatch.setattr(main.core_support, "_rebuild_user_portfolio_snapshots", fail_sync_rebuild)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticDashboardMarketDataClient())
+	monkeypatch.setattr(history_service, "_rebuild_user_portfolio_snapshots", fail_sync_rebuild)
+	monkeypatch.setattr(service_context, "market_data_client", StaticDashboardMarketDataClient())
 
 	dashboard = asyncio.run(main._get_cached_dashboard(session, current_user))
 
@@ -246,7 +246,7 @@ def test_background_job_worker_processes_snapshot_rebuild_job(
 	async def fake_rebuild(_session: Session, user_id: str) -> None:
 		rebuilt_users.append(user_id)
 
-	monkeypatch.setattr(main.core_support, "_rebuild_user_portfolio_snapshots", fake_rebuild)
+	monkeypatch.setattr(history_service, "_rebuild_user_portfolio_snapshots", fake_rebuild)
 
 	assert asyncio.run(job_service.process_next_background_job()) is True
 

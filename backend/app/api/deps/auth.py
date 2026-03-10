@@ -1,4 +1,4 @@
-from app.services.core_support import (
+from app.services.auth_service import (
 	CurrentUserDependency,
 	TokenDependency,
 	get_current_user,

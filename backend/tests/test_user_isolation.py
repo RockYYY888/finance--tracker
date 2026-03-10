@@ -41,6 +41,7 @@ from app.schemas import (
 	UserFeedbackCreate,
 )
 from app.services.market_data import Quote
+from app.services import legacy_service, service_context
 
 
 class StaticMarketDataClient:
@@ -131,7 +132,7 @@ def test_cached_dashboard_keeps_each_user_in_a_separate_cache_entry(
 ) -> None:
 	first_user = make_user(session, "first_user")
 	second_user = make_user(session, "second_user")
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	create_account(
 		CashAccountCreate(
@@ -170,7 +171,7 @@ def test_dashboard_only_includes_assets_belonging_to_the_current_user(
 ) -> None:
 	first_user = make_user(session, "alpha_user")
 	second_user = make_user(session, "beta_user")
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	create_account(
 		CashAccountCreate(
@@ -248,7 +249,7 @@ def test_list_endpoints_exclude_records_owned_by_other_users(
 ) -> None:
 	first_user = make_user(session, "owner_user")
 	second_user = make_user(session, "viewer_user")
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	create_account(
 		CashAccountCreate(
@@ -442,7 +443,7 @@ def test_ensure_legacy_schema_adds_user_id_without_assigning_admin(
 			),
 		)
 
-	monkeypatch.setattr(main.core_support, "engine", legacy_engine)
+	monkeypatch.setattr(legacy_service, "engine", legacy_engine)
 	main._ensure_legacy_schema()
 
 	with Session(legacy_engine) as session:

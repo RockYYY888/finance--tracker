@@ -5,11 +5,11 @@ import logging
 import signal
 
 from app.database import init_db
-from app.services import core_support
 from app.services.job_service import start_background_job_worker, stop_background_job_worker
+from app.services import service_context
 
 logger = logging.getLogger(__name__)
-settings = core_support.settings
+settings = service_context.settings
 
 
 async def run_worker() -> None:

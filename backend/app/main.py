@@ -18,11 +18,11 @@ from app.runtime_state import (
 	live_portfolio_states,
 	login_attempt_states,
 )
-from app.services import core_support
+from app.services import core_support, dashboard_service, history_service, legacy_service, service_context
 
 logger = logging.getLogger(__name__)
-settings = core_support.settings
-market_data_client = core_support.market_data_client
+settings = service_context.settings
+market_data_client = service_context.market_data_client
 
 
 @asynccontextmanager

@@ -75,6 +75,7 @@ from app.schemas import (
 )
 from app.security import verify_password
 from app.services.market_data import Quote
+from app.services import dashboard_service, history_service, service_context
 
 
 class StaticMarketDataClient:
@@ -565,7 +566,7 @@ def test_list_accounts_returns_valued_balances(
 		current_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	accounts = asyncio.run(main.list_accounts(current_user, session))
 
@@ -591,7 +592,7 @@ def test_list_accounts_scopes_results_to_current_user(
 		first_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	accounts = asyncio.run(main.list_accounts(second_user, session))
 
@@ -790,7 +791,7 @@ def test_holding_sell_transaction_auto_creates_cash_entry_with_source(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -846,7 +847,7 @@ def test_holding_sell_transaction_can_discard_proceeds(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -892,7 +893,7 @@ def test_holding_sell_transaction_can_merge_proceeds_into_existing_cash_account(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -955,7 +956,7 @@ def test_holding_buy_transaction_can_deduct_from_existing_cash_account(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	cash_account = create_account(
 		CashAccountCreate(
 			name="主账户",
@@ -1092,7 +1093,7 @@ def test_delete_sell_transaction_reverses_existing_cash_settlement(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -1151,7 +1152,7 @@ def test_update_holding_transaction_rebuilds_projection_and_cash_settlement(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -1398,7 +1399,7 @@ def test_build_dashboard_replays_total_series_from_cash_ledger_and_holding_trans
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	cash_account = create_account(
 		CashAccountCreate(
 			name="主账户",
@@ -1562,7 +1563,7 @@ def test_delete_holding_reverses_linked_sell_cash_settlements(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 	holding = create_holding(
 		SecurityHoldingCreate(
 			symbol="aapl",
@@ -1641,7 +1642,7 @@ def test_list_holdings_returns_enriched_quote_fields(
 		current_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	holdings = asyncio.run(main.list_holdings(current_user, session))
 
@@ -1658,7 +1659,7 @@ def test_create_holding_returns_enriched_quote_fields_immediately(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	holding = create_holding(
 		SecurityHoldingCreate(
@@ -1833,7 +1834,7 @@ def test_build_dashboard_subtracts_liabilities_from_total(
 		current_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	dashboard = asyncio.run(main._build_dashboard(session, current_user))
 
@@ -1871,7 +1872,7 @@ def test_build_dashboard_converts_usd_liabilities_to_cny(
 		current_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
 
 	dashboard = asyncio.run(main._build_dashboard(session, current_user))
 
@@ -1899,9 +1900,9 @@ def test_build_dashboard_hides_fallback_cache_warning_for_non_admin(
 		current_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", WarningMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", WarningMarketDataClient())
 	monkeypatch.setattr(
-		main.core_support,
+		dashboard_service,
 		"_has_holding_history_sync_pending",
 		lambda *_args, **_kwargs: False,
 	)
@@ -1929,9 +1930,9 @@ def test_build_dashboard_keeps_fallback_cache_warning_for_admin(
 		current_user,
 		session,
 	)
-	monkeypatch.setattr(main.core_support, "market_data_client", WarningMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", WarningMarketDataClient())
 	monkeypatch.setattr(
-		main.core_support,
+		dashboard_service,
 		"_has_holding_history_sync_pending",
 		lambda *_args, **_kwargs: False,
 	)
@@ -2019,8 +2020,8 @@ def test_process_pending_holding_history_sync_rebuilds_hourly_rows(
 				((end_at - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0), 100.0),
 			], "USD", []
 
-	monkeypatch.setattr(main.core_support, "market_data_client", HistoryAwareMarketDataClient())
-	monkeypatch.setattr(main.core_support, "utc_now", lambda: fixed_now)
+	monkeypatch.setattr(service_context, "market_data_client", HistoryAwareMarketDataClient())
+	monkeypatch.setattr(history_service, "utc_now", lambda: fixed_now)
 
 	create_holding(
 		SecurityHoldingCreate(
@@ -2097,8 +2098,8 @@ def test_process_pending_holding_history_sync_uses_transaction_state_per_period(
 				(second_trade_bucket, 100.0),
 			], "USD", []
 
-	monkeypatch.setattr(main.core_support, "market_data_client", HistoryAwareMarketDataClient())
-	monkeypatch.setattr(main.core_support, "utc_now", lambda: fixed_now)
+	monkeypatch.setattr(service_context, "market_data_client", HistoryAwareMarketDataClient())
+	monkeypatch.setattr(history_service, "utc_now", lambda: fixed_now)
 
 	create_holding(
 		SecurityHoldingCreate(
@@ -2196,8 +2197,8 @@ def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
 			warnings=[],
 		)
 
-	monkeypatch.setattr(main.core_support, "market_data_client", RefreshAwareClient())
-	monkeypatch.setattr(main.core_support, "_get_cached_dashboard", fake_get_cached_dashboard)
+	monkeypatch.setattr(service_context, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(dashboard_service, "_get_cached_dashboard", fake_get_cached_dashboard)
 
 	asyncio.run(main.get_dashboard(current_user, session, True))
 
@@ -2253,8 +2254,8 @@ def test_get_dashboard_refresh_only_clears_runtime_cache_once_within_global_wind
 			warnings=[],
 		)
 
-	monkeypatch.setattr(main.core_support, "market_data_client", RefreshAwareClient())
-	monkeypatch.setattr(main.core_support, "_get_cached_dashboard", fake_get_cached_dashboard)
+	monkeypatch.setattr(service_context, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(dashboard_service, "_get_cached_dashboard", fake_get_cached_dashboard)
 	runtime_state.set_last_global_force_refresh_at(None)
 
 	asyncio.run(main.get_dashboard(current_user, session, True))
@@ -2312,8 +2313,8 @@ def test_refresh_user_dashboards_clears_market_data_once_per_cycle(
 			warnings=[],
 		)
 
-	monkeypatch.setattr(main.core_support, "market_data_client", RefreshAwareClient())
-	monkeypatch.setattr(main.core_support, "_get_cached_dashboard", fake_get_cached_dashboard)
+	monkeypatch.setattr(service_context, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(dashboard_service, "_get_cached_dashboard", fake_get_cached_dashboard)
 
 	asyncio.run(main._refresh_user_dashboards(session, [current_user], clear_market_data=True))
 

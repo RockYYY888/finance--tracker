@@ -172,7 +172,9 @@ def _fail_job(session: Session, job_id: int, exc: Exception) -> None:
 
 
 async def _process_snapshot_rebuild_job(session: Session, job: OutboxJob) -> None:
-	from app.services import core_support
+	from app.services.common_service import _invalidate_dashboard_cache
+	from app.services.history_service import _process_pending_holding_history_sync_requests, _rebuild_user_portfolio_snapshots
+	from app.services.history_sync_service import _has_holding_history_sync_pending
 
 	payload = json.loads(job.payload_json)
 	user_id = _normalize_job_user_id(payload.get("user_id") or job.user_id)
@@ -180,19 +182,19 @@ async def _process_snapshot_rebuild_job(session: Session, job: OutboxJob) -> Non
 		return
 
 	processed_history = False
-	while core_support._has_holding_history_sync_pending(session, user_id):
+	while _has_holding_history_sync_pending(session, user_id):
 		processed_history = True
-		await core_support._process_pending_holding_history_sync_requests(
+		await _process_pending_holding_history_sync_requests(
 			session,
 			limit=1,
 			user_id=user_id,
 		)
 
 	if not processed_history:
-		await core_support._rebuild_user_portfolio_snapshots(session, user_id)
+		await _rebuild_user_portfolio_snapshots(session, user_id)
 		session.commit()
 
-	core_support._invalidate_dashboard_cache(user_id)
+	_invalidate_dashboard_cache(user_id)
 
 
 def _coerce_agent_result_payload(result: Any) -> dict[str, Any]:
@@ -209,11 +211,19 @@ def _execute_agent_task_command(
 	task: AgentTask,
 	current_user: UserAccount,
 ) -> dict[str, Any]:
-	from app.services import core_support
+	from app.services.portfolio_service import (
+		create_cash_ledger_adjustment,
+		create_cash_transfer,
+		create_holding_transaction,
+		delete_cash_ledger_adjustment,
+		update_cash_ledger_adjustment,
+		update_cash_transfer,
+		update_holding_transaction,
+	)
 
 	payload = json.loads(task.input_json)
 	if task.task_type == "CREATE_BUY_TRANSACTION":
-		result = core_support.create_holding_transaction(
+		result = create_holding_transaction(
 			SecurityHoldingTransactionCreate(
 				side="BUY",
 				**payload,
@@ -223,7 +233,7 @@ def _execute_agent_task_command(
 			None,
 		)
 	elif task.task_type == "CREATE_SELL_TRANSACTION":
-		result = core_support.create_holding_transaction(
+		result = create_holding_transaction(
 			SecurityHoldingTransactionCreate(
 				side="SELL",
 				**payload,
@@ -238,14 +248,14 @@ def _execute_agent_task_command(
 			raise HTTPException(status_code=422, detail="transaction_id 为必填项。")
 		update_payload = dict(payload)
 		update_payload.pop("transaction_id", None)
-		result = core_support.update_holding_transaction(
+		result = update_holding_transaction(
 			transaction_id,
 			SecurityHoldingTransactionUpdate(**update_payload),
 			current_user,
 			session,
 		)
 	elif task.task_type == "CREATE_CASH_TRANSFER":
-		result = core_support.create_cash_transfer(
+		result = create_cash_transfer(
 			CashTransferCreate(**payload),
 			current_user,
 			session,
@@ -257,14 +267,14 @@ def _execute_agent_task_command(
 			raise HTTPException(status_code=422, detail="transfer_id 为必填项。")
 		update_payload = dict(payload)
 		update_payload.pop("transfer_id", None)
-		result = core_support.update_cash_transfer(
+		result = update_cash_transfer(
 			transfer_id,
 			CashTransferUpdate(**update_payload),
 			current_user,
 			session,
 		)
 	elif task.task_type == "CREATE_CASH_LEDGER_ADJUSTMENT":
-		result = core_support.create_cash_ledger_adjustment(
+		result = create_cash_ledger_adjustment(
 			CashLedgerAdjustmentCreate(**payload),
 			current_user,
 			session,
@@ -276,7 +286,7 @@ def _execute_agent_task_command(
 			raise HTTPException(status_code=422, detail="entry_id 为必填项。")
 		update_payload = dict(payload)
 		update_payload.pop("entry_id", None)
-		result = core_support.update_cash_ledger_adjustment(
+		result = update_cash_ledger_adjustment(
 			entry_id,
 			CashLedgerAdjustmentUpdate(**update_payload),
 			current_user,
@@ -286,7 +296,7 @@ def _execute_agent_task_command(
 		entry_id = int(payload.get("entry_id") or 0)
 		if entry_id <= 0:
 			raise HTTPException(status_code=422, detail="entry_id 为必填项。")
-		core_support.delete_cash_ledger_adjustment(entry_id, current_user, session)
+		delete_cash_ledger_adjustment(entry_id, current_user, session)
 		result = ActionMessageRead(message="手工账本调整已删除。")
 	else:
 		raise HTTPException(status_code=422, detail="不支持的任务类型。")
