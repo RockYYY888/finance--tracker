@@ -211,7 +211,7 @@ export function PortfolioTrendChart({
 								bottom: compactAxisMode ? 16 : 8,
 							}}
 						>
-							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+							<CartesianGrid stroke="rgba(255,255,255,0.08)" />
 							<XAxis
 								dataKey="label"
 								stroke="#d6d4cb"
@@ -245,7 +245,6 @@ export function PortfolioTrendChart({
 							<ReferenceLine
 								y={axisLayout.referenceValue}
 								stroke="rgba(214, 212, 203, 0.38)"
-								strokeDasharray="4 4"
 							/>
 							<Tooltip
 								content={({ active, payload, label }) => {

@@ -13,6 +13,8 @@ const rechartsState = vi.hoisted(() => ({
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
+	cartesianGrids: [] as Array<Record<string, unknown>>,
+	referenceLines: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("recharts", () => ({
@@ -30,9 +32,15 @@ vi.mock("recharts", () => ({
 	ComposedChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	BarChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	PieChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
-	CartesianGrid: () => null,
+	CartesianGrid: (props: Record<string, unknown>) => {
+		rechartsState.cartesianGrids.push(props);
+		return null;
+	},
 	Tooltip: () => null,
-	ReferenceLine: () => null,
+	ReferenceLine: (props: Record<string, unknown>) => {
+		rechartsState.referenceLines.push(props);
+		return null;
+	},
 	Area: () => null,
 	Line: () => null,
 	XAxis: (props: Record<string, unknown>) => {
@@ -107,6 +115,8 @@ describe("analytics charts responsive layout", () => {
 		rechartsState.xAxes.length = 0;
 		rechartsState.yAxes.length = 0;
 		rechartsState.pies.length = 0;
+		rechartsState.cartesianGrids.length = 0;
+		rechartsState.referenceLines.length = 0;
 		currentChartWidth = 220;
 
 		vi.stubGlobal("ResizeObserver", MockResizeObserver);
@@ -198,6 +208,53 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.ticks).toHaveLength(3);
 		expect(xAxisProps.padding.right).toBeGreaterThan(0);
 		expect(xAxisProps.tickFormatter("2026-03")).toBe("2026");
+	});
+
+	it("does not render dashed helper lines in timeline charts", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{ label: "03-01", value: 100_000 },
+					{ label: "03-02", value: 110_000 },
+				]}
+				month_series={[]}
+				year_series={[]}
+			/>,
+		);
+
+		render(
+			<ReturnTrendChart
+				defaultRange="day"
+				title="收益趋势"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"组合",
+						[],
+						[
+							{ label: "03-01", value: 2 },
+							{ label: "03-02", value: 3.5 },
+						],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.cartesianGrids.length).toBeGreaterThanOrEqual(2);
+			expect(rechartsState.referenceLines.length).toBeGreaterThanOrEqual(2);
+		});
+
+		rechartsState.cartesianGrids.forEach((gridProps) => {
+			expect(gridProps.strokeDasharray).toBeUndefined();
+		});
+		rechartsState.referenceLines.forEach((lineProps) => {
+			expect(lineProps.strokeDasharray).toBeUndefined();
+		});
 	});
 
 	it("expands holdings category axis width instead of keeping a fixed narrow rail", async () => {

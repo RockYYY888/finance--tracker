@@ -307,7 +307,7 @@ export function ReturnTrendChart({
 								bottom: compactAxisMode ? 16 : 8,
 							}}
 						>
-							<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+							<CartesianGrid stroke="rgba(255,255,255,0.08)" />
 							<XAxis
 								dataKey="label"
 								stroke="#d6d4cb"
@@ -341,7 +341,6 @@ export function ReturnTrendChart({
 							<ReferenceLine
 								y={axisLayout.referenceValue}
 								stroke="rgba(0, 155, 193, 0.65)"
-								strokeDasharray="5 5"
 							/>
 							<Tooltip
 								content={({ active, payload, label }) => {
