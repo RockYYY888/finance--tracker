@@ -1335,7 +1335,7 @@ function App() {
 
 			<header className="hero-panel">
 				<div className="hero-copy-block">
-					<p className="eyebrow">CNY CONTROL PANEL</p>
+					<p className="eyebrow">HENG CANG</p>
 					<h1>你好，{currentUserId}</h1>
 					<p className="hero-copy">你的资产与会话已隔离保存，并按分钟自动刷新。</p>
 					<p className="hero-subtle">

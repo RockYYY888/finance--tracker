@@ -13,6 +13,7 @@ import {
 	setSkipDismissConfirmation,
 	shouldSkipDismissConfirmation,
 } from "../../lib/messageDismissal";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type { AdminFeedbackRecord } from "../../types/feedback";
 
 export interface AdminFeedbackDialogProps {
@@ -58,6 +59,7 @@ export function AdminFeedbackDialog({
 		feedbackId: number;
 	} | null>(null);
 	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
+	useBodyScrollLock(open);
 
 	useEffect(() => {
 		if (!open) {

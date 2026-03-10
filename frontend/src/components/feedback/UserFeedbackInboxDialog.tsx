@@ -12,6 +12,7 @@ import {
 	setSkipDismissConfirmation,
 	shouldSkipDismissConfirmation,
 } from "../../lib/messageDismissal";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type {
 	ReleaseNoteDeliveryRecord,
 	UserFeedbackRecord,
@@ -57,6 +58,7 @@ export function UserFeedbackInboxDialog({
 		messageId: number;
 	} | null>(null);
 	const [skipDismissConfirmChecked, setSkipDismissConfirmChecked] = useState(false);
+	useBodyScrollLock(open);
 
 	useEffect(() => {
 		if (!open) {

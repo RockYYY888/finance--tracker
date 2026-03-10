@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 export interface FeedbackDialogProps {
 	open: boolean;
@@ -18,6 +19,7 @@ export function FeedbackDialog({
 }: FeedbackDialogProps) {
 	const [message, setMessage] = useState("");
 	const [localError, setLocalError] = useState<string | null>(null);
+	useBodyScrollLock(open);
 
 	useEffect(() => {
 		if (!open) {

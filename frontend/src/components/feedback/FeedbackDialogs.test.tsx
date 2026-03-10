@@ -136,4 +136,38 @@ describe("Feedback dialogs policy rendering", () => {
 			expect(screen.queryByText("这条消息会被前端移除")).toBeNull();
 		});
 	});
+
+	it("locks body scrolling while inbox dialog is open", () => {
+		const { rerender } = render(
+			<UserFeedbackInboxDialog
+				open
+				busy={false}
+				viewerUserId="alice"
+				items={[]}
+				releaseNotes={[]}
+				errorMessage={null}
+				onClose={vi.fn()}
+				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
+				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		expect(document.body.style.overflow).toBe("hidden");
+
+		rerender(
+			<UserFeedbackInboxDialog
+				open={false}
+				busy={false}
+				viewerUserId="alice"
+				items={[]}
+				releaseNotes={[]}
+				errorMessage={null}
+				onClose={vi.fn()}
+				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
+				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		expect(document.body.style.overflow).toBe("");
+	});
 });

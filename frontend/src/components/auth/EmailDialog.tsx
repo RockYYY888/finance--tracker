@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 export interface EmailDialogProps {
 	open: boolean;
@@ -20,6 +21,7 @@ export function EmailDialog({
 }: EmailDialogProps) {
 	const [email, setEmail] = useState(initialEmail ?? "");
 	const [localError, setLocalError] = useState<string | null>(null);
+	useBodyScrollLock(open);
 
 	useEffect(() => {
 		if (!open) {

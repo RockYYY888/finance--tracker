@@ -105,6 +105,11 @@
 	cursor: pointer;
 }
 
+.analytics-segmented button:focus-visible {
+	outline: 2px solid rgba(99, 232, 255, 0.34);
+	outline-offset: 0;
+}
+
 .analytics-segmented button.active {
 	background: linear-gradient(135deg, rgba(99, 232, 255, 0.16), rgba(122, 140, 255, 0.18));
 	color: var(--text-main);

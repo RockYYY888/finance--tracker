@@ -9,6 +9,7 @@ import {
 	formatSecurityMarket,
 } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type {
 	AssetEditorMode,
 	CashAccountRecord,
@@ -381,6 +382,7 @@ export function HoldingForm({
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const searchRequestIdRef = useRef(0);
 	const searchEnabled = Boolean(onSearch);
+	useBodyScrollLock(pendingMergePreview !== null);
 
 	useEffect(() => {
 		let nextDraft = toHoldingDraft({

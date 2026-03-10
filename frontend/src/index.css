@@ -46,6 +46,7 @@ body {
 	margin: 0;
 	min-width: 320px;
 	min-height: 100vh;
+	min-height: 100dvh;
 	overflow-x: hidden;
 	scrollbar-gutter: stable both-edges;
 	background: var(--bg-deep);
@@ -63,6 +64,7 @@ button {
 
 #root {
 	min-height: 100vh;
+	min-height: 100dvh;
 	overflow-x: clip;
 }
 
@@ -377,6 +379,7 @@ h3 {
 .auth-shell {
 	position: relative;
 	min-height: 100vh;
+	min-height: 100dvh;
 	display: grid;
 	place-items: center;
 	padding: 32px 24px;
@@ -641,6 +644,13 @@ h3 {
 	color: var(--text-soft);
 }
 
+.workspace-switch__button:focus-visible {
+	outline: 2px solid rgba(99, 232, 255, 0.34);
+	outline-offset: 0;
+	border-color: rgba(99, 232, 255, 0.34);
+	color: var(--text-soft);
+}
+
 .workspace-switch__button.is-active {
 	border-color: rgba(99, 232, 255, 0.34);
 	color: #08121f;
@@ -679,6 +689,9 @@ h3 {
 .feedback-modal__panel {
 	position: relative;
 	width: min(100%, 580px);
+	max-height: min(84dvh, 720px);
+	overflow-y: auto;
+	scrollbar-gutter: stable;
 	padding: 24px;
 	border-radius: 24px;
 	border: 1px solid var(--line-soft);
@@ -1272,7 +1285,8 @@ th {
 	}
 
 	.feedback-form__actions {
-		justify-content: stretch;
+		width: 100%;
+		justify-content: flex-end;
 	}
 }
 

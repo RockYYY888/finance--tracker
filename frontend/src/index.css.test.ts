@@ -30,4 +30,30 @@ describe("global layout styles", () => {
 			/\.asset-manager__search-list\s*\{[\s\S]*overflow-y:\s*auto\s*;[\s\S]*scrollbar-gutter:\s*stable\s*;/,
 		);
 	});
+
+	it("keeps modal and viewport rules robust on mobile and keyboard navigation", () => {
+		const globalStylesheet = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
+		const assetStylesheet = readFileSync(
+			resolve(process.cwd(), "src/components/assets/asset-components.css"),
+			"utf8",
+		);
+		const analyticsStylesheet = readFileSync(
+			resolve(process.cwd(), "src/components/analytics/analytics.css"),
+			"utf8",
+		);
+
+		expect(globalStylesheet).toContain("min-height: 100dvh;");
+		expect(globalStylesheet).toMatch(
+			/\.workspace-switch__button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
+		);
+		expect(globalStylesheet).toMatch(
+			/\.feedback-modal__panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*720px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
+		);
+		expect(assetStylesheet).toMatch(
+			/\.asset-manager__modal-panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*760px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
+		);
+		expect(analyticsStylesheet).toMatch(
+			/\.analytics-segmented button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
+		);
+	});
 });
