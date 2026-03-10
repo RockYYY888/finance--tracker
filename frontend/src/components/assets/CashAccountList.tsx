@@ -18,6 +18,7 @@ export interface CashAccountListProps {
 	errorMessage?: string | null;
 	emptyMessage?: string;
 	onCreate?: () => void;
+	onTransfer?: () => void;
 	onEdit?: (account: CashAccountRecord) => void;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
 }
@@ -31,6 +32,7 @@ export function CashAccountList({
 	errorMessage = null,
 	emptyMessage = "暂无现金账户，先录入一笔备用金或存款。",
 	onCreate,
+	onTransfer,
 	onEdit,
 	onDelete,
 }: CashAccountListProps) {
@@ -66,6 +68,16 @@ export function CashAccountList({
 					{subtitle ? <p>{subtitle}</p> : null}
 				</div>
 				<div className="asset-manager__mini-actions">
+					{onTransfer ? (
+						<button
+							type="button"
+							className="asset-manager__button asset-manager__button--secondary"
+							onClick={onTransfer}
+							disabled={isActionLocked || accounts.length < 2}
+						>
+							账户划转
+						</button>
+					) : null}
 					{onCreate ? (
 						<button
 							type="button"

@@ -104,6 +104,7 @@ describe("Cash account button styling", () => {
 
 	it("uses the investment palette in the cash account list", () => {
 		const onCreate = vi.fn();
+		const onTransfer = vi.fn();
 		const onEdit = vi.fn();
 		const onDelete = vi.fn();
 
@@ -119,18 +120,63 @@ describe("Cash account button styling", () => {
 						account_type: "BANK",
 						value_cny: 1000,
 					},
-				]}
+			]}
 				onCreate={onCreate}
+				onTransfer={onTransfer}
 				onEdit={onEdit}
 				onDelete={onDelete}
 			/>,
 		);
 
+		expect(screen.getByRole("button", { name: "账户划转" }).className).toContain(
+			"asset-manager__button--secondary",
+		);
 		expect(screen.getByRole("button", { name: "新增" }).className).toContain(
 			"asset-manager__button--legacy-add",
 		);
 		expect(screen.getByRole("button", { name: "删除" }).className).toContain(
 			"asset-manager__button--legacy-delete",
 		);
+	});
+
+	it("shows readonly account activity inside the cash account editor", () => {
+		render(
+			<CashAccountForm
+				mode="edit"
+				recordId={1}
+				value={{
+					name: "主账户",
+					currency: "CNY",
+					balance: "1000",
+				}}
+				activityAccount={{
+					id: 1,
+					name: "主账户",
+					platform: "Bank",
+					currency: "CNY",
+					balance: 1000,
+					account_type: "BANK",
+				}}
+				activityEntries={[
+					{
+						id: 9,
+						cash_account_id: 1,
+						entry_type: "TRANSFER_IN",
+						amount: 200,
+						currency: "CNY",
+						happened_on: "2026-03-10",
+						note: "来自 备用金 的划转",
+						cash_transfer_id: 3,
+					},
+				]}
+				onEdit={vi.fn()}
+				onCancel={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByRole("heading", { name: "账户变动记录" })).not.toBeNull();
+		expect(screen.getByRole("tab", { name: "全部" })).not.toBeNull();
+		expect(screen.getByText("转入")).not.toBeNull();
+		expect(screen.queryByRole("button", { name: "编辑划转" })).toBeNull();
 	});
 });

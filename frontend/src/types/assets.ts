@@ -31,7 +31,7 @@ export const SELL_PROCEEDS_HANDLING_OPTIONS: Array<{
 	value: SellProceedsHandling;
 	label: string;
 }> = [
-	{ value: "DISCARD", label: "不登记到现金账户" },
+	{ value: "DISCARD", label: "不并入现金账户" },
 	{ value: "ADD_TO_EXISTING_CASH", label: "并入现有现金账户" },
 	{ value: "CREATE_NEW_CASH", label: "自动新建现金账户" },
 ];
@@ -528,6 +528,7 @@ export interface CashLedgerAdjustmentCollectionActions {
 	onEdit?: EditAssetAction<CashLedgerAdjustmentInput, CashLedgerEntryRecord>;
 	onDelete?: DeleteAssetAction;
 	onRefresh?: RefreshAssetAction<CashLedgerEntryRecord>;
+	onRefreshForAccount?: (accountId: number) => MaybePromise<CashLedgerEntryRecord[]>;
 }
 
 export interface AgentAuditCollectionActions {
@@ -555,7 +556,7 @@ export interface AssetApiClient {
 	createCashTransfer: (payload: CashTransferInput) => Promise<CashTransferRecord>;
 	updateCashTransfer: (recordId: number, payload: CashTransferInput) => Promise<CashTransferRecord>;
 	deleteCashTransfer: (recordId: number) => Promise<void>;
-	listCashLedgerEntries: () => Promise<CashLedgerEntryRecord[]>;
+	listCashLedgerEntries: (accountId?: number) => Promise<CashLedgerEntryRecord[]>;
 	createCashLedgerAdjustment: (
 		payload: CashLedgerAdjustmentInput,
 	) => Promise<CashLedgerEntryRecord>;

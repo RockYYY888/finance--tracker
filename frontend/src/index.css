@@ -745,7 +745,7 @@ h3 {
 
 .feedback-form__actions {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	justify-content: flex-end;
 	gap: 12px;
 }

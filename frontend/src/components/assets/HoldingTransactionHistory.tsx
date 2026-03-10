@@ -21,7 +21,7 @@ const SELL_PROCEEDS_OPTIONS: Array<{
 	value: SellProceedsHandling;
 	label: string;
 }> = [
-	{ value: "DISCARD", label: "不登记到现金账户" },
+	{ value: "DISCARD", label: "不并入现金账户" },
 	{ value: "ADD_TO_EXISTING_CASH", label: "并入现有现金账户" },
 	{ value: "CREATE_NEW_CASH", label: "自动新建现金账户" },
 ];
@@ -338,7 +338,7 @@ export function HoldingTransactionHistory({
 														updateDraft("buy_funding_account_id", event.target.value)
 													}
 												>
-													<option value="">不登记到现金账户</option>
+													<option value="">无（不从现金账户扣款）</option>
 													{cashAccounts.map((account) => (
 														<option key={account.id} value={String(account.id)}>
 															{account.name} ·{" "}

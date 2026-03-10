@@ -133,7 +133,16 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			apiClient.request<void>(`/api/cash-transfers/${recordId}`, {
 				method: "DELETE",
 			}),
-		listCashLedgerEntries: () => apiClient.request<CashLedgerEntryRecord[]>("/api/cash-ledger"),
+		listCashLedgerEntries: (accountId) => {
+			const searchParams = new URLSearchParams();
+			if (accountId !== undefined) {
+				searchParams.set("account_id", String(accountId));
+			}
+			const query = searchParams.toString();
+			return apiClient.request<CashLedgerEntryRecord[]>(
+				`/api/cash-ledger${query ? `?${query}` : ""}`,
+			);
+		},
 		createCashLedgerAdjustment: async (payload) => {
 			const response = await apiClient.request<CashLedgerAdjustmentApplyResponse>(
 				"/api/cash-ledger/adjustments",
@@ -296,6 +305,7 @@ export function createAssetManagerController(
 			onEdit: (recordId, payload) => assetApiClient.updateCashLedgerAdjustment(recordId, payload),
 			onDelete: (recordId) => assetApiClient.deleteCashLedgerAdjustment(recordId),
 			onRefresh: () => assetApiClient.listCashLedgerEntries(),
+			onRefreshForAccount: (accountId) => assetApiClient.listCashLedgerEntries(accountId),
 		},
 		agentAudit: {
 			onRefresh: async () => {

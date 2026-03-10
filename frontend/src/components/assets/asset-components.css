@@ -172,15 +172,24 @@
 .asset-manager__card-actions,
 .asset-manager__form-actions {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
+	align-items: center;
 	gap: 0.6rem;
 }
 
+.asset-manager__mini-actions,
 .asset-manager__panel-actions,
 .asset-manager__card-actions {
 	margin-left: auto;
 	justify-content: flex-end;
 	align-self: flex-start;
+}
+
+.asset-manager__mini-actions > *,
+.asset-manager__panel-actions > *,
+.asset-manager__card-actions > *,
+.asset-manager__form-actions > * {
+	flex: 0 0 auto;
 }
 
 .asset-manager__form {
@@ -673,6 +682,36 @@
 	color: var(--text-muted);
 }
 
+.asset-manager__filter-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.65rem;
+}
+
+.asset-manager__filter-chip {
+	min-height: 2.6rem;
+	padding: 0.6rem 0.95rem;
+	border-radius: 999px;
+	border: 1px solid rgba(122, 214, 255, 0.14);
+	background: rgba(255, 255, 255, 0.03);
+	color: var(--text-soft);
+	font-size: 0.88rem;
+	font-weight: 700;
+	box-shadow: none;
+}
+
+.asset-manager__filter-chip:hover:not(:disabled) {
+	transform: none;
+	border-color: rgba(99, 232, 255, 0.24);
+	background: rgba(99, 232, 255, 0.08);
+}
+
+.asset-manager__filter-chip.is-active {
+	border-color: rgba(99, 232, 255, 0.3);
+	background: linear-gradient(135deg, var(--accent-cyan), #97fff0);
+	color: #07111f;
+}
+
 .asset-manager__button--danger {
 	background: linear-gradient(135deg, rgba(197, 85, 110, 0.9), rgba(168, 67, 92, 0.86));
 	color: #ffe9ef;
@@ -715,6 +754,7 @@
 
 .asset-manager__card-top {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 0.75rem;
 	justify-content: space-between;
 	align-items: flex-start;

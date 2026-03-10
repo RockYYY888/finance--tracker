@@ -1240,7 +1240,7 @@ export function HoldingForm({
 								updateDraft("buy_funding_account_id", event.target.value)
 							}
 						>
-							<option value="">不登记到现金账户</option>
+							<option value="">无（不从现金账户扣款）</option>
 							{cashAccounts.map((account) => (
 								<option key={account.id} value={String(account.id)}>
 									{formatCashAccountOptionLabel(account)}
