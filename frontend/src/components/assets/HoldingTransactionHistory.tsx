@@ -192,8 +192,8 @@ export function HoldingTransactionHistory({
 			<div className="asset-manager__list-head">
 				<div>
 					<p className="asset-manager__eyebrow">TRANSACTION HISTORY</p>
-					<h3>投资交易记录</h3>
-					<p>逐笔交易是持仓与收益曲线的事实源 此处修正的是交易单本身。</p>
+					<h3>交易记录</h3>
+					<p>逐笔交易是持仓与收益曲线的事实源，修改这里的记录会同步更新相关结果。</p>
 				</div>
 			</div>
 
