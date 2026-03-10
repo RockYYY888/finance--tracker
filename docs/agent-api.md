@@ -70,6 +70,10 @@ If you are already logged in through the web session, you can also manage tokens
 
 These session-based token-management routes are meant for interactive human control.
 
+Issuing the first token for a given `name` also creates or re-activates a stable
+Agent registration record. Registrations stay visible even if you later rotate or
+revoke individual tokens.
+
 ## Core Endpoints
 
 Trading events are the source of truth for holdings and holding-return charts.
@@ -78,6 +82,9 @@ Use holding routes only for metadata reads or metadata-only edits.
 
 - `GET /api/agent/context`
   Returns portfolio summary, cash accounts, holdings, recent holding transactions, pending sync count, and warnings
+- `GET /api/agent/registrations`
+  Lists registered agents for the current account. Admin may pass `include_all_users=true`
+  to inspect which app accounts have connected which agents
 - `GET /api/dashboard`
   Returns the full dashboard including timeline series from cached or rebuilt projections
 - `GET /api/accounts`
@@ -124,8 +131,8 @@ Use holding routes only for metadata reads or metadata-only edits.
   Lists structured agent tasks
 - `POST /api/agent/tasks`
   Queues a validated task envelope for buy, sell, transfer, transfer correction, or ledger correction
-- `GET /api/audit-log`
-  Lists asset mutation audits, supports `limit` and `agent_task_id`
+- `GET /api/asset-records`
+  Lists immutable asset records, supports `limit`, `asset_class`, `operation_kind`, and `source`
 - `GET /api/securities/search?q=...`
   Searches tradable symbols
 - `GET /api/securities/quote?symbol=...&market=...`
@@ -151,6 +158,9 @@ If the key is reused with a different body, the backend returns `409`.
 
 ## Agent Task Execution Model
 
+- Agent registrations are the durable identity of an agent runtime
+- Agent tokens are revocable credentials attached to a registration
+- Registration status is `ACTIVE` when at least one token is still usable, otherwise `INACTIVE`
 - `POST /api/agent/tasks` returns the created task immediately
 - Task status moves through `PENDING` -> `RUNNING` -> `DONE` or `FAILED`
 - Poll `GET /api/agent/tasks` to observe completion and read `result`
@@ -161,10 +171,11 @@ If the key is reused with a different body, the backend returns `409`.
 ## Minimal Agent Call Pattern
 
 1. `GET /api/agent/context`
-2. `GET /api/securities/search`
-3. `GET /api/securities/quote`
-4. `POST /api/holding-transactions`
-5. `GET /api/agent/context`
+2. `GET /api/agent/registrations`
+3. `GET /api/securities/search`
+4. `GET /api/securities/quote`
+5. `POST /api/holding-transactions`
+6. `GET /api/agent/context`
 
 For cash movement:
 
@@ -177,7 +188,8 @@ For cash-ledger anomaly correction:
 
 1. `GET /api/cash-ledger`
 2. `PATCH /api/cash-transfers/{transfer_id}` or `PATCH /api/cash-ledger/adjustments/{entry_id}`
-3. `GET /api/audit-log?agent_task_id=...` when the correction was triggered through `POST /api/agent/tasks`
+3. `GET /api/asset-records?source=AGENT`
+   Read the immutable AGENT-side records after the task has been executed
 4. `GET /api/agent/context`
 
 If the agent needs to correct a previously recorded trade, prefer

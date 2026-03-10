@@ -221,7 +221,8 @@ export type AgentTaskType =
 	| "UPDATE_CASH_LEDGER_ADJUSTMENT"
 	| "DELETE_CASH_LEDGER_ADJUSTMENT";
 
-export type AgentTaskStatus = "DONE" | "FAILED";
+export type AgentTaskStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
+export type AgentRegistrationStatus = "ACTIVE" | "INACTIVE";
 export type AssetRecordSource = "USER" | "SYSTEM" | "AGENT";
 export type AssetRecordAssetClass = "cash" | "investment" | "fixed" | "liability" | "other";
 export type AssetRecordOperationKind =
@@ -245,6 +246,20 @@ export interface AgentTaskRecord {
 	completed_at?: string | null;
 }
 
+export interface AgentRegistrationRecord {
+	id: number;
+	user_id: string;
+	name: string;
+	status: AgentRegistrationStatus;
+	active_token_count: number;
+	total_token_count: number;
+	latest_token_hint?: string | null;
+	last_used_at?: string | null;
+	last_seen_at?: string | null;
+	created_at?: string;
+	updated_at?: string;
+}
+
 export interface AssetMutationAuditRecord {
 	id: number;
 	agent_task_id?: number | null;
@@ -266,6 +281,7 @@ export interface AgentAuditSnapshot {
 export interface AssetRecordRecord {
 	id: number;
 	source: AssetRecordSource;
+	agent_task_id?: number | null;
 	asset_class: AssetRecordAssetClass;
 	operation_kind: AssetRecordOperationKind;
 	entity_type: string;
@@ -596,6 +612,9 @@ export interface AssetApiClient {
 	) => Promise<CashLedgerEntryRecord>;
 	deleteCashLedgerAdjustment: (recordId: number) => Promise<void>;
 	listAgentTasks: () => Promise<AgentTaskRecord[]>;
+	listAgentRegistrations: (params?: {
+		includeAllUsers?: boolean;
+	}) => Promise<AgentRegistrationRecord[]>;
 	listAssetMutationAudits: (params?: {
 		agentTaskId?: number;
 	}) => Promise<AssetMutationAuditRecord[]>;

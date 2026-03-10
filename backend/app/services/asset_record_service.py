@@ -108,6 +108,7 @@ def _resolve_cash_account_record(audit: AssetMutationAudit) -> AssetRecordRead |
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		agent_task_id=audit.agent_task_id,
 		asset_class="cash",
 		operation_kind=operation_kind,
 		entity_type=audit.entity_type,
@@ -155,6 +156,7 @@ def _resolve_cash_transfer_record(audit: AssetMutationAudit) -> AssetRecordRead 
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		agent_task_id=audit.agent_task_id,
 		asset_class="cash",
 		operation_kind=operation_kind,
 		entity_type=audit.entity_type,
@@ -182,6 +184,7 @@ def _resolve_cash_adjustment_record(audit: AssetMutationAudit) -> AssetRecordRea
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		agent_task_id=audit.agent_task_id,
 		asset_class="cash",
 		operation_kind=operation_kind,
 		entity_type=audit.entity_type,
@@ -316,6 +319,7 @@ def _resolve_holding_transaction_record(
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		agent_task_id=audit.agent_task_id,
 		asset_class="investment",
 		operation_kind=operation_kind,
 		entity_type=audit.entity_type,
@@ -342,6 +346,7 @@ def _resolve_holding_delete_record(audit: AssetMutationAudit) -> AssetRecordRead
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		agent_task_id=audit.agent_task_id,
 		asset_class="investment",
 		operation_kind="DELETE",
 		entity_type=audit.entity_type,
@@ -375,6 +380,7 @@ def _resolve_asset_entry_record(
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		agent_task_id=audit.agent_task_id,
 		asset_class=asset_class,
 		operation_kind=operation_kind,
 		entity_type=audit.entity_type,

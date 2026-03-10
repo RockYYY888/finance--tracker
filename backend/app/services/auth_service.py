@@ -9,7 +9,13 @@ from fastapi.responses import Response
 from sqlmodel import select
 
 from app import runtime_state
-from app.models import AgentAccessToken, UserAccount, utc_now
+from app.models import (
+	AGENT_REGISTRATION_STATUSES,
+	AgentAccessToken,
+	AgentRegistration,
+	UserAccount,
+	utc_now,
+)
 from app.schemas import (
 	ActionMessageRead,
 	AgentTokenCreate,
@@ -51,7 +57,7 @@ def _coerce_utc_datetime(value: datetime) -> datetime:
 	return value.astimezone(timezone.utc)
 
 
-def _touch_model(model: AgentAccessToken | UserAccount) -> None:
+def _touch_model(model: AgentAccessToken | AgentRegistration | UserAccount) -> None:
 	if hasattr(model, "updated_at"):
 		model.updated_at = utc_now()
 
@@ -67,6 +73,104 @@ def _get_agent_access_token_by_digest(
 	return session.exec(
 		select(AgentAccessToken).where(AgentAccessToken.token_digest == token_digest),
 	).first()
+
+
+def _get_agent_registration_by_name(
+	session: SessionDependency,
+	*,
+	user_id: str,
+	name: str,
+) -> AgentRegistration | None:
+	return session.exec(
+		select(AgentRegistration)
+		.where(AgentRegistration.user_id == user_id)
+		.where(AgentRegistration.name == name),
+	).first()
+
+
+def _normalize_agent_registration_name(name: str) -> str:
+	normalized_name = name.strip()
+	if not normalized_name:
+		raise HTTPException(status_code=422, detail="Agent 名称不能为空。")
+	return normalized_name
+
+
+def _is_agent_token_active(token: AgentAccessToken, now: datetime) -> bool:
+	if token.revoked_at is not None:
+		return False
+	if token.expires_at is not None and _coerce_utc_datetime(token.expires_at) <= now:
+		return False
+	return True
+
+
+def _ensure_agent_registration(
+	session: SessionDependency,
+	*,
+	current_user: UserAccount,
+	name: str,
+) -> AgentRegistration:
+	registration_name = _normalize_agent_registration_name(name)
+	registration = _get_agent_registration_by_name(
+		session,
+		user_id=current_user.username,
+		name=registration_name,
+	)
+	if registration is None:
+		registration = AgentRegistration(
+			user_id=current_user.username,
+			name=registration_name,
+			status=AGENT_REGISTRATION_STATUSES[0],
+		)
+	else:
+		registration.status = AGENT_REGISTRATION_STATUSES[0]
+		_touch_model(registration)
+
+	session.add(registration)
+	session.flush()
+	return registration
+
+
+def _sync_agent_registration_status(
+	session: SessionDependency,
+	registration_id: int | None,
+) -> None:
+	if registration_id is None:
+		return
+	registration = session.get(AgentRegistration, registration_id)
+	if registration is None:
+		return
+
+	now = utc_now()
+	tokens = list(
+		session.exec(
+			select(AgentAccessToken)
+			.where(AgentAccessToken.agent_registration_id == registration_id),
+		),
+	)
+	has_active_token = any(_is_agent_token_active(token, now) for token in tokens)
+	next_status = AGENT_REGISTRATION_STATUSES[0] if has_active_token else AGENT_REGISTRATION_STATUSES[1]
+	if registration.status != next_status:
+		registration.status = next_status
+		_touch_model(registration)
+		session.add(registration)
+
+
+def _touch_agent_registration_last_seen(
+	session: SessionDependency,
+	registration_id: int | None,
+	*,
+	seen_at: datetime,
+) -> None:
+	if registration_id is None:
+		return
+	registration = session.get(AgentRegistration, registration_id)
+	if registration is None:
+		return
+	registration.last_seen_at = seen_at
+	if registration.status != AGENT_REGISTRATION_STATUSES[0]:
+		registration.status = AGENT_REGISTRATION_STATUSES[0]
+	_touch_model(registration)
+	session.add(registration)
 
 
 def _resolve_agent_token_expiry(expires_in_days: int | None) -> datetime | None:
@@ -99,10 +203,16 @@ def _create_agent_access_token(
 	name: str,
 	expires_in_days: int | None,
 ) -> tuple[AgentAccessToken, str]:
+	registration = _ensure_agent_registration(
+		session,
+		current_user=current_user,
+		name=name,
+	)
 	raw_token = generate_agent_token()
 	token = AgentAccessToken(
 		user_id=current_user.username,
-		name=name.strip(),
+		agent_registration_id=registration.id,
+		name=registration.name,
 		token_digest=hash_agent_token(raw_token),
 		token_hint=_format_agent_token_hint(raw_token),
 		expires_at=_resolve_agent_token_expiry(expires_in_days),
@@ -268,6 +378,11 @@ def _authenticate_agent_access_token(session: SessionDependency, raw_token: str)
 		token.last_used_at = now
 		_touch_model(token)
 		session.add(token)
+		_touch_agent_registration_last_seen(
+			session,
+			token.agent_registration_id,
+			seen_at=now,
+		)
 		session.commit()
 
 	return user
@@ -496,6 +611,7 @@ def revoke_agent_token(
 		token.revoked_at = utc_now()
 		_touch_model(token)
 		session.add(token)
+		_sync_agent_registration_status(session, token.agent_registration_id)
 		session.commit()
 
 	return ActionMessageRead(message="智能体访问令牌已撤销。")
@@ -510,9 +626,14 @@ __all__ = [
 	"_authenticate_user_account",
 	"_build_login_attempt_key",
 	"_create_agent_access_token",
+	"_ensure_agent_registration",
+	"_get_agent_registration_by_name",
+	"_is_agent_token_active",
 	"_create_user_account",
 	"_get_user",
 	"_reset_user_password_with_email",
+	"_sync_agent_registration_status",
+	"_touch_agent_registration_last_seen",
 	"_to_agent_token_read",
 	"_update_user_email",
 	"create_agent_token_for_current_session",

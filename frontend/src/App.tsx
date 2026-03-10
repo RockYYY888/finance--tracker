@@ -43,8 +43,9 @@ import type {
 	UserEmailUpdate,
 } from "./types/auth";
 import type {
+	AgentRegistrationRecord,
 	AgentTaskRecord,
-	AssetMutationAuditRecord,
+	AssetRecordRecord,
 } from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import type {
@@ -62,7 +63,8 @@ const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
 const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
-const EMPTY_ASSET_MUTATION_AUDITS: AssetMutationAuditRecord[] = [];
+const EMPTY_AGENT_REGISTRATIONS: AgentRegistrationRecord[] = [];
+const EMPTY_AGENT_RECORDS: AssetRecordRecord[] = [];
 const PortfolioAnalytics = lazy(async () => {
 	const module = await import("./components/analytics");
 	return { default: module.PortfolioAnalytics };
@@ -213,10 +215,11 @@ function App() {
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
 	const [feedbackInboxCount, setFeedbackInboxCount] = useState(0);
 	const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>("manage");
-	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
-	const [assetMutationAudits, setAssetMutationAudits] = useState<AssetMutationAuditRecord[]>(
-		EMPTY_ASSET_MUTATION_AUDITS,
+	const [agentRegistrations, setAgentRegistrations] = useState<AgentRegistrationRecord[]>(
+		EMPTY_AGENT_REGISTRATIONS,
 	);
+	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
+	const [agentRecords, setAgentRecords] = useState<AssetRecordRecord[]>(EMPTY_AGENT_RECORDS);
 	const [isLoadingAgentAudit, setIsLoadingAgentAudit] = useState(false);
 	const [agentAuditErrorMessage, setAgentAuditErrorMessage] = useState<string | null>(null);
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
@@ -273,8 +276,9 @@ function App() {
 		setAssetRecordsDialogVersion(0);
 		setAssetRecordRefreshToken(0);
 		setActiveWorkspaceView("manage");
+		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
 		setAgentTasks(EMPTY_AGENT_TASKS);
-		setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
+		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
 		setIsLoadingAdminInbox(false);
@@ -311,8 +315,9 @@ function App() {
 		setAssetRecordsDialogVersion(0);
 		setAssetRecordRefreshToken(0);
 		setActiveWorkspaceView("manage");
+		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
 		setAgentTasks(EMPTY_AGENT_TASKS);
-		setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
+		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
 		setIsLoadingAdminInbox(false);
@@ -892,15 +897,22 @@ function App() {
 		setIsLoadingAgentAudit(true);
 		setAgentAuditErrorMessage(null);
 		void Promise.all([
+			defaultAssetApiClient.listAgentRegistrations({
+				includeAllUsers: currentUserId === "admin",
+			}),
 			defaultAssetApiClient.listAgentTasks(),
-			defaultAssetApiClient.listAssetMutationAudits(),
+			defaultAssetApiClient.listAssetRecords({
+				source: "AGENT",
+				limit: 120,
+			}),
 		])
-			.then(([tasks, audits]) => {
+			.then(([registrations, tasks, records]) => {
 				if (cancelled) {
 					return;
 				}
+				setAgentRegistrations(registrations);
 				setAgentTasks(tasks);
-				setAssetMutationAudits(audits);
+				setAgentRecords(records);
 			})
 			.catch((error) => {
 				if (cancelled) {
@@ -1202,8 +1214,10 @@ function App() {
 					</div>
 
 					<AgentExecutionAuditPanel
+						registrations={agentRegistrations}
 						tasks={agentTasks}
-						audits={assetMutationAudits}
+						records={agentRecords}
+						apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
 						loading={isLoadingAgentAudit}
 						errorMessage={agentAuditErrorMessage}
 					/>

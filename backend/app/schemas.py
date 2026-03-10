@@ -960,6 +960,20 @@ class AgentTaskRead(UtcTimestampResponseModel):
 		return _normalize_choice(value, AGENT_TASK_STATUSES, "status")
 
 
+class AgentRegistrationRead(UtcTimestampResponseModel):
+	id: int
+	user_id: str
+	name: str
+	status: str
+	active_token_count: int
+	total_token_count: int
+	latest_token_hint: str | None = None
+	last_used_at: datetime | None = None
+	last_seen_at: datetime | None = None
+	created_at: datetime
+	updated_at: datetime
+
+
 class SecuritySearchRead(BaseModel):
 	symbol: str
 	name: str
@@ -1137,6 +1151,7 @@ class AssetMutationAuditRead(UtcTimestampResponseModel):
 class AssetRecordRead(UtcTimestampResponseModel):
 	id: int
 	source: str
+	agent_task_id: int | None = None
 	asset_class: str
 	operation_kind: str
 	entity_type: str

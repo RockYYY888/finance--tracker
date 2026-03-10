@@ -13,6 +13,7 @@ import type {
 	HoldingRecord,
 	HoldingTransactionRecord,
 	AgentTaskRecord,
+	AgentRegistrationRecord,
 	AssetRecordRecord,
 	AssetMutationAuditRecord,
 	LiabilityInput,
@@ -172,6 +173,15 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 				method: "DELETE",
 			}),
 		listAgentTasks: () => apiClient.request<AgentTaskRecord[]>("/api/agent/tasks"),
+		listAgentRegistrations: (params) => {
+			const search = new URLSearchParams();
+			if (params?.includeAllUsers) {
+				search.set("include_all_users", "true");
+			}
+			const queryString = search.toString();
+			const query = queryString ? `?${queryString}` : "";
+			return apiClient.request<AgentRegistrationRecord[]>(`/api/agent/registrations${query}`);
+		},
 		listAssetMutationAudits: (params) => {
 			const search = new URLSearchParams();
 			if (params?.agentTaskId) {

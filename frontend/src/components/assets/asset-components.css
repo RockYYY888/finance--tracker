@@ -823,6 +823,32 @@
 	text-align: center;
 }
 
+.agent-workspace__top-grid,
+.agent-workspace__sections {
+	display: grid;
+	gap: 1rem;
+}
+
+.agent-workspace__section {
+	display: grid;
+	gap: 0.9rem;
+}
+
+.agent-workspace__doc-link {
+	margin-top: 0.9rem;
+	text-decoration: none;
+}
+
+.agent-workspace__task-records {
+	display: grid;
+	gap: 0.7rem;
+}
+
+.agent-workspace__task-records > strong {
+	color: var(--text-main);
+	font-size: 0.95rem;
+}
+
 .asset-records__modal-panel {
 	width: min(100%, 960px);
 }
@@ -918,6 +944,11 @@
 
 	.asset-manager__field-grid--triple {
 		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+
+	.agent-workspace__top-grid {
+		grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+		align-items: start;
 	}
 }
 

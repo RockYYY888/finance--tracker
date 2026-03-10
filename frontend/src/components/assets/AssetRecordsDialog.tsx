@@ -8,6 +8,14 @@ import {
 	formatPriceAmount,
 	formatTimestamp,
 } from "../../lib/assetFormatting";
+import {
+	ASSET_CLASS_BADGE_LABELS,
+	ASSET_CLASS_OPTIONS,
+	OPERATION_BADGE_LABELS,
+	OPERATION_OPTIONS_BY_CLASS,
+	SOURCE_BADGE_LABELS,
+	SOURCE_FILTER_OPTIONS,
+} from "../../lib/assetRecordMeta";
 import type {
 	AssetRecordAssetClass,
 	AssetRecordOperationKind,
@@ -33,85 +41,6 @@ export interface AssetRecordsDialogProps {
 const DEFAULT_ASSET_CLASS: AssetRecordAssetClass = "cash";
 const DEFAULT_OPERATION_KIND: AssetRecordOperationKind = "NEW";
 const DEFAULT_SOURCE_FILTER: AssetRecordSourceFilter = "ALL";
-
-const ASSET_CLASS_OPTIONS: Array<{
-	value: AssetRecordAssetClass;
-	label: string;
-}> = [
-	{ value: "cash", label: "现金类" },
-	{ value: "investment", label: "投资类" },
-	{ value: "fixed", label: "固定资产" },
-	{ value: "liability", label: "负债" },
-	{ value: "other", label: "其他" },
-];
-
-const OPERATION_OPTIONS_BY_CLASS: Record<
-	AssetRecordAssetClass,
-	Array<{ value: AssetRecordOperationKind; label: string }>
-> = {
-	cash: [
-		{ value: "NEW", label: "新建" },
-		{ value: "EDIT", label: "编辑" },
-		{ value: "TRANSFER", label: "划转" },
-		{ value: "ADJUST", label: "调整" },
-		{ value: "DELETE", label: "删除" },
-	],
-	investment: [
-		{ value: "BUY", label: "买入" },
-		{ value: "SELL", label: "卖出" },
-		{ value: "EDIT", label: "编辑" },
-		{ value: "DELETE", label: "删除" },
-	],
-	fixed: [
-		{ value: "NEW", label: "新建" },
-		{ value: "EDIT", label: "编辑" },
-		{ value: "DELETE", label: "删除" },
-	],
-	liability: [
-		{ value: "NEW", label: "新建" },
-		{ value: "EDIT", label: "编辑" },
-		{ value: "DELETE", label: "删除" },
-	],
-	other: [
-		{ value: "NEW", label: "新建" },
-		{ value: "EDIT", label: "编辑" },
-		{ value: "DELETE", label: "删除" },
-	],
-};
-
-const SOURCE_FILTER_OPTIONS: Array<{
-	value: AssetRecordSourceFilter;
-	label: string;
-}> = [
-	{ value: "ALL", label: "全部来源" },
-	{ value: "USER", label: "用户" },
-	{ value: "SYSTEM", label: "系统" },
-	{ value: "AGENT", label: "Agent" },
-];
-
-const ASSET_CLASS_BADGE_LABELS: Record<AssetRecordAssetClass, string> = {
-	cash: "现金类",
-	investment: "投资类",
-	fixed: "固定资产",
-	liability: "负债",
-	other: "其他",
-};
-
-const OPERATION_BADGE_LABELS: Record<AssetRecordOperationKind, string> = {
-	NEW: "新建",
-	EDIT: "编辑",
-	DELETE: "删除",
-	BUY: "买入",
-	SELL: "卖出",
-	TRANSFER: "划转",
-	ADJUST: "调整",
-};
-
-const SOURCE_BADGE_LABELS: Record<AssetRecordSource, string> = {
-	USER: "用户",
-	SYSTEM: "系统",
-	AGENT: "Agent",
-};
 
 function formatRecordAmount(record: AssetRecordRecord): string | null {
 	if (record.amount == null || !Number.isFinite(record.amount)) {

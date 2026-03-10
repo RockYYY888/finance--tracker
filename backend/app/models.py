@@ -61,6 +61,7 @@ AGENT_TASK_TYPES = (
 AGENT_TASK_STATUSES = ("PENDING", "RUNNING", "DONE", "FAILED")
 OUTBOX_JOB_TYPES = ("SNAPSHOT_REBUILD", "AGENT_TASK_EXECUTION")
 OUTBOX_JOB_STATUSES = ("PENDING", "RUNNING", "DONE", "FAILED")
+AGENT_REGISTRATION_STATUSES = ("ACTIVE", "INACTIVE")
 
 
 def utc_now() -> datetime:
@@ -87,6 +88,7 @@ class AgentAccessToken(SQLModel, table=True):
 
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
+	agent_registration_id: int | None = Field(default=None, index=True)
 	name: str = Field(max_length=80)
 	token_digest: str = Field(index=True, max_length=64)
 	token_hint: str = Field(max_length=16)
@@ -95,6 +97,24 @@ class AgentAccessToken(SQLModel, table=True):
 	last_used_at: datetime | None = Field(default=None, index=True)
 	expires_at: datetime | None = Field(default=None, index=True)
 	revoked_at: datetime | None = Field(default=None, index=True)
+
+
+class AgentRegistration(SQLModel, table=True):
+	__table_args__ = (
+		UniqueConstraint(
+			"user_id",
+			"name",
+			name="uq_agent_registration_user_name",
+		),
+	)
+
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	name: str = Field(max_length=80)
+	status: str = Field(default="ACTIVE", index=True, max_length=16)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	last_seen_at: datetime | None = Field(default=None, index=True)
 
 
 class UserFeedback(SQLModel, table=True):

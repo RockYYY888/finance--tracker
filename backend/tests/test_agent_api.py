@@ -21,12 +21,14 @@ from app.main import (
 	get_current_user,
 	get_security_quote,
 	issue_agent_token_with_password,
+	list_agent_registrations,
 	list_all_holding_transactions,
 	list_asset_mutation_audits,
 	revoke_agent_token,
 )
 from app.models import (
 	AgentAccessToken,
+	AgentRegistration,
 	AgentTask,
 	AssetMutationAudit,
 	CashAccount,
@@ -186,9 +188,14 @@ def test_issue_agent_token_with_password_and_use_bearer_auth(session: Session) -
 
 	assert issued_token.access_token.startswith("atrk_")
 	stored_token = session.exec(select(AgentAccessToken)).one()
+	stored_registration = session.exec(select(AgentRegistration)).one()
 	assert stored_token.user_id == "tester"
+	assert stored_token.agent_registration_id == stored_registration.id
 	assert stored_token.name == "quant-runner"
 	assert stored_token.token_hint.startswith("...")
+	assert stored_registration.user_id == "tester"
+	assert stored_registration.name == "quant-runner"
+	assert stored_registration.status == "ACTIVE"
 
 	authenticated_user = get_current_user(
 		build_request(
@@ -200,7 +207,16 @@ def test_issue_agent_token_with_password_and_use_bearer_auth(session: Session) -
 
 	assert authenticated_user.username == "tester"
 	session.refresh(stored_token)
+	session.refresh(stored_registration)
 	assert stored_token.last_used_at is not None
+	assert stored_registration.last_seen_at is not None
+
+	registrations = list_agent_registrations(authenticated_user, session, include_all_users=False)
+	assert len(registrations) == 1
+	assert registrations[0].name == "quant-runner"
+	assert registrations[0].status == "ACTIVE"
+	assert registrations[0].active_token_count == 1
+	assert registrations[0].user_id == "tester"
 
 
 def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) -> None:
@@ -267,6 +283,10 @@ def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> Non
 	response = revoke_agent_token(token_row.id or 0, current_user, session)
 
 	assert response.message == "智能体访问令牌已撤销。"
+	registrations = list_agent_registrations(current_user, session, include_all_users=False)
+	assert len(registrations) == 1
+	assert registrations[0].status == "INACTIVE"
+	assert registrations[0].active_token_count == 0
 	with pytest.raises(HTTPException) as error:
 		get_current_user(
 			build_request(
@@ -278,6 +298,42 @@ def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> Non
 
 	assert error.value.status_code == 401
 	assert error.value.detail == "Invalid bearer token."
+
+
+def test_admin_can_list_agent_registrations_across_all_accounts(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	make_user(session, "alice")
+	make_user(session, "bob")
+
+	issue_agent_token_with_password(
+		build_request(method="POST", path="/api/agent/tokens/issue"),
+		AgentTokenIssueCreate(
+			user_id="alice",
+			password="qwer1234",
+			name="alpha",
+			expires_in_days=30,
+		),
+		None,
+		session,
+	)
+	issue_agent_token_with_password(
+		build_request(method="POST", path="/api/agent/tokens/issue"),
+		AgentTokenIssueCreate(
+			user_id="bob",
+			password="qwer1234",
+			name="beta",
+			expires_in_days=30,
+		),
+		None,
+		session,
+	)
+
+	registrations = list_agent_registrations(admin_user, session, include_all_users=True)
+
+	assert {(item.user_id, item.name) for item in registrations} == {
+		("alice", "alpha"),
+		("bob", "beta"),
+	}
 
 
 def test_list_all_holding_transactions_supports_symbol_filter(
