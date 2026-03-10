@@ -134,6 +134,21 @@ def _parse_epoch_millis(value: str | int | float | None) -> datetime | None:
 	return datetime.fromtimestamp(numeric_value, tz=timezone.utc)
 
 
+def _parse_tencent_market_time(value: str | None) -> datetime | None:
+	"""Parse Tencent quote timestamps that vary by market."""
+	candidate = str(value or "").strip()
+	if not candidate:
+		return None
+
+	for datetime_format in ("%Y/%m/%d %H:%M:%S", "%Y%m%d%H%M%S", "%Y-%m-%d %H:%M:%S"):
+		try:
+			return datetime.strptime(candidate, datetime_format).replace(tzinfo=timezone.utc)
+		except ValueError:
+			continue
+
+	return None
+
+
 @dataclass(slots=True)
 class Quote:
 	symbol: str
@@ -574,6 +589,79 @@ class EastMoneyQuoteProvider:
 		)
 
 
+class TencentQuoteProvider:
+	TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
+
+	def __init__(self, timeout: float = 10.0) -> None:
+		self.timeout = timeout
+
+	@staticmethod
+	def _build_tencent_symbol(symbol: str) -> tuple[str, str]:
+		normalized_symbol = normalize_symbol(symbol)
+
+		if normalized_symbol.endswith(".HK"):
+			code = normalized_symbol.removesuffix(".HK").zfill(5)
+			return f"hk{code}", "HKD"
+		if normalized_symbol.endswith(".SS"):
+			code = normalized_symbol.removesuffix(".SS")
+			return f"sh{code}", "CNY"
+		if normalized_symbol.endswith(".SZ"):
+			code = normalized_symbol.removesuffix(".SZ")
+			return f"sz{code}", "CNY"
+
+		raise QuoteLookupError(f"Tencent quote does not support symbol {normalized_symbol}.")
+
+	async def fetch_quote(self, symbol: str) -> Quote:
+		"""Fetch HK/CN quotes from Tencent's free quote endpoint."""
+		normalized_symbol = normalize_symbol(symbol)
+		tencent_symbol, currency = self._build_tencent_symbol(normalized_symbol)
+
+		try:
+			async with httpx.AsyncClient(timeout=self.timeout) as client:
+				response = await client.get(
+					f"{self.TENCENT_QUOTE_URL}{tencent_symbol}",
+					headers={"User-Agent": "Mozilla/5.0"},
+				)
+				response.raise_for_status()
+				# The endpoint defaults to GBK and includes non-ASCII market names.
+				payload_text = response.content.decode("gbk", errors="ignore")
+		except httpx.HTTPError as exc:
+			error_details = _describe_http_error(exc)
+			raise QuoteLookupError(
+				f"Tencent quote request failed for {normalized_symbol} ({error_details}).",
+			) from exc
+
+		if "=" not in payload_text:
+			raise QuoteLookupError(f"No Tencent quote data returned for {normalized_symbol}.")
+
+		payload = payload_text.split("=", maxsplit=1)[1].strip()
+		payload = payload.strip(";").strip().strip('"')
+		fields = payload.split("~")
+		if len(fields) < 4:
+			raise QuoteLookupError(f"No Tencent quote data returned for {normalized_symbol}.")
+
+		raw_price = fields[3]
+		try:
+			price = float(raw_price)
+		except (TypeError, ValueError) as exc:
+			raise QuoteLookupError(
+				f"Incomplete Tencent quote data returned for {normalized_symbol}.",
+			) from exc
+
+		if price <= 0:
+			raise QuoteLookupError(f"Incomplete Tencent quote data returned for {normalized_symbol}.")
+
+		name = str(fields[1] if len(fields) > 1 else normalized_symbol).strip() or normalized_symbol
+		market_time = _parse_tencent_market_time(fields[30] if len(fields) > 30 else None)
+		return Quote(
+			symbol=normalized_symbol,
+			name=name,
+			price=price,
+			currency=currency,
+			market_time=market_time,
+		)
+
+
 class BitgetQuoteProvider:
 	BITGET_TICKER_URL = "https://api.bitget.com/api/v2/spot/market/tickers"
 
@@ -779,15 +867,46 @@ class FrankfurterRateProvider:
 		return float(rate)
 
 
+class OpenExchangeRateProvider:
+	OPEN_EXCHANGE_RATE_URL = "https://open.er-api.com/v6/latest"
+
+	def __init__(self, timeout: float = 10.0) -> None:
+		self.timeout = timeout
+
+	async def fetch_rate(self, from_currency: str, to_currency: str) -> float:
+		"""Fetch a conversion rate from Open ExchangeRate-API as a fallback source."""
+		try:
+			async with httpx.AsyncClient(timeout=self.timeout) as client:
+				response = await client.get(f"{self.OPEN_EXCHANGE_RATE_URL}/{from_currency}")
+				response.raise_for_status()
+				payload = response.json()
+		except httpx.HTTPError as exc:
+			raise QuoteLookupError(
+				f"FX provider request failed for {from_currency}/{to_currency}.",
+			) from exc
+
+		result = str(payload.get("result") or "").strip().lower()
+		if result and result != "success":
+			raise QuoteLookupError(f"No FX rate returned for {from_currency}/{to_currency}.")
+
+		rate = payload.get("rates", {}).get(to_currency)
+		if rate in (None, 0):
+			raise QuoteLookupError(f"No FX rate returned for {from_currency}/{to_currency}.")
+
+		return float(rate)
+
+
 class MarketDataClient:
 	def __init__(
 		self,
 		quote_provider: YahooQuoteProvider | None = None,
 		fallback_quote_provider: EastMoneyQuoteProvider | None = None,
+		backup_quote_provider: TencentQuoteProvider | None = None,
 		crypto_quote_provider: BitgetQuoteProvider | None = None,
 		china_search_provider: EastMoneySecuritySearchProvider | None = None,
 		search_provider: YahooSecuritySearchProvider | None = None,
 		fx_provider: FrankfurterRateProvider | None = None,
+		fallback_fx_provider: OpenExchangeRateProvider | None = None,
 		quote_cache: TTLCache[Quote] | None = None,
 		search_cache: TTLCache[list[SecuritySearchResult]] | None = None,
 		fx_cache: TTLCache[float] | None = None,
@@ -797,10 +916,12 @@ class MarketDataClient:
 	) -> None:
 		self.quote_provider = quote_provider or YahooQuoteProvider()
 		self.fallback_quote_provider = fallback_quote_provider or EastMoneyQuoteProvider()
+		self.backup_quote_provider = backup_quote_provider or TencentQuoteProvider()
 		self.crypto_quote_provider = crypto_quote_provider or BitgetQuoteProvider()
 		self.china_search_provider = china_search_provider or EastMoneySecuritySearchProvider()
 		self.search_provider = search_provider or YahooSecuritySearchProvider()
 		self.fx_provider = fx_provider or FrankfurterRateProvider()
+		self.fallback_fx_provider = fallback_fx_provider or OpenExchangeRateProvider()
 		self.quote_cache = quote_cache or TTLCache[Quote]()
 		self.search_cache = search_cache or TTLCache[list[SecuritySearchResult]]()
 		self.fx_cache = fx_cache or TTLCache[float]()
@@ -810,7 +931,7 @@ class MarketDataClient:
 
 	async def _fetch_quote_with_retry(
 		self,
-		provider: YahooQuoteProvider | EastMoneyQuoteProvider | BitgetQuoteProvider,
+		provider: YahooQuoteProvider | EastMoneyQuoteProvider | TencentQuoteProvider | BitgetQuoteProvider,
 		symbol: str,
 		retry_attempts: int = 0,
 	) -> Quote:
@@ -827,6 +948,29 @@ class MarketDataClient:
 				await asyncio.sleep(0.25)
 
 		raise last_error or QuoteLookupError(f"Quote provider request failed for {symbol}.")
+
+	async def _fetch_fx_rate_with_retry(
+		self,
+		provider: FrankfurterRateProvider | OpenExchangeRateProvider,
+		from_currency: str,
+		to_currency: str,
+		retry_attempts: int = 0,
+	) -> float:
+		"""Retry transient FX lookups a limited number of times before failing."""
+		last_error: QuoteLookupError | ValueError | None = None
+
+		for attempt in range(retry_attempts + 1):
+			try:
+				return await provider.fetch_rate(from_currency, to_currency)
+			except (QuoteLookupError, ValueError) as exc:
+				last_error = exc
+				if attempt >= retry_attempts:
+					break
+				await asyncio.sleep(0.25)
+
+		raise last_error or QuoteLookupError(
+			f"FX provider request failed for {from_currency}/{to_currency}.",
+		)
 
 	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
 		"""Expire runtime caches so refreshes refetch while stale values remain available."""
@@ -848,66 +992,47 @@ class MarketDataClient:
 		if cached_quote is not None:
 			return cached_quote, []
 
-		primary_provider = self.quote_provider
-		secondary_provider = None
+		provider_chain: list[
+			tuple[
+				YahooQuoteProvider | EastMoneyQuoteProvider | TencentQuoteProvider | BitgetQuoteProvider,
+				int,
+			]
+		] = []
 		if resolved_market in {"HK", "CN"}:
-			primary_provider = self.fallback_quote_provider
+			provider_chain = [
+				(self.fallback_quote_provider, 1),
+				(self.backup_quote_provider, 1),
+				(self.quote_provider, 0),
+			]
 		elif resolved_market == "CRYPTO":
-			primary_provider = self.crypto_quote_provider
+			provider_chain = [(self.crypto_quote_provider, 0)]
 		else:
-			if resolved_market in {"HK", "CN"}:
-				secondary_provider = self.fallback_quote_provider
-			elif resolved_market == "CRYPTO":
-				secondary_provider = self.crypto_quote_provider
+			provider_chain = [(self.quote_provider, 0)]
 
-		primary_retry_attempts = 1 if primary_provider is self.fallback_quote_provider else 0
+		errors: list[str] = []
+		for provider, retry_attempts in provider_chain:
+			try:
+				quote = await self._fetch_quote_with_retry(
+					provider,
+					normalized_symbol,
+					retry_attempts=retry_attempts,
+				)
+			except QuoteLookupError as exc:
+				errors.append(str(exc))
+				continue
 
-		try:
-			quote = await self._fetch_quote_with_retry(
-				primary_provider,
-				normalized_symbol,
-				retry_attempts=primary_retry_attempts,
-			)
-		except QuoteLookupError as exc:
-			if secondary_provider is self.fallback_quote_provider:
-				try:
-					quote = await self._fetch_quote_with_retry(
-						self.fallback_quote_provider,
-						normalized_symbol,
-						retry_attempts=1,
-					)
-				except QuoteLookupError as fallback_exc:
-					combined_error = "; ".join((str(exc), str(fallback_exc)))
-					stale_quote = self.quote_cache.get_stale(normalized_symbol)
-					if stale_quote is not None:
-						return stale_quote, [
-							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {combined_error}",
-						]
-					raise QuoteLookupError(combined_error) from fallback_exc
-			elif secondary_provider is self.crypto_quote_provider:
-				try:
-					quote = await self.crypto_quote_provider.fetch_quote(normalized_symbol)
-				except QuoteLookupError as crypto_exc:
-					combined_error = "; ".join((str(exc), str(crypto_exc)))
-					stale_quote = self.quote_cache.get_stale(normalized_symbol)
-					if stale_quote is not None:
-						return stale_quote, [
-							f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {combined_error}",
-						]
-					raise QuoteLookupError(combined_error) from crypto_exc
-			else:
-				stale_quote = self.quote_cache.get_stale(normalized_symbol)
-				if stale_quote is not None:
-					return stale_quote, [
-						f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {exc}",
-					]
-				raise
-		else:
 			self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
 			return quote, []
 
-		self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
-		return quote, []
+		error_message = "; ".join(dict.fromkeys(errors))
+		if not error_message:
+			error_message = f"Quote provider request failed for {normalized_symbol}."
+		stale_quote = self.quote_cache.get_stale(normalized_symbol)
+		if stale_quote is not None:
+			return stale_quote, [
+				f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {error_message}",
+			]
+		raise QuoteLookupError(error_message)
 
 	async def fetch_hourly_price_series(
 		self,
@@ -1068,15 +1193,33 @@ class MarketDataClient:
 		if cached_rate is not None:
 			return cached_rate, []
 
-		try:
-			rate = await self.fx_provider.fetch_rate(from_code, to_code)
-		except (QuoteLookupError, ValueError) as exc:
-			stale_rate = self.fx_cache.get_stale(cache_key)
-			if stale_rate is not None:
-				return stale_rate, [
-					f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {exc}",
-				]
-			raise
+		errors: list[str] = []
+		rate_providers = (
+			(self.fx_provider, 1),
+			(self.fallback_fx_provider, 1),
+		)
+		for provider, retry_attempts in rate_providers:
+			try:
+				rate = await self._fetch_fx_rate_with_retry(
+					provider,
+					from_code,
+					to_code,
+					retry_attempts=retry_attempts,
+				)
+			except (QuoteLookupError, ValueError) as exc:
+				errors.append(str(exc))
+				continue
 
-		self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
-		return rate, []
+			self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
+			return rate, []
+
+		error_message = "; ".join(dict.fromkeys(errors))
+		if not error_message:
+			error_message = f"FX provider request failed for {from_code}/{to_code}."
+
+		stale_rate = self.fx_cache.get_stale(cache_key)
+		if stale_rate is not None:
+			return stale_rate, [
+				f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {error_message}",
+			]
+		raise QuoteLookupError(error_message)

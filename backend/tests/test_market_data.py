@@ -235,6 +235,26 @@ def test_fetch_quote_retries_china_provider_once_before_failing() -> None:
 	assert fallback_provider.calls == 2
 
 
+def test_fetch_quote_uses_backup_provider_when_china_sources_fail() -> None:
+	fallback_provider = SequenceQuoteProvider([QuoteLookupError("eastmoney timeout")])
+	backup_provider = SequenceQuoteProvider([
+		_make_quote(symbol="1810.HK", price=42.5, currency="HKD"),
+	])
+	client = MarketDataClient(
+		fallback_quote_provider=fallback_provider,
+		backup_quote_provider=backup_provider,
+	)
+
+	quote, warnings = asyncio.run(client.fetch_quote("1810.HK"))
+
+	assert quote.symbol == "1810.HK"
+	assert quote.price == 42.5
+	assert quote.currency == "HKD"
+	assert warnings == []
+	assert fallback_provider.calls == 2
+	assert backup_provider.calls == 1
+
+
 def test_clear_runtime_caches_clears_quote_and_fx_but_keeps_search_by_default() -> None:
 	client = MarketDataClient()
 	client.quote_cache.set("AAPL", _make_quote(), ttl_seconds=60)
@@ -451,6 +471,7 @@ def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:
 	client = MarketDataClient(
 		quote_provider=SequenceQuoteProvider([QuoteLookupError("quote down")]),
 		fx_provider=SequenceRateProvider([QuoteLookupError("fx down")]),
+		fallback_fx_provider=SequenceRateProvider([QuoteLookupError("fx backup down")]),
 		quote_cache=TTLCache[Quote](now=lambda: clock[0]),
 		fx_cache=TTLCache[float](now=lambda: clock[0]),
 		fx_ttl_seconds=300,
@@ -462,7 +483,7 @@ def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:
 
 	assert rate == 7.2
 	assert warnings == [
-		"USD/CNY 汇率源不可用，已回退到最近缓存值: fx down",
+		"USD/CNY 汇率源不可用，已回退到最近缓存值: fx down; fx backup down",
 	]
 
 
@@ -470,10 +491,27 @@ def test_fetch_fx_rate_raises_when_no_cache_and_providers_fail() -> None:
 	client = MarketDataClient(
 		quote_provider=SequenceQuoteProvider([QuoteLookupError("quote down")]),
 		fx_provider=SequenceRateProvider([QuoteLookupError("fx down")]),
+		fallback_fx_provider=SequenceRateProvider([QuoteLookupError("fx backup down")]),
 	)
 
-	with pytest.raises(QuoteLookupError, match="fx down"):
+	with pytest.raises(QuoteLookupError, match="fx down; fx backup down"):
 		asyncio.run(client.fetch_fx_rate("USD", "CNY"))
+
+
+def test_fetch_fx_rate_uses_fallback_provider_when_primary_fails() -> None:
+	primary_fx_provider = SequenceRateProvider([QuoteLookupError("frankfurter timeout")])
+	fallback_fx_provider = SequenceRateProvider([6.95])
+	client = MarketDataClient(
+		fx_provider=primary_fx_provider,
+		fallback_fx_provider=fallback_fx_provider,
+	)
+
+	rate, warnings = asyncio.run(client.fetch_fx_rate("USD", "CNY"))
+
+	assert rate == 6.95
+	assert warnings == []
+	assert primary_fx_provider.calls == 2
+	assert fallback_fx_provider.calls == 1
 
 
 class FailingMarketDataClient:
