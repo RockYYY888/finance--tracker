@@ -16,6 +16,7 @@ import {
 
 export interface OtherAssetFormProps {
 	mode?: AssetEditorMode;
+	resetKey?: number;
 	value?: Partial<OtherAssetFormDraft> | null;
 	recordId?: number | null;
 	title?: string;
@@ -54,6 +55,7 @@ function toOtherAssetInput(draft: OtherAssetFormDraft): OtherAssetInput {
 
 export function OtherAssetForm({
 	mode = "create",
+	resetKey = 0,
 	value,
 	recordId = null,
 	title,
@@ -73,7 +75,7 @@ export function OtherAssetForm({
 	useEffect(() => {
 		setDraft(toOtherAssetDraft(value));
 		setLocalError(null);
-	}, [mode, value]);
+	}, [mode, resetKey]);
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;

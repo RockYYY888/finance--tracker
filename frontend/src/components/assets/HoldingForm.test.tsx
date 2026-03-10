@@ -62,6 +62,43 @@ describe("HoldingForm create defaults", () => {
 	});
 });
 
+describe("HoldingForm reset behavior", () => {
+	it("keeps user input when upstream props refresh without a new editor session", () => {
+		const { rerender } = render(
+			<HoldingForm
+				resetKey={0}
+				maxStartedOnDate="2026-03-09"
+				value={{
+					side: "BUY",
+				}}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("数量"), {
+			target: { value: "12" },
+		});
+		fireEvent.change(screen.getByLabelText("备注"), {
+			target: { value: "等回调完成再确认" },
+		});
+
+		rerender(
+			<HoldingForm
+				resetKey={0}
+				maxStartedOnDate="2026-03-10"
+				value={{
+					side: "BUY",
+					symbol: "AAPL",
+				}}
+			/>,
+		);
+
+		expect((screen.getByLabelText("数量") as HTMLInputElement).value).toBe("12");
+		expect((screen.getByLabelText("备注") as HTMLTextAreaElement).value).toBe(
+			"等回调完成再确认",
+		);
+	});
+});
+
 describe("HoldingForm started_on guard", () => {
 	it("allows editing holding metadata without validating transaction date fields", async () => {
 		const onEdit = vi.fn().mockResolvedValue(undefined);
@@ -232,6 +269,25 @@ describe("HoldingForm sell proceeds handling", () => {
 				}),
 			);
 		});
+	});
+
+	it("clamps sell quantity to the available holding quantity while typing", () => {
+		render(
+			<HoldingForm
+				intent="sell"
+				maxStartedOnDate="2026-03-09"
+				existingHoldings={existingHoldings}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("卖出持仓"), {
+			target: { value: "AAPL::US" },
+		});
+		fireEvent.change(screen.getByLabelText(/数量/), {
+			target: { value: "5" },
+		});
+
+		expect((screen.getByLabelText(/数量/) as HTMLInputElement).value).toBe("3");
 	});
 
 	it("disables merging into an existing cash account when no cash account exists", () => {

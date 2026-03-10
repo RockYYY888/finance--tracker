@@ -4,10 +4,12 @@ import type {
 	AssetManagerController,
 	CashAccountInput,
 	CashAccountRecord,
+	CashTransferRecord,
 	FixedAssetInput,
 	FixedAssetRecord,
 	HoldingInput,
 	HoldingRecord,
+	HoldingTransactionRecord,
 	LiabilityInput,
 	LiabilityRecord,
 	OtherAssetInput,
@@ -17,9 +19,11 @@ import type {
 
 type HoldingTransactionApplyResponse = {
 	holding: HoldingRecord | null;
-	transaction: {
-		id: number;
-	};
+	transaction: HoldingTransactionRecord;
+};
+
+type CashTransferApplyResponse = {
+	transfer: CashTransferRecord;
 };
 
 function toJsonBody(
@@ -67,6 +71,8 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 					note: payload.note,
 					sell_proceeds_handling: payload.sell_proceeds_handling,
 					sell_proceeds_account_id: payload.sell_proceeds_account_id,
+					buy_funding_handling: payload.buy_funding_handling,
+					buy_funding_account_id: payload.buy_funding_account_id,
 				}),
 			},
 		);
@@ -96,6 +102,18 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			apiClient.request<void>(`/api/accounts/${recordId}`, {
 				method: "DELETE",
 			}),
+		listCashTransfers: () => apiClient.request<CashTransferRecord[]>("/api/cash-transfers"),
+		createCashTransfer: async (payload) => {
+			const response = await apiClient.request<CashTransferApplyResponse>("/api/cash-transfers", {
+				method: "POST",
+				body: JSON.stringify(payload),
+			});
+			return response.transfer;
+		},
+		deleteCashTransfer: (recordId) =>
+			apiClient.request<void>(`/api/cash-transfers/${recordId}`, {
+				method: "DELETE",
+			}),
 		listHoldings: async () => {
 			const holdings = await apiClient.request<HoldingRecord[]>("/api/holdings");
 			return holdings.map((record) => ({
@@ -120,6 +138,33 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 		},
 		deleteHolding: (recordId) =>
 			apiClient.request<void>(`/api/holdings/${recordId}`, {
+				method: "DELETE",
+			}),
+		listHoldingTransactions: () =>
+			apiClient.request<HoldingTransactionRecord[]>("/api/holding-transactions"),
+		updateHoldingTransaction: async (recordId, payload) => {
+			const response = await apiClient.request<HoldingTransactionApplyResponse>(
+				`/api/holding-transactions/${recordId}`,
+				{
+					method: "PATCH",
+					body: JSON.stringify({
+						quantity: payload.quantity,
+						price: payload.price,
+						fallback_currency: payload.fallback_currency,
+						broker: payload.broker,
+						traded_on: payload.traded_on,
+						note: payload.note,
+						sell_proceeds_handling: payload.sell_proceeds_handling,
+						sell_proceeds_account_id: payload.sell_proceeds_account_id,
+						buy_funding_handling: payload.buy_funding_handling,
+						buy_funding_account_id: payload.buy_funding_account_id,
+					}),
+				},
+			);
+			return response.transaction;
+		},
+		deleteHoldingTransaction: (recordId) =>
+			apiClient.request<void>(`/api/holding-transactions/${recordId}`, {
 				method: "DELETE",
 			}),
 		listFixedAssets: () => apiClient.request<FixedAssetRecord[]>("/api/fixed-assets"),
@@ -186,12 +231,22 @@ export function createAssetManagerController(
 			onDelete: (recordId) => assetApiClient.deleteCashAccount(recordId),
 			onRefresh: () => assetApiClient.listCashAccounts(),
 		},
+		cashTransfers: {
+			onCreate: (payload) => assetApiClient.createCashTransfer(payload),
+			onDelete: (recordId) => assetApiClient.deleteCashTransfer(recordId),
+			onRefresh: () => assetApiClient.listCashTransfers(),
+		},
 		holdings: {
 			onCreate: (payload) => assetApiClient.createHolding(payload),
 			onEdit: (recordId, payload) => assetApiClient.updateHolding(recordId, payload),
 			onDelete: (recordId) => assetApiClient.deleteHolding(recordId),
 			onRefresh: () => assetApiClient.listHoldings(),
 			onSearch: (query) => assetApiClient.searchSecurities(query),
+		},
+		holdingTransactions: {
+			onEdit: (recordId, payload) => assetApiClient.updateHoldingTransaction(recordId, payload),
+			onDelete: (recordId) => assetApiClient.deleteHoldingTransaction(recordId),
+			onRefresh: () => assetApiClient.listHoldingTransactions(),
 		},
 		fixedAssets: {
 			onCreate: (payload) => assetApiClient.createFixedAsset(payload),

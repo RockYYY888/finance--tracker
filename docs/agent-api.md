@@ -73,6 +73,7 @@ These session-based token-management routes are meant for interactive human cont
 ## Core Endpoints
 
 Trading events are the source of truth for holdings and holding-return charts.
+Cash ledger events are the source of truth for cash balances and portfolio-total replay.
 Use holding routes only for metadata reads or metadata-only edits.
 
 - `GET /api/agent/context`
@@ -84,9 +85,17 @@ Use holding routes only for metadata reads or metadata-only edits.
 - `POST /api/accounts`
   Creates a cash account
 - `PUT /api/accounts/{account_id}`
-  Updates a cash account
+  Updates account metadata and reconciles the initial-balance ledger entry
 - `DELETE /api/accounts/{account_id}`
-  Deletes a cash account
+  Deletes a cash account only when it has no non-baseline ledger activity
+- `GET /api/cash-ledger`
+  Lists ledger entries, supports `account_id` and `limit`
+- `GET /api/cash-transfers`
+  Lists account-to-account transfer events
+- `POST /api/cash-transfers`
+  Creates a transfer event and writes paired ledger entries
+- `DELETE /api/cash-transfers/{transfer_id}`
+  Deletes a transfer event and rolls back paired ledger entries
 - `GET /api/holdings`
   Lists current holdings
 - `PUT /api/holdings/{holding_id}`
@@ -100,13 +109,34 @@ Use holding routes only for metadata reads or metadata-only edits.
 - `POST /api/holding-transactions`
   Appends a buy or sell transaction and rebuilds holding projection
 - `PATCH /api/holding-transactions/{transaction_id}`
-  Edits one transaction and replays holding projection plus linked sell-proceeds cash effects
+  Edits one transaction and replays holding projection plus linked cash settlement effects
 - `DELETE /api/holding-transactions/{transaction_id}`
-  Deletes one transaction, reconciles holding projection, and rolls back linked sell-proceeds cash effects
+  Deletes one transaction, reconciles holding projection, and rolls back linked cash settlement effects
+- `GET /api/agent/tasks`
+  Lists structured agent tasks
+- `POST /api/agent/tasks`
+  Executes a validated task envelope for buy, sell, transfer, or trade correction
 - `GET /api/securities/search?q=...`
   Searches tradable symbols
 - `GET /api/securities/quote?symbol=...&market=...`
   Fetches the latest cached or live quote for a symbol
+
+## Idempotency
+
+For agent-triggered create calls, send:
+
+```http
+Idempotency-Key: <unique_key_per_intent>
+```
+
+Supported now:
+
+- `POST /api/holding-transactions`
+- `POST /api/cash-transfers`
+- `POST /api/agent/tasks`
+
+If the same key is reused with the same request body, the backend replays the original response.
+If the key is reused with a different body, the backend returns `409`.
 
 ## Minimal Agent Call Pattern
 
@@ -115,6 +145,13 @@ Use holding routes only for metadata reads or metadata-only edits.
 3. `GET /api/securities/quote`
 4. `POST /api/holding-transactions`
 5. `GET /api/agent/context`
+
+For cash movement:
+
+1. `GET /api/agent/context`
+2. `GET /api/cash-ledger`
+3. `POST /api/cash-transfers`
+4. `GET /api/agent/context`
 
 If the agent needs to correct a previously recorded trade, prefer
 `PATCH /api/holding-transactions/{transaction_id}`.
@@ -126,6 +163,7 @@ Do not patch `/api/holdings/{holding_id}` for quantity, cost, or dates.
 curl -X POST http://127.0.0.1:8080/api/holding-transactions \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
+  -H 'Idempotency-Key: buy-aapl-20260309-001' \
   -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "side": "BUY",
@@ -137,7 +175,9 @@ curl -X POST http://127.0.0.1:8080/api/holding-transactions \
     "market": "US",
     "broker": "Futu",
     "traded_on": "2026-03-09",
-    "note": "agent buy"
+    "note": "agent buy",
+    "buy_funding_handling": "DEDUCT_FROM_EXISTING_CASH",
+    "buy_funding_account_id": 3
   }'
 ```
 
@@ -147,6 +187,7 @@ curl -X POST http://127.0.0.1:8080/api/holding-transactions \
 curl -X POST http://127.0.0.1:8080/api/holding-transactions \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
+  -H 'Idempotency-Key: sell-aapl-20260309-001' \
   -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "side": "SELL",
@@ -164,6 +205,23 @@ curl -X POST http://127.0.0.1:8080/api/holding-transactions \
   }'
 ```
 
+## Cash Transfer Example
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/cash-transfers \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'Idempotency-Key: transfer-20260309-001' \
+  -H 'X-API-Key: <server_api_token_if_configured>' \
+  -d '{
+    "from_account_id": 3,
+    "to_account_id": 9,
+    "source_amount": 500,
+    "transferred_on": "2026-03-09",
+    "note": "rebalance broker cash"
+  }'
+```
+
 ## Trade Correction Example
 
 ```bash
@@ -175,7 +233,28 @@ curl -X PATCH http://127.0.0.1:8080/api/holding-transactions/42 \
     "traded_on": "2026-03-07",
     "quantity": 2,
     "price": 191.2,
-    "note": "corrected after broker confirmation"
+    "note": "corrected after broker confirmation",
+    "sell_proceeds_handling": "ADD_TO_EXISTING_CASH",
+    "sell_proceeds_account_id": 9
+  }'
+```
+
+## Agent Task Example
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/agent/tasks \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'Idempotency-Key: task-20260309-001' \
+  -H 'X-API-Key: <server_api_token_if_configured>' \
+  -d '{
+    "task_type": "CREATE_CASH_TRANSFER",
+    "payload": {
+      "from_account_id": 3,
+      "to_account_id": 9,
+      "source_amount": 500,
+      "transferred_on": "2026-03-09"
+    }
   }'
 ```
 
@@ -183,7 +262,8 @@ curl -X PATCH http://127.0.0.1:8080/api/holding-transactions/42 \
 
 - Holding return charts are rebuilt from transaction history
 - Editing a transaction date moves the affected holding return curve because replay starts from the updated trade date
-- Portfolio total value charts still use stored portfolio snapshots rather than a full cash-ledger replay
+- Portfolio total value charts are rebuilt from cash-ledger events, holding transactions, and asset start dates
+- Buy-side cash deductions and account transfers now change both current totals and replayed timeline history
 
 ## Secret Handling
 

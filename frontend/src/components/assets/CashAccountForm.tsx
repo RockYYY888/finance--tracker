@@ -17,6 +17,7 @@ import {
 
 export interface CashAccountFormProps {
 	mode?: AssetEditorMode;
+	resetKey?: number;
 	value?: Partial<CashAccountFormDraft> | null;
 	recordId?: number | null;
 	title?: string;
@@ -56,6 +57,7 @@ function toCashAccountInput(draft: CashAccountFormDraft): CashAccountInput {
 
 export function CashAccountForm({
 	mode = "create",
+	resetKey = 0,
 	value,
 	recordId = null,
 	title,
@@ -77,7 +79,7 @@ export function CashAccountForm({
 	useEffect(() => {
 		setDraft(toCashAccountDraft(value));
 		setLocalError(null);
-	}, [mode, value]);
+	}, [mode, resetKey]);
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;
@@ -231,7 +233,7 @@ export function CashAccountForm({
 				<div className="asset-manager__form-actions">
 					<button
 						type="submit"
-						className="asset-manager__button"
+						className="asset-manager__button asset-manager__button--legacy-add"
 						disabled={isSubmitting}
 					>
 						{isSubmitting ? "保存中..." : resolvedSubmitLabel}
@@ -251,7 +253,7 @@ export function CashAccountForm({
 					{mode === "edit" && recordId !== null && onDelete ? (
 						<button
 							type="button"
-							className="asset-manager__button asset-manager__button--danger"
+							className="asset-manager__button asset-manager__button--legacy-delete"
 							onClick={() => void handleDelete()}
 							disabled={isSubmitting}
 						>

@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, text
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlmodel import Session, select
@@ -23,6 +23,11 @@ from app.analytics import bucket_start_utc, build_return_timeline, build_timelin
 from app.database import engine, get_session, init_db
 from app.models import (
 	ASSET_MUTATION_OPERATIONS,
+	AGENT_TASK_STATUSES,
+	AGENT_TASK_TYPES,
+	BUY_FUNDING_HANDLINGS,
+	CASH_LEDGER_ENTRY_TYPES,
+	CASH_SETTLEMENT_DIRECTIONS,
 	FEEDBACK_CATEGORIES,
 	FEEDBACK_PRIORITIES,
 	FEEDBACK_SOURCES,
@@ -31,8 +36,12 @@ from app.models import (
 	INBOX_MESSAGE_KINDS,
 	HOLDING_HISTORY_SYNC_STATUSES,
 	AgentAccessToken,
+	AgentIdempotencyKey,
+	AgentTask,
 	AssetMutationAudit,
 	CashAccount,
+	CashLedgerEntry,
+	CashTransfer,
 	DashboardCorrection,
 	FixedAsset,
 	HoldingHistorySyncRequest,
@@ -53,6 +62,8 @@ from app.models import (
 from app.schemas import (
 	ActionMessageRead,
 	AgentContextRead,
+	AgentTaskCreate,
+	AgentTaskRead,
 	AgentTokenCreate,
 	AgentTokenIssueCreate,
 	AgentTokenIssueRead,
@@ -69,6 +80,10 @@ from app.schemas import (
 	AuthSessionRead,
 	CashAccountCreate,
 	CashAccountRead,
+	CashLedgerEntryRead,
+	CashTransferApplyRead,
+	CashTransferCreate,
+	CashTransferRead,
 	CashAccountUpdate,
 	DashboardCorrectionCreate,
 	DashboardCorrectionRead,
@@ -182,11 +197,13 @@ class LiveHoldingsReturnState:
 
 
 @dataclass(slots=True)
-class AppliedSellProceeds:
+class AppliedCashSettlement:
 	cash_account: CashAccount
 	settled_amount: float
 	settled_currency: str
 	handling: str
+	flow_direction: str
+	ledger_entry_type: str
 	auto_created_cash_account: bool
 
 
@@ -240,6 +257,115 @@ def _filter_dashboard_warnings_for_user(
 	return [warning for warning in warnings if not _is_cache_fallback_warning(warning)]
 
 
+def _normalize_idempotency_key(value: str | None) -> str | None:
+	if value is None:
+		return None
+	normalized = value.strip()
+	return normalized or None
+
+
+def _build_idempotency_request_hash(payload: Any) -> str:
+	if hasattr(payload, "model_dump"):
+		serialized_payload = payload.model_dump(mode="json")
+	else:
+		serialized_payload = payload
+	return hashlib.sha256(
+		json.dumps(serialized_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+			"utf-8",
+		),
+	).hexdigest()
+
+
+def _load_idempotency_record(
+	session: Session,
+	*,
+	user_id: str,
+	scope: str,
+	idempotency_key: str,
+) -> AgentIdempotencyKey | None:
+	return session.exec(
+		select(AgentIdempotencyKey)
+		.where(AgentIdempotencyKey.user_id == user_id)
+		.where(AgentIdempotencyKey.scope == scope)
+		.where(AgentIdempotencyKey.idempotency_key == idempotency_key),
+	).first()
+
+
+def _load_idempotent_response(
+	session: Session,
+	*,
+	user_id: str,
+	scope: str,
+	idempotency_key: str | None,
+	request_hash: str,
+	response_model: type[Any],
+) -> Any | None:
+	normalized_key = _normalize_idempotency_key(idempotency_key)
+	if normalized_key is None:
+		return None
+
+	record = _load_idempotency_record(
+		session,
+		user_id=user_id,
+		scope=scope,
+		idempotency_key=normalized_key,
+	)
+	if record is None:
+		return None
+	if record.request_hash != request_hash:
+		raise HTTPException(status_code=409, detail="同一幂等键对应的请求参数不一致。")
+	return response_model.model_validate(json.loads(record.response_json))
+
+
+def _store_idempotent_response(
+	session: Session,
+	*,
+	user_id: str,
+	scope: str,
+	idempotency_key: str | None,
+	request_hash: str,
+	response: Any,
+) -> None:
+	normalized_key = _normalize_idempotency_key(idempotency_key)
+	if normalized_key is None:
+		return
+
+	response_payload = (
+		response.model_dump(mode="json")
+		if hasattr(response, "model_dump")
+		else response
+	)
+	record = _load_idempotency_record(
+		session,
+		user_id=user_id,
+		scope=scope,
+		idempotency_key=normalized_key,
+	)
+	if record is None:
+		record = AgentIdempotencyKey(
+			user_id=user_id,
+			scope=scope,
+			idempotency_key=normalized_key,
+			request_hash=request_hash,
+			response_json=json.dumps(
+				response_payload,
+				sort_keys=True,
+				separators=(",", ":"),
+				ensure_ascii=False,
+			),
+		)
+	else:
+		record.request_hash = request_hash
+		record.response_json = json.dumps(
+			response_payload,
+			sort_keys=True,
+			separators=(",", ":"),
+			ensure_ascii=False,
+		)
+		_touch_model(record)
+	session.add(record)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
 	global background_refresh_task
@@ -248,6 +374,7 @@ async def lifespan(_: FastAPI):
 	_ensure_legacy_schema()
 	_migrate_legacy_holdings_to_transactions()
 	_backfill_holding_transaction_cash_settlements()
+	_backfill_cash_ledger_entries()
 	_audit_legacy_user_ownership()
 
 	try:
@@ -938,6 +1065,276 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 			"; ".join(history_warnings[:8]),
 		)
 
+	await _rebuild_user_portfolio_snapshots(session, user_id)
+
+
+def _resolve_asset_start_date(
+	started_on: date | None,
+	created_at: datetime | None = None,
+) -> date | None:
+	if started_on is not None:
+		return started_on
+	if created_at is None:
+		return None
+	return _coerce_utc_datetime(created_at).date()
+
+
+async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> None:
+	now = utc_now()
+	end_hour = _current_hour_bucket(now)
+	cash_accounts = list(
+		session.exec(
+			select(CashAccount)
+			.where(CashAccount.user_id == user_id)
+			.order_by(CashAccount.id.asc()),
+		),
+	)
+	ledger_entries = list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.user_id == user_id)
+			.order_by(
+				CashLedgerEntry.happened_on.asc(),
+				CashLedgerEntry.created_at.asc(),
+				CashLedgerEntry.id.asc(),
+			),
+		),
+	)
+	transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == user_id)
+			.order_by(
+				SecurityHoldingTransaction.symbol,
+				SecurityHoldingTransaction.market,
+				SecurityHoldingTransaction.traded_on,
+				SecurityHoldingTransaction.created_at,
+				SecurityHoldingTransaction.id,
+			),
+		),
+	)
+	fixed_assets = list(
+		session.exec(
+			select(FixedAsset)
+			.where(FixedAsset.user_id == user_id)
+			.order_by(FixedAsset.id.asc()),
+		),
+	)
+	liabilities = list(
+		session.exec(
+			select(LiabilityEntry)
+			.where(LiabilityEntry.user_id == user_id)
+			.order_by(LiabilityEntry.id.asc()),
+		),
+	)
+	other_assets = list(
+		session.exec(
+			select(OtherAsset)
+			.where(OtherAsset.user_id == user_id)
+			.order_by(OtherAsset.id.asc()),
+		),
+	)
+
+	start_candidates: list[date] = []
+	start_candidates.extend(entry.happened_on for entry in ledger_entries)
+	start_candidates.extend(transaction.traded_on for transaction in transactions)
+	start_candidates.extend(
+		filter(
+			None,
+			[
+				_resolve_asset_start_date(asset.started_on, asset.created_at)
+				for asset in fixed_assets
+			],
+		),
+	)
+	start_candidates.extend(
+		filter(
+			None,
+			[
+				_resolve_asset_start_date(asset.started_on, asset.created_at)
+				for asset in liabilities
+			],
+		),
+	)
+	start_candidates.extend(
+		filter(
+			None,
+			[
+				_resolve_asset_start_date(asset.started_on, asset.created_at)
+				for asset in other_assets
+			],
+		),
+	)
+	if not start_candidates:
+		session.exec(delete(PortfolioSnapshot).where(PortfolioSnapshot.user_id == user_id))
+		return
+
+	start_at = _date_start_utc(min(start_candidates))
+	if start_at > end_hour:
+		session.exec(delete(PortfolioSnapshot).where(PortfolioSnapshot.user_id == user_id))
+		return
+
+	hours = _build_hour_buckets(start_at, end_hour)
+	hour_totals = {hour: 0.0 for hour in hours}
+	fx_rate_cache: dict[str, float] = {"CNY": 1.0}
+
+	async def resolve_fx_rate(currency_code: str) -> float:
+		normalized_currency = _normalize_currency(currency_code)
+		if normalized_currency in fx_rate_cache:
+			return fx_rate_cache[normalized_currency]
+		try:
+			rate, _warnings = await market_data_client.fetch_fx_rate(normalized_currency, "CNY")
+		except (QuoteLookupError, ValueError):
+			rate = 0.0
+		fx_rate_cache[normalized_currency] = rate
+		return rate
+
+	account_currency_by_id: dict[int, str] = {
+		account.id or 0: _normalize_currency(account.currency) for account in cash_accounts
+	}
+	cash_entries_by_date: dict[date, list[CashLedgerEntry]] = {}
+	for entry in ledger_entries:
+		account_currency_by_id.setdefault(entry.cash_account_id, _normalize_currency(entry.currency))
+		cash_entries_by_date.setdefault(entry.happened_on, []).append(entry)
+
+	cash_event_dates = sorted(cash_entries_by_date)
+	cash_event_index = 0
+	cash_balances: dict[int, float] = {}
+	for hour in hours:
+		while (
+			cash_event_index < len(cash_event_dates)
+			and _date_start_utc(cash_event_dates[cash_event_index]) <= hour
+		):
+			for entry in cash_entries_by_date[cash_event_dates[cash_event_index]]:
+				cash_balances[entry.cash_account_id] = round(
+					cash_balances.get(entry.cash_account_id, 0.0) + entry.amount,
+					8,
+				)
+			cash_event_index += 1
+
+		cash_total = 0.0
+		for account_id, balance in cash_balances.items():
+			if abs(balance) <= HOLDING_QUANTITY_EPSILON:
+				continue
+			fx_rate = await resolve_fx_rate(account_currency_by_id.get(account_id, "CNY"))
+			cash_total += balance * fx_rate
+		hour_totals[hour] += round(cash_total, 8)
+
+	transactions_by_symbol: dict[tuple[str, str], list[SecurityHoldingTransaction]] = {}
+	for transaction in transactions:
+		transactions_by_symbol.setdefault((transaction.symbol, transaction.market), []).append(transaction)
+
+	for (symbol, market), symbol_transactions in transactions_by_symbol.items():
+		sorted_transactions = sorted(symbol_transactions, key=_holding_transaction_sort_key)
+		if not sorted_transactions:
+			continue
+
+		symbol_start = _date_start_utc(sorted_transactions[0].traded_on)
+		try:
+			known_points, history_currency, _warnings = await market_data_client.fetch_hourly_price_series(
+				symbol,
+				market=market,
+				start_at=symbol_start,
+				end_at=end_hour + timedelta(hours=1),
+			)
+		except (QuoteLookupError, ValueError):
+			known_points, history_currency = [], None
+		fallback_price = next(
+			(
+				item.price
+				for item in reversed(sorted_transactions)
+				if item.price is not None and item.price > 0
+			),
+			0.0,
+		)
+		currency_for_pricing = history_currency
+		if not known_points or not currency_for_pricing:
+			try:
+				latest_quote, _quote_warnings = await market_data_client.fetch_quote(symbol, market)
+			except (QuoteLookupError, ValueError):
+				latest_quote = None
+			if latest_quote is not None and latest_quote.price > 0:
+				fallback_price = latest_quote.price
+			if latest_quote is not None and latest_quote.currency:
+				currency_for_pricing = currency_for_pricing or latest_quote.currency
+
+		fx_rate = await resolve_fx_rate(
+			currency_for_pricing or sorted_transactions[-1].fallback_currency,
+		)
+		filled_prices = _fill_hourly_prices(hours, known_points, fallback_price)
+		transactions_by_date: dict[date, list[SecurityHoldingTransaction]] = {}
+		for item in sorted_transactions:
+			transactions_by_date.setdefault(item.traded_on, []).append(item)
+
+		event_dates = sorted(transactions_by_date)
+		event_index = 0
+		first_transaction = sorted_transactions[0]
+		projected_state = ProjectedHoldingState(
+			symbol=symbol,
+			name=first_transaction.name,
+			market=market,
+			fallback_currency=first_transaction.fallback_currency,
+			broker=first_transaction.broker,
+			note=first_transaction.note,
+			lots=[],
+		)
+		for hour in hours:
+			while event_index < len(event_dates) and _date_start_utc(event_dates[event_index]) <= hour:
+				for event_transaction in transactions_by_date[event_dates[event_index]]:
+					_apply_holding_transaction_to_state(projected_state, event_transaction)
+				event_index += 1
+
+			quantity = _projected_holding_quantity(projected_state)
+			if quantity <= HOLDING_QUANTITY_EPSILON:
+				continue
+			price = filled_prices.get(hour, 0.0)
+			if price <= 0:
+				continue
+			hour_totals[hour] += round(quantity * price * fx_rate, 8)
+
+	static_value_deltas: dict[datetime, float] = {}
+
+	def add_static_value(start_date: date | None, value_cny: float) -> None:
+		if start_date is None or value_cny == 0:
+			return
+		bucket = _date_start_utc(start_date)
+		if bucket > end_hour:
+			return
+		static_value_deltas[bucket] = static_value_deltas.get(bucket, 0.0) + value_cny
+
+	for asset in fixed_assets:
+		add_static_value(
+			_resolve_asset_start_date(asset.started_on, asset.created_at),
+			round(asset.current_value_cny, 8),
+		)
+	for asset in other_assets:
+		add_static_value(
+			_resolve_asset_start_date(asset.started_on, asset.created_at),
+			round(asset.current_value_cny, 8),
+		)
+	for liability in liabilities:
+		fx_rate = await resolve_fx_rate(liability.currency)
+		add_static_value(
+			_resolve_asset_start_date(liability.started_on, liability.created_at),
+			-round(liability.balance * fx_rate, 8),
+		)
+
+	running_static_total = 0.0
+	rows: list[PortfolioSnapshot] = []
+	for hour in hours:
+		running_static_total += static_value_deltas.get(hour, 0.0)
+		rows.append(
+			PortfolioSnapshot(
+				user_id=user_id,
+				total_value_cny=round(hour_totals.get(hour, 0.0) + running_static_total, 2),
+				created_at=hour,
+			),
+		)
+
+	session.exec(delete(PortfolioSnapshot).where(PortfolioSnapshot.user_id == user_id))
+	if rows:
+		session.add_all(rows)
+
 	live_holdings_return_states.pop(user_id, None)
 	_invalidate_dashboard_cache(user_id)
 
@@ -1079,6 +1476,12 @@ def _ensure_legacy_schema() -> None:
 			HoldingPerformanceSnapshot.__table__.name,
 			{
 				"user_id": "TEXT",
+			},
+		),
+		(
+			HoldingTransactionCashSettlement.__table__.name,
+			{
+				"flow_direction": "TEXT NOT NULL DEFAULT 'INFLOW'",
 			},
 		),
 	)
@@ -1265,6 +1668,85 @@ def _backfill_holding_transaction_cash_settlements() -> None:
 
 		if has_changes:
 			session.commit()
+
+
+def _backfill_cash_ledger_entries() -> None:
+	with Session(engine) as session:
+		has_changes = False
+		settlements = list(session.exec(select(HoldingTransactionCashSettlement)))
+		existing_ledger_keys = {
+			(entry.holding_transaction_id, entry.entry_type)
+			for entry in session.exec(select(CashLedgerEntry)).all()
+			if entry.holding_transaction_id is not None
+		}
+
+		for settlement in settlements:
+			transaction = session.get(SecurityHoldingTransaction, settlement.holding_transaction_id)
+			if transaction is None:
+				continue
+			if settlement.flow_direction not in CASH_SETTLEMENT_DIRECTIONS:
+				settlement.flow_direction = "INFLOW"
+				session.add(settlement)
+				has_changes = True
+
+			entry_type = "BUY_FUNDING" if settlement.flow_direction == "OUTFLOW" else "SELL_PROCEEDS"
+			entry_key = (transaction.id or 0, entry_type)
+			if entry_key in existing_ledger_keys:
+				continue
+
+			session.add(
+				CashLedgerEntry(
+					user_id=settlement.user_id,
+					cash_account_id=settlement.cash_account_id,
+					entry_type=entry_type,
+					amount=(
+						-round(settlement.settled_amount, 8)
+						if settlement.flow_direction == "OUTFLOW"
+						else round(settlement.settled_amount, 8)
+					),
+					currency=_normalize_currency(settlement.settled_currency),
+					happened_on=transaction.traded_on,
+					note=transaction.note,
+					holding_transaction_id=transaction.id,
+				),
+			)
+			existing_ledger_keys.add(entry_key)
+			has_changes = True
+
+		accounts = list(session.exec(select(CashAccount)))
+		for account in accounts:
+			initial_entry = _get_cash_account_initial_ledger_entry(
+				session,
+				user_id=account.user_id,
+				cash_account_id=account.id or 0,
+			)
+			if initial_entry is None:
+				non_initial_total = _sum_cash_account_ledger_balance(
+					session,
+					user_id=account.user_id,
+					cash_account_id=account.id or 0,
+				)
+				session.add(
+					CashLedgerEntry(
+						user_id=account.user_id,
+						cash_account_id=account.id or 0,
+						entry_type="INITIAL_BALANCE",
+						amount=round(account.balance - non_initial_total, 8),
+						currency=_normalize_currency(account.currency),
+						happened_on=account.started_on
+						or _coerce_utc_datetime(account.created_at).date(),
+						note="账户初始余额",
+					),
+				)
+				has_changes = True
+
+		if not has_changes:
+			return
+
+		session.flush()
+		for account in accounts:
+			_sync_cash_account_balance_from_ledger(session, account=account)
+		session.commit()
 
 
 async def _load_display_fx_rates() -> tuple[dict[str, float], float | None, float | None, list[str]]:
@@ -1533,6 +2015,52 @@ def _to_cash_account_read(account: CashAccount) -> CashAccountRead:
 	)
 
 
+def _to_cash_ledger_entry_read(entry: CashLedgerEntry) -> CashLedgerEntryRead:
+	return CashLedgerEntryRead(
+		id=entry.id or 0,
+		cash_account_id=entry.cash_account_id,
+		entry_type=entry.entry_type,
+		amount=entry.amount,
+		currency=entry.currency,
+		happened_on=entry.happened_on,
+		note=entry.note,
+		holding_transaction_id=entry.holding_transaction_id,
+		cash_transfer_id=entry.cash_transfer_id,
+		created_at=entry.created_at,
+		updated_at=entry.updated_at,
+	)
+
+
+def _to_cash_transfer_read(transfer: CashTransfer) -> CashTransferRead:
+	return CashTransferRead(
+		id=transfer.id or 0,
+		from_account_id=transfer.from_account_id,
+		to_account_id=transfer.to_account_id,
+		source_amount=transfer.source_amount,
+		target_amount=transfer.target_amount,
+		source_currency=transfer.source_currency,
+		target_currency=transfer.target_currency,
+		transferred_on=transfer.transferred_on,
+		note=transfer.note,
+		created_at=transfer.created_at,
+		updated_at=transfer.updated_at,
+	)
+
+
+def _to_agent_task_read(task: AgentTask) -> AgentTaskRead:
+	return AgentTaskRead(
+		id=task.id or 0,
+		task_type=task.task_type,
+		status=task.status,
+		payload=json.loads(task.input_json),
+		result=json.loads(task.result_json) if task.result_json else None,
+		error_message=task.error_message,
+		created_at=task.created_at,
+		updated_at=task.updated_at,
+		completed_at=task.completed_at,
+	)
+
+
 def _to_holding_read(holding: SecurityHolding) -> SecurityHoldingRead:
 	valued_holdings, _, _warnings = asyncio.run(_value_holdings([holding]))
 	valued_holding = valued_holdings[0] if valued_holdings else None
@@ -1559,6 +2087,18 @@ def _to_holding_transaction_read(
 	transaction: SecurityHoldingTransaction,
 	settlement: HoldingTransactionCashSettlement | None = None,
 ) -> SecurityHoldingTransactionRead:
+	sell_proceeds_handling: str | None = None
+	sell_proceeds_account_id: int | None = None
+	buy_funding_handling: str | None = None
+	buy_funding_account_id: int | None = None
+	if settlement is not None:
+		if settlement.flow_direction == "INFLOW":
+			sell_proceeds_handling = settlement.handling
+			sell_proceeds_account_id = settlement.cash_account_id
+		elif settlement.flow_direction == "OUTFLOW":
+			buy_funding_handling = settlement.handling
+			buy_funding_account_id = settlement.cash_account_id
+
 	return SecurityHoldingTransactionRead(
 		id=transaction.id or 0,
 		symbol=transaction.symbol,
@@ -1571,8 +2111,10 @@ def _to_holding_transaction_read(
 		broker=transaction.broker,
 		traded_on=transaction.traded_on,
 		note=transaction.note,
-		sell_proceeds_handling=settlement.handling if settlement is not None else None,
-		sell_proceeds_account_id=settlement.cash_account_id if settlement is not None else None,
+		sell_proceeds_handling=sell_proceeds_handling,
+		sell_proceeds_account_id=sell_proceeds_account_id,
+		buy_funding_handling=buy_funding_handling,
+		buy_funding_account_id=buy_funding_account_id,
 		created_at=transaction.created_at,
 		updated_at=transaction.updated_at,
 	)
@@ -2146,10 +2688,189 @@ def _convert_cash_amount_between_currencies(
 	except (QuoteLookupError, ValueError) as exc:
 		raise HTTPException(
 			status_code=422,
-			detail=f"无法将卖出回款从 {source_currency} 换算为 {target_currency}: {exc}",
+			detail=f"无法将现金金额从 {source_currency} 换算为 {target_currency}: {exc}",
 		) from exc
 
 	return round(amount * rate, 8), round(rate, 8)
+
+
+def _list_cash_ledger_entries_for_account(
+	session: Session,
+	*,
+	user_id: str,
+	cash_account_id: int,
+) -> list[CashLedgerEntry]:
+	return list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.user_id == user_id)
+			.where(CashLedgerEntry.cash_account_id == cash_account_id)
+			.order_by(
+				CashLedgerEntry.happened_on.asc(),
+				CashLedgerEntry.created_at.asc(),
+				CashLedgerEntry.id.asc(),
+			),
+		),
+	)
+
+
+def _get_cash_account_initial_ledger_entry(
+	session: Session,
+	*,
+	user_id: str,
+	cash_account_id: int,
+) -> CashLedgerEntry | None:
+	return session.exec(
+		select(CashLedgerEntry)
+		.where(CashLedgerEntry.user_id == user_id)
+		.where(CashLedgerEntry.cash_account_id == cash_account_id)
+		.where(CashLedgerEntry.entry_type == "INITIAL_BALANCE")
+		.where(CashLedgerEntry.holding_transaction_id.is_(None))
+		.where(CashLedgerEntry.cash_transfer_id.is_(None))
+		.order_by(CashLedgerEntry.created_at.asc(), CashLedgerEntry.id.asc()),
+	).first()
+
+
+def _sum_cash_account_ledger_balance(
+	session: Session,
+	*,
+	user_id: str,
+	cash_account_id: int,
+	exclude_entry_id: int | None = None,
+) -> float:
+	entries = _list_cash_ledger_entries_for_account(
+		session,
+		user_id=user_id,
+		cash_account_id=cash_account_id,
+	)
+	total = 0.0
+	for entry in entries:
+		if exclude_entry_id is not None and entry.id == exclude_entry_id:
+			continue
+		total += entry.amount
+	return round(total, 8)
+
+
+def _sync_cash_account_balance_from_ledger(
+	session: Session,
+	*,
+	account: CashAccount,
+) -> float:
+	account.balance = _sum_cash_account_ledger_balance(
+		session,
+		user_id=account.user_id,
+		cash_account_id=account.id or 0,
+	)
+	_touch_model(account)
+	session.add(account)
+	session.flush()
+	return account.balance
+
+
+def _create_cash_ledger_entry(
+	session: Session,
+	*,
+	user_id: str,
+	cash_account_id: int,
+	entry_type: str,
+	amount: float,
+	currency: str,
+	happened_on: date,
+	note: str | None = None,
+	holding_transaction_id: int | None = None,
+	cash_transfer_id: int | None = None,
+) -> CashLedgerEntry:
+	entry = CashLedgerEntry(
+		user_id=user_id,
+		cash_account_id=cash_account_id,
+		entry_type=entry_type,
+		amount=round(amount, 8),
+		currency=_normalize_currency(currency),
+		happened_on=happened_on,
+		note=_normalize_optional_text(note),
+		holding_transaction_id=holding_transaction_id,
+		cash_transfer_id=cash_transfer_id,
+	)
+	session.add(entry)
+	session.flush()
+	return entry
+
+
+def _reconcile_cash_account_initial_ledger_entry(
+	session: Session,
+	*,
+	account: CashAccount,
+	target_balance: float,
+) -> CashLedgerEntry:
+	initial_entry = _get_cash_account_initial_ledger_entry(
+		session,
+		user_id=account.user_id,
+		cash_account_id=account.id or 0,
+	)
+	non_initial_total = _sum_cash_account_ledger_balance(
+		session,
+		user_id=account.user_id,
+		cash_account_id=account.id or 0,
+		exclude_entry_id=initial_entry.id if initial_entry is not None else None,
+	)
+	started_on = account.started_on or _coerce_utc_datetime(account.created_at).date()
+	required_initial_amount = round(target_balance - non_initial_total, 8)
+	if initial_entry is None:
+		initial_entry = CashLedgerEntry(
+			user_id=account.user_id,
+			cash_account_id=account.id or 0,
+			entry_type="INITIAL_BALANCE",
+			amount=required_initial_amount,
+			currency=_normalize_currency(account.currency),
+			happened_on=started_on,
+			note="账户初始余额",
+		)
+	else:
+		initial_entry.amount = required_initial_amount
+		initial_entry.currency = _normalize_currency(account.currency)
+		initial_entry.happened_on = started_on
+		initial_entry.note = "账户初始余额"
+		_touch_model(initial_entry)
+	session.add(initial_entry)
+	session.flush()
+	_sync_cash_account_balance_from_ledger(session, account=account)
+	return initial_entry
+
+
+def _delete_cash_ledger_entries_for_holding_transaction(
+	session: Session,
+	*,
+	user_id: str,
+	holding_transaction_id: int,
+) -> list[CashLedgerEntry]:
+	entries = list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.user_id == user_id)
+			.where(CashLedgerEntry.holding_transaction_id == holding_transaction_id),
+		),
+	)
+	for entry in entries:
+		session.delete(entry)
+	return entries
+
+
+def _delete_cash_ledger_entries_for_transfer(
+	session: Session,
+	*,
+	user_id: str,
+	cash_transfer_id: int,
+) -> list[CashLedgerEntry]:
+	entries = list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.user_id == user_id)
+			.where(CashLedgerEntry.cash_transfer_id == cash_transfer_id),
+		),
+	)
+	for entry in entries:
+		session.delete(entry)
+	return entries
 
 
 def _create_auto_cash_account_from_sell(
@@ -2164,14 +2885,14 @@ def _create_auto_cash_account_from_sell(
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,
-) -> AppliedSellProceeds:
+) -> AppliedCashSettlement:
 	proceeds = round(quantity * execution_price, 8)
 	cash_entry = CashAccount(
 		user_id=current_user.username,
 		name=f"{symbol} 卖出回款",
 		platform="交易回款",
 		currency=_normalize_currency(currency),
-		balance=proceeds,
+		balance=0,
 		account_type="OTHER",
 		started_on=traded_on,
 		note=_build_sell_proceeds_note(
@@ -2186,6 +2907,31 @@ def _create_auto_cash_account_from_sell(
 	)
 	session.add(cash_entry)
 	session.flush()
+	_reconcile_cash_account_initial_ledger_entry(
+		session,
+		account=cash_entry,
+		target_balance=0,
+	)
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=cash_entry.id or 0,
+		entry_type="SELL_PROCEEDS",
+		amount=proceeds,
+		currency=cash_entry.currency,
+		happened_on=traded_on,
+		note=_build_sell_proceeds_note(
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=currency,
+			transaction_id=transaction_id,
+		),
+		holding_transaction_id=transaction_id,
+	)
+	_sync_cash_account_balance_from_ledger(session, account=cash_entry)
 	_record_asset_mutation(
 		session,
 		current_user,
@@ -2196,11 +2942,13 @@ def _create_auto_cash_account_from_sell(
 		after_state=_capture_model_state(cash_entry),
 		reason=f"AUTO_SELL_PROCEEDS#{transaction_id}" if transaction_id is not None else "AUTO_SELL_PROCEEDS",
 	)
-	return AppliedSellProceeds(
+	return AppliedCashSettlement(
 		cash_account=cash_entry,
 		settled_amount=proceeds,
 		settled_currency=_normalize_currency(currency),
 		handling="CREATE_NEW_CASH",
+		flow_direction="INFLOW",
+		ledger_entry_type="SELL_PROCEEDS",
 		auto_created_cash_account=True,
 	)
 
@@ -2216,8 +2964,9 @@ def _add_sell_proceeds_to_existing_cash_account(
 	quantity: float,
 	execution_price: float,
 	source_currency: str,
+	traded_on: date,
 	transaction_id: int | None,
-) -> AppliedSellProceeds:
+) -> AppliedCashSettlement:
 	account = session.get(CashAccount, account_id)
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="目标现金账户不存在。")
@@ -2229,7 +2978,6 @@ def _add_sell_proceeds_to_existing_cash_account(
 		to_currency=account.currency,
 	)
 	before_state = _capture_model_state(account)
-	account.balance = round(account.balance + converted_amount, 8)
 	account.note = _prepend_note_entry(
 		account.note,
 		_build_sell_proceeds_note(
@@ -2244,8 +2992,28 @@ def _add_sell_proceeds_to_existing_cash_account(
 			transaction_id=transaction_id,
 		),
 	)
-	_touch_model(account)
-	session.add(account)
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=account.id or 0,
+		entry_type="SELL_PROCEEDS",
+		amount=converted_amount,
+		currency=account.currency,
+		happened_on=traded_on,
+		note=_build_sell_proceeds_note(
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=source_currency,
+			settled_amount=converted_amount,
+			settled_currency=account.currency,
+			transaction_id=transaction_id,
+		),
+		holding_transaction_id=transaction_id,
+	)
+	_sync_cash_account_balance_from_ledger(session, account=account)
 	_record_asset_mutation(
 		session,
 		current_user,
@@ -2256,25 +3024,52 @@ def _add_sell_proceeds_to_existing_cash_account(
 		after_state=_capture_model_state(account),
 		reason=f"SELL_PROCEEDS#{transaction_id}" if transaction_id is not None else "SELL_PROCEEDS",
 	)
-	return AppliedSellProceeds(
+	return AppliedCashSettlement(
 		cash_account=account,
 		settled_amount=converted_amount,
 		settled_currency=_normalize_currency(account.currency),
 		handling="ADD_TO_EXISTING_CASH",
+		flow_direction="INFLOW",
+		ledger_entry_type="SELL_PROCEEDS",
 		auto_created_cash_account=False,
 	)
 
 
-def _build_sell_proceeds_reversal_note(
+def _build_cash_settlement_reversal_note(
 	*,
 	transaction_id: int,
 	settled_amount: float,
 	settled_currency: str,
+	flow_direction: str,
 ) -> str:
+	action_label = "回款入账" if flow_direction == "INFLOW" else "买入扣款"
 	return (
-		f"冲销：撤回卖出交易ID #{transaction_id} 的回款入账 "
+		f"冲销：撤回交易ID #{transaction_id} 的{action_label} "
 		f"{settled_amount:g} {_normalize_currency(settled_currency)}"
 	)
+
+
+def _build_buy_funding_note(
+	*,
+	symbol: str,
+	name: str,
+	market: str,
+	quantity: float,
+	execution_price: float,
+	source_currency: str,
+	transaction_id: int | None,
+	settled_amount: float | None = None,
+	settled_currency: str | None = None,
+) -> str:
+	note = (
+		f"用途：买入 {name}({symbol}) [{market}] "
+		f"数量 {quantity:g}，成交价 {execution_price:g} {_normalize_currency(source_currency)}"
+	)
+	if settled_amount is not None and settled_currency:
+		note += f"，自动扣款 {settled_amount:g} {_normalize_currency(settled_currency)}"
+	if transaction_id is not None:
+		note += f"，交易ID #{transaction_id}"
+	return note
 
 
 def _get_holding_transaction_cash_settlement(
@@ -2295,7 +3090,7 @@ def _record_holding_transaction_cash_settlement(
 	*,
 	current_user: UserAccount,
 	transaction: SecurityHoldingTransaction,
-	applied_sell_proceeds: AppliedSellProceeds,
+	applied_cash_settlement: AppliedCashSettlement,
 ) -> HoldingTransactionCashSettlement:
 	settlement = _get_holding_transaction_cash_settlement(
 		session,
@@ -2306,22 +3101,24 @@ def _record_holding_transaction_cash_settlement(
 		settlement = HoldingTransactionCashSettlement(
 			user_id=current_user.username,
 			holding_transaction_id=transaction.id or 0,
-			cash_account_id=applied_sell_proceeds.cash_account.id or 0,
-			handling=applied_sell_proceeds.handling,
-			settled_amount=applied_sell_proceeds.settled_amount,
-			settled_currency=applied_sell_proceeds.settled_currency,
+			cash_account_id=applied_cash_settlement.cash_account.id or 0,
+			handling=applied_cash_settlement.handling,
+			settled_amount=applied_cash_settlement.settled_amount,
+			settled_currency=applied_cash_settlement.settled_currency,
 			source_amount=round(transaction.quantity * (transaction.price or 0.0), 8),
 			source_currency=_normalize_currency(transaction.fallback_currency),
-			auto_created_cash_account=applied_sell_proceeds.auto_created_cash_account,
+			flow_direction=applied_cash_settlement.flow_direction,
+			auto_created_cash_account=applied_cash_settlement.auto_created_cash_account,
 		)
 	else:
-		settlement.cash_account_id = applied_sell_proceeds.cash_account.id or 0
-		settlement.handling = applied_sell_proceeds.handling
-		settlement.settled_amount = applied_sell_proceeds.settled_amount
-		settlement.settled_currency = applied_sell_proceeds.settled_currency
+		settlement.cash_account_id = applied_cash_settlement.cash_account.id or 0
+		settlement.handling = applied_cash_settlement.handling
+		settlement.settled_amount = applied_cash_settlement.settled_amount
+		settlement.settled_currency = applied_cash_settlement.settled_currency
 		settlement.source_amount = round(transaction.quantity * (transaction.price or 0.0), 8)
 		settlement.source_currency = _normalize_currency(transaction.fallback_currency)
-		settlement.auto_created_cash_account = applied_sell_proceeds.auto_created_cash_account
+		settlement.flow_direction = applied_cash_settlement.flow_direction
+		settlement.auto_created_cash_account = applied_cash_settlement.auto_created_cash_account
 		_touch_model(settlement)
 
 	session.add(settlement)
@@ -2347,22 +3144,40 @@ def _reverse_holding_transaction_cash_settlement(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(
 			status_code=409,
-			detail="关联现金账户不存在，无法回滚这笔卖出回款，请先修复现金账户。",
-		)
-	if account.balance + HOLDING_QUANTITY_EPSILON < settlement.settled_amount:
-		raise HTTPException(
-			status_code=409,
-			detail="关联现金账户余额已低于这笔卖出回款，无法自动回滚，请先调整现金账户。",
+			detail="关联现金账户不存在，无法回滚这笔现金结算，请先修复现金账户。",
 		)
 
 	before_state = _capture_model_state(account)
-	account.balance = round(account.balance - settlement.settled_amount, 8)
+	_delete_cash_ledger_entries_for_holding_transaction(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
+	_sync_cash_account_balance_from_ledger(session, account=account)
 	account_should_delete = (
 		settlement.auto_created_cash_account
 		and account.platform == "交易回款"
 		and account.balance <= HOLDING_QUANTITY_EPSILON
+		and len(
+			[
+				entry
+				for entry in _list_cash_ledger_entries_for_account(
+					session,
+					user_id=current_user.username,
+					cash_account_id=account.id or 0,
+				)
+				if entry.entry_type != "INITIAL_BALANCE"
+			],
+		)
+		== 0
 	)
 	if account_should_delete:
+		for entry in _list_cash_ledger_entries_for_account(
+			session,
+			user_id=current_user.username,
+			cash_account_id=account.id or 0,
+		):
+			session.delete(entry)
 		session.delete(account)
 		_record_asset_mutation(
 			session,
@@ -2377,13 +3192,13 @@ def _reverse_holding_transaction_cash_settlement(
 	else:
 		account.note = _prepend_note_entry(
 			account.note,
-			_build_sell_proceeds_reversal_note(
+			_build_cash_settlement_reversal_note(
 				transaction_id=transaction.id or 0,
 				settled_amount=settlement.settled_amount,
 				settled_currency=settlement.settled_currency,
+				flow_direction=settlement.flow_direction,
 			),
 		)
-		_touch_model(account)
 		session.add(account)
 		_record_asset_mutation(
 			session,
@@ -2400,6 +3215,108 @@ def _reverse_holding_transaction_cash_settlement(
 	return account
 
 
+def _apply_buy_funding_handling(
+	session: Session,
+	*,
+	current_user: UserAccount,
+	handling: str | None,
+	target_account_id: int | None,
+	symbol: str,
+	name: str,
+	market: str,
+	quantity: float,
+	execution_price: float,
+	currency: str,
+	traded_on: date,
+	transaction_id: int | None,
+) -> AppliedCashSettlement | None:
+	effective_handling = handling or (
+		"DEDUCT_FROM_EXISTING_CASH" if target_account_id is not None else None
+	)
+	if effective_handling is None:
+		return None
+	if effective_handling != "DEDUCT_FROM_EXISTING_CASH":
+		raise HTTPException(status_code=422, detail="当前只支持从现有现金账户扣款。")
+	if target_account_id is None:
+		raise HTTPException(status_code=422, detail="买入从现金账户扣款时必须选择目标现金账户。")
+
+	account = session.get(CashAccount, target_account_id)
+	if account is None or account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="目标现金账户不存在。")
+
+	gross_amount = round(quantity * execution_price, 8)
+	settled_amount, _fx_rate = _convert_cash_amount_between_currencies(
+		amount=gross_amount,
+		from_currency=currency,
+		to_currency=account.currency,
+	)
+	if account.balance + HOLDING_QUANTITY_EPSILON < settled_amount:
+		raise HTTPException(
+			status_code=422,
+			detail=(
+				f"{account.name} 余额不足。当前余额 {account.balance:g} {account.currency}，"
+				f"本次扣款 {settled_amount:g} {account.currency}。"
+			),
+		)
+
+	before_state = _capture_model_state(account)
+	account.note = _prepend_note_entry(
+		account.note,
+		_build_buy_funding_note(
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=currency,
+			settled_amount=settled_amount,
+			settled_currency=account.currency,
+			transaction_id=transaction_id,
+		),
+	)
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=account.id or 0,
+		entry_type="BUY_FUNDING",
+		amount=-settled_amount,
+		currency=account.currency,
+		happened_on=traded_on,
+		note=_build_buy_funding_note(
+			symbol=symbol,
+			name=name,
+			market=market,
+			quantity=quantity,
+			execution_price=execution_price,
+			source_currency=currency,
+			settled_amount=settled_amount,
+			settled_currency=account.currency,
+			transaction_id=transaction_id,
+		),
+		holding_transaction_id=transaction_id,
+	)
+	_sync_cash_account_balance_from_ledger(session, account=account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="UPDATE",
+		before_state=before_state,
+		after_state=_capture_model_state(account),
+		reason=f"BUY_FUNDING#{transaction_id}" if transaction_id is not None else "BUY_FUNDING",
+	)
+	return AppliedCashSettlement(
+		cash_account=account,
+		settled_amount=settled_amount,
+		settled_currency=_normalize_currency(account.currency),
+		handling="DEDUCT_FROM_EXISTING_CASH",
+		flow_direction="OUTFLOW",
+		ledger_entry_type="BUY_FUNDING",
+		auto_created_cash_account=False,
+	)
+
+
 def _apply_sell_proceeds_handling(
 	session: Session,
 	*,
@@ -2414,7 +3331,7 @@ def _apply_sell_proceeds_handling(
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,
-) -> AppliedSellProceeds | None:
+) -> AppliedCashSettlement | None:
 	if handling == "DISCARD":
 		return None
 	if handling == "ADD_TO_EXISTING_CASH":
@@ -2427,11 +3344,12 @@ def _apply_sell_proceeds_handling(
 			symbol=symbol,
 			name=name,
 			market=market,
-			quantity=quantity,
-			execution_price=execution_price,
-			source_currency=currency,
-			transaction_id=transaction_id,
-		)
+				quantity=quantity,
+				execution_price=execution_price,
+				source_currency=currency,
+				traded_on=traded_on,
+				transaction_id=transaction_id,
+			)
 	return _create_auto_cash_account_from_sell(
 		session,
 		current_user=current_user,
@@ -4890,13 +5808,18 @@ def create_account(
 		name=payload.name.strip(),
 		platform=payload.platform.strip(),
 		currency=_normalize_currency(payload.currency),
-		balance=payload.balance,
+		balance=0,
 		account_type=payload.account_type,
 		started_on=payload.started_on,
 		note=payload.note,
 	)
 	session.add(account)
 	session.flush()
+	_reconcile_cash_account_initial_ledger_entry(
+		session,
+		account=account,
+		target_balance=payload.balance,
+	)
 	_record_asset_mutation(
 		session,
 		current_user,
@@ -4906,6 +5829,7 @@ def create_account(
 		before_state=None,
 		after_state=_capture_model_state(account),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
@@ -4924,10 +5848,25 @@ def update_account(
 		raise HTTPException(status_code=404, detail="Account not found.")
 
 	before_state = _capture_model_state(account)
+	existing_non_initial_entries = [
+		entry
+		for entry in _list_cash_ledger_entries_for_account(
+			session,
+			user_id=current_user.username,
+			cash_account_id=account.id or 0,
+		)
+		if entry.entry_type != "INITIAL_BALANCE"
+	]
+	next_currency = _normalize_currency(payload.currency)
+	if existing_non_initial_entries and next_currency != _normalize_currency(account.currency):
+		raise HTTPException(
+			status_code=409,
+			detail="该现金账户已有交易流水，暂不支持直接修改币种。",
+		)
+
 	account.name = payload.name.strip()
 	account.platform = payload.platform.strip()
-	account.currency = _normalize_currency(payload.currency)
-	account.balance = payload.balance
+	account.currency = next_currency
 	if payload.account_type is not None:
 		account.account_type = payload.account_type
 	if "started_on" in payload.model_fields_set:
@@ -4936,6 +5875,11 @@ def update_account(
 		account.note = _normalize_optional_text(payload.note)
 	_touch_model(account)
 	session.add(account)
+	_reconcile_cash_account_initial_ledger_entry(
+		session,
+		account=account,
+		target_balance=payload.balance,
+	)
 	_record_asset_mutation(
 		session,
 		current_user,
@@ -4945,6 +5889,7 @@ def update_account(
 		before_state=before_state,
 		after_state=_capture_model_state(account),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
@@ -4961,7 +5906,28 @@ def delete_account(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
 
+	non_initial_entries = [
+		entry
+		for entry in _list_cash_ledger_entries_for_account(
+			session,
+			user_id=current_user.username,
+			cash_account_id=account.id or 0,
+		)
+		if entry.entry_type != "INITIAL_BALANCE"
+	]
+	if non_initial_entries:
+		raise HTTPException(
+			status_code=409,
+			detail="该现金账户已有流水记录，请先删除相关划转或交易结算后再删除账户。",
+		)
+
 	before_state = _capture_model_state(account)
+	for entry in _list_cash_ledger_entries_for_account(
+		session,
+		user_id=current_user.username,
+		cash_account_id=account.id or 0,
+	):
+		session.delete(entry)
 	session.delete(account)
 	_record_asset_mutation(
 		session,
@@ -4972,6 +5938,254 @@ def delete_account(
 		before_state=before_state,
 		after_state=None,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
+	session.commit()
+	_invalidate_dashboard_cache(current_user.username)
+	return Response(status_code=204)
+
+
+@app.get("/api/cash-ledger", response_model=list[CashLedgerEntryRead])
+def list_cash_ledger_entries(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	account_id: int | None = Query(default=None, ge=1),
+	limit: int = Query(default=200, ge=1, le=1000),
+) -> list[CashLedgerEntryRead]:
+	statement = (
+		select(CashLedgerEntry)
+		.where(CashLedgerEntry.user_id == current_user.username)
+		.order_by(
+			CashLedgerEntry.happened_on.desc(),
+			CashLedgerEntry.created_at.desc(),
+			CashLedgerEntry.id.desc(),
+		)
+		.limit(limit)
+	)
+	if account_id is not None:
+		account = session.get(CashAccount, account_id)
+		if account is None or account.user_id != current_user.username:
+			raise HTTPException(status_code=404, detail="Account not found.")
+		statement = statement.where(CashLedgerEntry.cash_account_id == account_id)
+
+	entries = list(session.exec(statement))
+	return [_to_cash_ledger_entry_read(entry) for entry in entries]
+
+
+@app.get("/api/cash-transfers", response_model=list[CashTransferRead])
+def list_cash_transfers(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	limit: int = Query(default=100, ge=1, le=500),
+) -> list[CashTransferRead]:
+	transfers = list(
+		session.exec(
+			select(CashTransfer)
+			.where(CashTransfer.user_id == current_user.username)
+			.order_by(
+				CashTransfer.transferred_on.desc(),
+				CashTransfer.created_at.desc(),
+				CashTransfer.id.desc(),
+			)
+			.limit(limit),
+		),
+	)
+	return [_to_cash_transfer_read(transfer) for transfer in transfers]
+
+
+@app.post("/api/cash-transfers", response_model=CashTransferApplyRead, status_code=201)
+def create_cash_transfer(
+	payload: CashTransferCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> CashTransferApplyRead:
+	request_hash = _build_idempotency_request_hash(payload)
+	idempotent_response = _load_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="cash_transfer.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response_model=CashTransferApplyRead,
+	)
+	if idempotent_response is not None:
+		return idempotent_response
+
+	_ensure_date_not_future(payload.transferred_on, field_label="划转日")
+	source_account = session.get(CashAccount, payload.from_account_id)
+	target_account = session.get(CashAccount, payload.to_account_id)
+	if source_account is None or source_account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="转出账户不存在。")
+	if target_account is None or target_account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="转入账户不存在。")
+	if source_account.id == target_account.id:
+		raise HTTPException(status_code=422, detail="转出账户和转入账户不能相同。")
+	if source_account.balance + HOLDING_QUANTITY_EPSILON < payload.source_amount:
+		raise HTTPException(
+			status_code=422,
+			detail=(
+				f"{source_account.name} 余额不足。当前余额 {source_account.balance:g} "
+				f"{source_account.currency}，本次转出 {payload.source_amount:g} {source_account.currency}。"
+			),
+		)
+
+	target_amount = payload.target_amount
+	if target_amount is None:
+		target_amount, _fx_rate = _convert_cash_amount_between_currencies(
+			amount=payload.source_amount,
+			from_currency=source_account.currency,
+			to_currency=target_account.currency,
+		)
+	elif _normalize_currency(source_account.currency) == _normalize_currency(target_account.currency):
+		if abs(target_amount - payload.source_amount) > HOLDING_QUANTITY_EPSILON:
+			raise HTTPException(status_code=422, detail="同币种账户划转时转出和转入金额必须相同。")
+
+	transfer = CashTransfer(
+		user_id=current_user.username,
+		from_account_id=source_account.id or 0,
+		to_account_id=target_account.id or 0,
+		source_amount=payload.source_amount,
+		target_amount=target_amount,
+		source_currency=_normalize_currency(source_account.currency),
+		target_currency=_normalize_currency(target_account.currency),
+		transferred_on=payload.transferred_on,
+		note=payload.note,
+	)
+	session.add(transfer)
+	session.flush()
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=source_account.id or 0,
+		entry_type="TRANSFER_OUT",
+		amount=-payload.source_amount,
+		currency=source_account.currency,
+		happened_on=payload.transferred_on,
+		note=payload.note or f"划转至 {target_account.name}",
+		cash_transfer_id=transfer.id,
+	)
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=target_account.id or 0,
+		entry_type="TRANSFER_IN",
+		amount=target_amount,
+		currency=target_account.currency,
+		happened_on=payload.transferred_on,
+		note=payload.note or f"来自 {source_account.name} 的划转",
+		cash_transfer_id=transfer.id,
+	)
+	source_before_state = _capture_model_state(source_account)
+	target_before_state = _capture_model_state(target_account)
+	_sync_cash_account_balance_from_ledger(session, account=source_account)
+	_sync_cash_account_balance_from_ledger(session, account=target_account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_TRANSFER",
+		entity_id=transfer.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(transfer),
+	)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=source_account.id,
+		operation="UPDATE",
+		before_state=source_before_state,
+		after_state=_capture_model_state(source_account),
+		reason=f"TRANSFER_OUT#{transfer.id}",
+	)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=target_account.id,
+		operation="UPDATE",
+		before_state=target_before_state,
+		after_state=_capture_model_state(target_account),
+		reason=f"TRANSFER_IN#{transfer.id}",
+	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
+	response = CashTransferApplyRead(
+		transfer=_to_cash_transfer_read(transfer),
+		from_account=_to_cash_account_read(source_account),
+		to_account=_to_cash_account_read(target_account),
+	)
+	_store_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="cash_transfer.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response=response,
+	)
+	session.commit()
+	session.refresh(transfer)
+	session.refresh(source_account)
+	session.refresh(target_account)
+	_invalidate_dashboard_cache(current_user.username)
+	return response
+
+
+@app.delete("/api/cash-transfers/{transfer_id}", status_code=204)
+def delete_cash_transfer(
+	transfer_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> Response:
+	transfer = session.get(CashTransfer, transfer_id)
+	if transfer is None or transfer.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Cash transfer not found.")
+
+	source_account = session.get(CashAccount, transfer.from_account_id)
+	target_account = session.get(CashAccount, transfer.to_account_id)
+	source_before_state = _capture_model_state(source_account) if source_account is not None else None
+	target_before_state = _capture_model_state(target_account) if target_account is not None else None
+	_delete_cash_ledger_entries_for_transfer(
+		session,
+		user_id=current_user.username,
+		cash_transfer_id=transfer.id or 0,
+	)
+	session.delete(transfer)
+	if source_account is not None and source_account.user_id == current_user.username:
+		_sync_cash_account_balance_from_ledger(session, account=source_account)
+	if target_account is not None and target_account.user_id == current_user.username:
+		_sync_cash_account_balance_from_ledger(session, account=target_account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_TRANSFER",
+		entity_id=transfer_id,
+		operation="DELETE",
+		before_state=_capture_model_state(transfer),
+		after_state=None,
+	)
+	if source_account is not None and source_before_state is not None:
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_ACCOUNT",
+			entity_id=source_account.id,
+			operation="UPDATE",
+			before_state=source_before_state,
+			after_state=_capture_model_state(source_account),
+			reason=f"TRANSFER_DELETE#{transfer_id}",
+		)
+	if target_account is not None and target_before_state is not None:
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_ACCOUNT",
+			entity_id=target_account.id,
+			operation="UPDATE",
+			before_state=target_before_state,
+			after_state=_capture_model_state(target_account),
+			reason=f"TRANSFER_DELETE#{transfer_id}",
+		)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -5040,6 +6254,7 @@ def create_fixed_asset(
 		before_state=None,
 		after_state=_capture_model_state(asset),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5090,6 +6305,7 @@ def update_fixed_asset(
 		before_state=before_state,
 		after_state=_capture_model_state(asset),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5130,6 +6346,7 @@ def delete_fixed_asset(
 		before_state=before_state,
 		after_state=None,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -5196,6 +6413,7 @@ def create_liability(
 		before_state=None,
 		after_state=_capture_model_state(entry),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5234,6 +6452,7 @@ def update_liability(
 		before_state=before_state,
 		after_state=_capture_model_state(entry),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5261,6 +6480,7 @@ def delete_liability(
 		before_state=before_state,
 		after_state=None,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -5329,6 +6549,7 @@ def create_other_asset(
 		before_state=None,
 		after_state=_capture_model_state(asset),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5379,6 +6600,7 @@ def update_other_asset(
 		before_state=before_state,
 		after_state=_capture_model_state(asset),
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5419,6 +6641,7 @@ def delete_other_asset(
 		before_state=before_state,
 		after_state=None,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -5503,6 +6726,7 @@ def create_holding(
 		user_id=current_user.username,
 		trigger_symbol=holding.symbol,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5609,6 +6833,7 @@ def delete_holding(
 		user_id=current_user.username,
 		trigger_symbol=holding.symbol,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -5716,7 +6941,20 @@ def create_holding_transaction(
 	payload: SecurityHoldingTransactionCreate,
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
+	idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> HoldingTransactionApplyRead:
+	request_hash = _build_idempotency_request_hash(payload)
+	idempotent_response = _load_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="holding_transaction.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response_model=HoldingTransactionApplyRead,
+	)
+	if idempotent_response is not None:
+		return idempotent_response
+
 	_ensure_date_not_future(payload.traded_on, field_label="交易日")
 	side = _normalize_holding_transaction_side(payload.side)
 	if side not in {"BUY", "SELL"}:
@@ -5729,6 +6967,9 @@ def create_holding_transaction(
 	normalized_note = _normalize_optional_text(payload.note)
 	normalized_name = payload.name.strip()
 	sell_proceeds_handling = payload.sell_proceeds_handling or "CREATE_NEW_CASH"
+	buy_funding_handling = payload.buy_funding_handling or (
+		"DEDUCT_FROM_EXISTING_CASH" if payload.buy_funding_account_id is not None else None
+	)
 
 	existing_holdings = _list_holdings_for_symbol(
 		session,
@@ -5804,7 +7045,7 @@ def create_holding_transaction(
 	)
 	affected_cash_account: CashAccount | None = None
 	if side == "SELL" and execution_price is not None:
-		applied_sell_proceeds = _apply_sell_proceeds_handling(
+		applied_cash_settlement = _apply_sell_proceeds_handling(
 			session,
 			current_user=current_user,
 			handling=sell_proceeds_handling,
@@ -5818,19 +7059,43 @@ def create_holding_transaction(
 			traded_on=payload.traded_on,
 			transaction_id=transaction.id,
 		)
-		if applied_sell_proceeds is not None:
-			affected_cash_account = applied_sell_proceeds.cash_account
+		if applied_cash_settlement is not None:
+			affected_cash_account = applied_cash_settlement.cash_account
 			_record_holding_transaction_cash_settlement(
 				session,
 				current_user=current_user,
 				transaction=transaction,
-				applied_sell_proceeds=applied_sell_proceeds,
+				applied_cash_settlement=applied_cash_settlement,
+			)
+	elif side == "BUY" and execution_price is not None:
+		applied_cash_settlement = _apply_buy_funding_handling(
+			session,
+			current_user=current_user,
+			handling=buy_funding_handling,
+			target_account_id=payload.buy_funding_account_id,
+			symbol=normalized_symbol,
+			name=normalized_name,
+			market=normalized_market,
+			quantity=payload.quantity,
+			execution_price=execution_price,
+			currency=execution_currency,
+			traded_on=payload.traded_on,
+			transaction_id=transaction.id,
+		)
+		if applied_cash_settlement is not None:
+			affected_cash_account = applied_cash_settlement.cash_account
+			_record_holding_transaction_cash_settlement(
+				session,
+				current_user=current_user,
+				transaction=transaction,
+				applied_cash_settlement=applied_cash_settlement,
 			)
 	_enqueue_holding_history_sync_request(
 		session,
 		user_id=current_user.username,
 		trigger_symbol=normalized_symbol,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(transaction)
 	if holding is not None:
@@ -5842,9 +7107,7 @@ def create_holding_transaction(
 		user_id=current_user.username,
 		holding_transaction_id=transaction.id or 0,
 	)
-	_invalidate_dashboard_cache(current_user.username)
-
-	return HoldingTransactionApplyRead(
+	response = HoldingTransactionApplyRead(
 		transaction=_to_holding_transaction_read(transaction, settlement),
 		holding=_to_holding_read(holding) if holding is not None else None,
 		cash_account=_to_cash_account_read(affected_cash_account)
@@ -5852,6 +7115,17 @@ def create_holding_transaction(
 		else None,
 		sell_proceeds_handling=sell_proceeds_handling if side == "SELL" else None,
 	)
+	_store_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="holding_transaction.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response=response,
+	)
+	_invalidate_dashboard_cache(current_user.username)
+
+	return response
 
 
 @app.patch(
@@ -5877,6 +7151,11 @@ def update_holding_transaction(
 		or payload.sell_proceeds_account_id is not None
 	):
 		raise HTTPException(status_code=422, detail="只有卖出交易允许设置卖出回款处理。")
+	if transaction.side != "BUY" and (
+		payload.buy_funding_handling is not None
+		or payload.buy_funding_account_id is not None
+	):
+		raise HTTPException(status_code=422, detail="只有买入交易允许设置买入扣款处理。")
 
 	original_settlement = _get_holding_transaction_cash_settlement(
 		session,
@@ -5884,7 +7163,7 @@ def update_holding_transaction(
 		holding_transaction_id=transaction.id or 0,
 	)
 	affected_cash_account: CashAccount | None = None
-	if transaction.side == "SELL":
+	if original_settlement is not None:
 		affected_cash_account = _reverse_holding_transaction_cash_settlement(
 			session,
 			current_user=current_user,
@@ -5917,6 +7196,7 @@ def update_holding_transaction(
 	)
 
 	sell_proceeds_handling: str | None = None
+	buy_funding_handling: str | None = None
 	if transaction.side == "SELL":
 		sell_proceeds_handling = (
 			payload.sell_proceeds_handling
@@ -5941,7 +7221,7 @@ def update_holding_transaction(
 				detail="卖出交易需要有效成交价后才能重新处理卖出回款。",
 			)
 
-		applied_sell_proceeds = _apply_sell_proceeds_handling(
+		applied_cash_settlement = _apply_sell_proceeds_handling(
 			session,
 			current_user=current_user,
 			handling=sell_proceeds_handling,
@@ -5955,14 +7235,68 @@ def update_holding_transaction(
 			traded_on=transaction.traded_on,
 			transaction_id=transaction.id,
 		)
-		if applied_sell_proceeds is not None:
-			affected_cash_account = applied_sell_proceeds.cash_account
+		if applied_cash_settlement is not None:
+			affected_cash_account = applied_cash_settlement.cash_account
 			_record_holding_transaction_cash_settlement(
 				session,
 				current_user=current_user,
 				transaction=transaction,
-				applied_sell_proceeds=applied_sell_proceeds,
+				applied_cash_settlement=applied_cash_settlement,
 			)
+	elif transaction.side == "BUY":
+		buy_funding_handling = (
+			payload.buy_funding_handling
+			or (
+				original_settlement.handling
+				if original_settlement is not None and original_settlement.flow_direction == "OUTFLOW"
+				else (
+					"DEDUCT_FROM_EXISTING_CASH"
+					if (
+						"buy_funding_account_id" in payload.model_fields_set
+						and payload.buy_funding_account_id is not None
+					)
+					else None
+				)
+			)
+		)
+		buy_funding_account_id = (
+			payload.buy_funding_account_id
+			if "buy_funding_account_id" in payload.model_fields_set
+			else (
+				original_settlement.cash_account_id
+				if original_settlement is not None and original_settlement.flow_direction == "OUTFLOW"
+				else None
+			)
+		)
+		if transaction.price is None or transaction.price <= 0:
+			if buy_funding_handling is not None:
+				raise HTTPException(
+					status_code=422,
+					detail="买入交易需要有效成交价后才能重新处理买入扣款。",
+				)
+		elif buy_funding_handling is not None or buy_funding_account_id is not None:
+			applied_cash_settlement = _apply_buy_funding_handling(
+				session,
+				current_user=current_user,
+				handling=buy_funding_handling,
+				target_account_id=buy_funding_account_id,
+				symbol=transaction.symbol,
+				name=transaction.name,
+				market=transaction.market,
+				quantity=transaction.quantity,
+				execution_price=transaction.price,
+				currency=transaction.fallback_currency,
+				traded_on=transaction.traded_on,
+				transaction_id=transaction.id,
+			)
+			if applied_cash_settlement is not None:
+				affected_cash_account = applied_cash_settlement.cash_account
+				_record_holding_transaction_cash_settlement(
+					session,
+					current_user=current_user,
+					transaction=transaction,
+					applied_cash_settlement=applied_cash_settlement,
+				)
 
 	_record_asset_mutation(
 		session,
@@ -5978,6 +7312,7 @@ def update_holding_transaction(
 		user_id=current_user.username,
 		trigger_symbol=transaction.symbol,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	session.refresh(transaction)
 	if holding is not None:
@@ -6014,7 +7349,12 @@ def delete_holding_transaction(
 	before_state = _capture_model_state(transaction)
 	symbol = transaction.symbol
 	market = transaction.market
-	if transaction.side == "SELL":
+	settlement = _get_holding_transaction_cash_settlement(
+		session,
+		user_id=current_user.username,
+		holding_transaction_id=transaction.id or 0,
+	)
+	if settlement is not None:
 		_reverse_holding_transaction_cash_settlement(
 			session,
 			current_user=current_user,
@@ -6041,6 +7381,7 @@ def delete_holding_transaction(
 		user_id=current_user.username,
 		trigger_symbol=symbol,
 	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -6128,6 +7469,124 @@ async def get_agent_context(
 		pending_history_sync_requests=pending_history_sync_requests,
 		warnings=dashboard.warnings,
 	)
+
+
+@app.get("/api/agent/tasks", response_model=list[AgentTaskRead])
+def list_agent_tasks(
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	limit: int = Query(default=50, ge=1, le=200),
+) -> list[AgentTaskRead]:
+	tasks = list(
+		session.exec(
+			select(AgentTask)
+			.where(AgentTask.user_id == current_user.username)
+			.order_by(AgentTask.created_at.desc(), AgentTask.id.desc())
+			.limit(limit),
+		),
+	)
+	return [_to_agent_task_read(task) for task in tasks]
+
+
+@app.post("/api/agent/tasks", response_model=AgentTaskRead, status_code=201)
+def create_agent_task(
+	payload: AgentTaskCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> AgentTaskRead:
+	request_hash = _build_idempotency_request_hash(payload)
+	idempotent_response = _load_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="agent_task.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response_model=AgentTaskRead,
+	)
+	if idempotent_response is not None:
+		return idempotent_response
+
+	task = AgentTask(
+		user_id=current_user.username,
+		task_type=payload.task_type,
+		status="DONE",
+		input_json=json.dumps(payload.payload, sort_keys=True, ensure_ascii=False),
+	)
+	session.add(task)
+	session.flush()
+
+	try:
+		if payload.task_type == "CREATE_BUY_TRANSACTION":
+			result = create_holding_transaction(
+				SecurityHoldingTransactionCreate(
+					side="BUY",
+					**payload.payload,
+				),
+				current_user,
+				session,
+				None,
+			)
+		elif payload.task_type == "CREATE_SELL_TRANSACTION":
+			result = create_holding_transaction(
+				SecurityHoldingTransactionCreate(
+					side="SELL",
+					**payload.payload,
+				),
+				current_user,
+				session,
+				None,
+			)
+		elif payload.task_type == "UPDATE_HOLDING_TRANSACTION":
+			transaction_id = int(payload.payload.get("transaction_id") or 0)
+			if transaction_id <= 0:
+				raise HTTPException(status_code=422, detail="transaction_id 为必填项。")
+			update_payload = dict(payload.payload)
+			update_payload.pop("transaction_id", None)
+			result = update_holding_transaction(
+				transaction_id,
+				SecurityHoldingTransactionUpdate(**update_payload),
+				current_user,
+				session,
+			)
+		elif payload.task_type == "CREATE_CASH_TRANSFER":
+			result = create_cash_transfer(
+				CashTransferCreate(**payload.payload),
+				current_user,
+				session,
+				None,
+			)
+		else:
+			raise HTTPException(status_code=422, detail="不支持的任务类型。")
+	except Exception as exc:
+		task.status = "FAILED"
+		task.error_message = (
+			exc.detail
+			if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
+			else str(exc)
+		)
+		task.completed_at = utc_now()
+		_touch_model(task)
+		session.add(task)
+		session.commit()
+		raise
+
+	task.result_json = json.dumps(result.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
+	task.completed_at = utc_now()
+	_touch_model(task)
+	session.add(task)
+	response = _to_agent_task_read(task)
+	_store_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="agent_task.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response=response,
+	)
+	session.commit()
+	session.refresh(task)
+	return response
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)

@@ -7,7 +7,12 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.models import (
+	AGENT_TASK_STATUSES,
+	AGENT_TASK_TYPES,
+	BUY_FUNDING_HANDLINGS,
 	CASH_ACCOUNT_TYPES,
+	CASH_LEDGER_ENTRY_TYPES,
+	CASH_SETTLEMENT_DIRECTIONS,
 	DASHBOARD_CORRECTION_ACTIONS,
 	DASHBOARD_CORRECTION_GRANULARITIES,
 	DASHBOARD_SERIES_SCOPES,
@@ -660,6 +665,8 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	note: Optional[str] = Field(default=None, max_length=500)
 	sell_proceeds_handling: Optional[str] = Field(default=None, min_length=7, max_length=32)
 	sell_proceeds_account_id: Optional[int] = Field(default=None, ge=1)
+	buy_funding_handling: Optional[str] = Field(default=None, min_length=10, max_length=32)
+	buy_funding_account_id: Optional[int] = Field(default=None, ge=1)
 
 	@field_validator("side", mode="before")
 	@classmethod
@@ -676,6 +683,11 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	def validate_sell_proceeds_handling(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SELL_PROCEEDS_HANDLINGS, "sell_proceeds_handling")
 
+	@field_validator("buy_funding_handling", mode="before")
+	@classmethod
+	def validate_buy_funding_handling(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, BUY_FUNDING_HANDLINGS, "buy_funding_handling")
+
 	@field_validator("broker", "note", mode="before")
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
@@ -689,7 +701,18 @@ class SecurityHoldingTransactionCreate(BaseModel):
 		if self.side == "BUY":
 			if self.sell_proceeds_handling is not None or self.sell_proceeds_account_id is not None:
 				raise ValueError("买入交易不支持卖出回款处理选项。")
+			effective_funding = (
+				self.buy_funding_handling
+				or ("DEDUCT_FROM_EXISTING_CASH" if self.buy_funding_account_id is not None else None)
+			)
+			if effective_funding == "DEDUCT_FROM_EXISTING_CASH" and self.buy_funding_account_id is None:
+				raise ValueError("买入从现金账户扣款时必须选择目标现金账户。")
+			if effective_funding != "DEDUCT_FROM_EXISTING_CASH" and self.buy_funding_account_id is not None:
+				raise ValueError("只有从现有现金账户扣款时才允许传入目标现金账户。")
 			return self
+
+		if self.buy_funding_handling is not None or self.buy_funding_account_id is not None:
+			raise ValueError("卖出交易不支持买入扣款处理选项。")
 
 		effective_handling = self.sell_proceeds_handling or "CREATE_NEW_CASH"
 		if effective_handling == "ADD_TO_EXISTING_CASH" and self.sell_proceeds_account_id is None:
@@ -712,6 +735,8 @@ class SecurityHoldingTransactionUpdate(BaseModel):
 	note: Optional[str] = Field(default=None, max_length=500)
 	sell_proceeds_handling: Optional[str] = Field(default=None, min_length=7, max_length=32)
 	sell_proceeds_account_id: Optional[int] = Field(default=None, ge=1)
+	buy_funding_handling: Optional[str] = Field(default=None, min_length=10, max_length=32)
+	buy_funding_account_id: Optional[int] = Field(default=None, ge=1)
 
 	@field_validator("name", mode="before")
 	@classmethod
@@ -724,6 +749,11 @@ class SecurityHoldingTransactionUpdate(BaseModel):
 	@classmethod
 	def validate_sell_proceeds_handling(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SELL_PROCEEDS_HANDLINGS, "sell_proceeds_handling")
+
+	@field_validator("buy_funding_handling", mode="before")
+	@classmethod
+	def validate_buy_funding_handling(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, BUY_FUNDING_HANDLINGS, "buy_funding_handling")
 
 	@field_validator("broker", "note", mode="before")
 	@classmethod
@@ -738,6 +768,12 @@ class SecurityHoldingTransactionUpdate(BaseModel):
 			and self.sell_proceeds_account_id is not None
 		):
 			raise ValueError("只有并入现有现金时才允许传入目标现金账户。")
+		if (
+			self.buy_funding_handling is not None
+			and self.buy_funding_handling != "DEDUCT_FROM_EXISTING_CASH"
+			and self.buy_funding_account_id is not None
+		):
+			raise ValueError("只有从现有现金账户扣款时才允许传入目标现金账户。")
 		return self
 
 
@@ -755,6 +791,8 @@ class SecurityHoldingTransactionRead(UtcTimestampResponseModel):
 	note: Optional[str] = None
 	sell_proceeds_handling: Optional[str] = None
 	sell_proceeds_account_id: Optional[int] = None
+	buy_funding_handling: Optional[str] = None
+	buy_funding_account_id: Optional[int] = None
 	created_at: datetime
 	updated_at: datetime
 
@@ -764,6 +802,97 @@ class HoldingTransactionApplyRead(UtcTimestampResponseModel):
 	holding: SecurityHoldingRead | None = None
 	cash_account: CashAccountRead | None = None
 	sell_proceeds_handling: str | None = None
+
+
+class CashLedgerEntryRead(UtcTimestampResponseModel):
+	id: int
+	cash_account_id: int
+	entry_type: str
+	amount: float
+	currency: str
+	happened_on: date
+	note: str | None = None
+	holding_transaction_id: int | None = None
+	cash_transfer_id: int | None = None
+	created_at: datetime
+	updated_at: datetime
+
+	@field_validator("entry_type", mode="before")
+	@classmethod
+	def validate_entry_type(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, CASH_LEDGER_ENTRY_TYPES, "entry_type")
+
+
+class CashTransferCreate(BaseModel):
+	from_account_id: int = Field(ge=1)
+	to_account_id: int = Field(ge=1)
+	source_amount: float = Field(gt=0)
+	target_amount: float | None = Field(default=None, gt=0)
+	transferred_on: date
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+	@model_validator(mode="after")
+	def validate_accounts(self) -> CashTransferCreate:
+		if self.from_account_id == self.to_account_id:
+			raise ValueError("转出账户和转入账户不能相同。")
+		return self
+
+
+class CashTransferRead(UtcTimestampResponseModel):
+	id: int
+	from_account_id: int
+	to_account_id: int
+	source_amount: float
+	target_amount: float
+	source_currency: str
+	target_currency: str
+	transferred_on: date
+	note: str | None = None
+	created_at: datetime
+	updated_at: datetime
+
+
+class CashTransferApplyRead(UtcTimestampResponseModel):
+	transfer: CashTransferRead
+	from_account: CashAccountRead
+	to_account: CashAccountRead
+
+
+class AgentTaskCreate(BaseModel):
+	task_type: str = Field(min_length=1, max_length=40)
+	payload: dict[str, Any] = Field(default_factory=dict)
+
+	@field_validator("task_type", mode="before")
+	@classmethod
+	def validate_task_type(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, AGENT_TASK_TYPES, "task_type")
+
+
+class AgentTaskRead(UtcTimestampResponseModel):
+	id: int
+	task_type: str
+	status: str
+	payload: dict[str, Any]
+	result: dict[str, Any] | None = None
+	error_message: str | None = None
+	created_at: datetime
+	updated_at: datetime
+	completed_at: datetime | None = None
+
+	@field_validator("task_type", mode="before")
+	@classmethod
+	def validate_task_type(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, AGENT_TASK_TYPES, "task_type")
+
+	@field_validator("status", mode="before")
+	@classmethod
+	def validate_status(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, AGENT_TASK_STATUSES, "status")
 
 
 class SecuritySearchRead(BaseModel):

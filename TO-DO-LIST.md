@@ -2,7 +2,6 @@
 
 ## Active
 
-- [ ] Add a holding transaction history UI with per-trade edit and delete
-- [ ] Introduce cash ledger entries for buy-side cash outflows and full portfolio replay
-- [ ] Add idempotency keys and structured task ingestion for agent-triggered trades
 - [ ] Separate broker credential storage and execution APIs from portfolio record APIs
+- [ ] Add transfer edit support and manual ledger adjustment UI for exceptional corrections
+- [ ] Expose agent-safe broker execution adapters after credential vaulting is in place

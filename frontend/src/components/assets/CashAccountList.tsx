@@ -69,7 +69,7 @@ export function CashAccountList({
 					{onCreate ? (
 						<button
 							type="button"
-							className="asset-manager__button"
+							className="asset-manager__button asset-manager__button--legacy-add"
 							onClick={onCreate}
 							disabled={isActionLocked}
 						>
@@ -119,7 +119,7 @@ export function CashAccountList({
 									{onDelete ? (
 										<button
 											type="button"
-											className="asset-manager__button asset-manager__button--danger"
+											className="asset-manager__button asset-manager__button--legacy-delete"
 											onClick={() => void handleDelete(account.id)}
 											disabled={busy || deletingId === account.id}
 										>

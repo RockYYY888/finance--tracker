@@ -1,0 +1,136 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CashAccountForm } from "./CashAccountForm";
+import { CashAccountList } from "./CashAccountList";
+
+afterEach(() => {
+	cleanup();
+});
+
+describe("CashAccountForm reset behavior", () => {
+	it("keeps user input when upstream value changes without a new editor session", () => {
+		const { rerender } = render(
+			<CashAccountForm
+				resetKey={0}
+				value={{
+					name: "",
+					currency: "CNY",
+					balance: "",
+				}}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("账户名称"), {
+			target: { value: "旅行备用金" },
+		});
+		fireEvent.change(screen.getByLabelText("余额"), {
+			target: { value: "2560" },
+		});
+
+		rerender(
+			<CashAccountForm
+				resetKey={0}
+				value={{
+					name: "",
+					currency: "USD",
+					balance: "",
+				}}
+			/>,
+		);
+
+		expect((screen.getByLabelText("账户名称") as HTMLInputElement).value).toBe("旅行备用金");
+		expect((screen.getByLabelText("余额") as HTMLInputElement).value).toBe("2560");
+	});
+
+	it("resets draft only when a new editor session starts", () => {
+		const { rerender } = render(
+			<CashAccountForm
+				resetKey={0}
+				value={{
+					name: "旧账户",
+					currency: "CNY",
+					balance: "1000",
+				}}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("账户名称"), {
+			target: { value: "临时输入" },
+		});
+
+		rerender(
+			<CashAccountForm
+				resetKey={1}
+				value={{
+					name: "新账户",
+					currency: "USD",
+					balance: "88",
+				}}
+			/>,
+		);
+
+		expect((screen.getByLabelText("账户名称") as HTMLInputElement).value).toBe("新账户");
+		expect((screen.getByLabelText("币种") as HTMLInputElement).value).toBe("USD");
+	});
+});
+
+describe("Cash account button styling", () => {
+	it("uses the investment palette in the cash account form", () => {
+		const onEdit = vi.fn();
+		const onDelete = vi.fn();
+
+		render(
+			<CashAccountForm
+				mode="edit"
+				recordId={1}
+				value={{
+					name: "主账户",
+					currency: "CNY",
+					balance: "1000",
+				}}
+				onEdit={onEdit}
+				onDelete={onDelete}
+				onCancel={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByRole("button", { name: "编辑" }).className).toContain(
+			"asset-manager__button--legacy-add",
+		);
+		expect(screen.getByRole("button", { name: "删除账户" }).className).toContain(
+			"asset-manager__button--legacy-delete",
+		);
+	});
+
+	it("uses the investment palette in the cash account list", () => {
+		const onCreate = vi.fn();
+		const onEdit = vi.fn();
+		const onDelete = vi.fn();
+
+		render(
+			<CashAccountList
+				accounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 1000,
+						account_type: "BANK",
+						value_cny: 1000,
+					},
+				]}
+				onCreate={onCreate}
+				onEdit={onEdit}
+				onDelete={onDelete}
+			/>,
+		);
+
+		expect(screen.getByRole("button", { name: "新增" }).className).toContain(
+			"asset-manager__button--legacy-add",
+		);
+		expect(screen.getByRole("button", { name: "删除" }).className).toContain(
+			"asset-manager__button--legacy-delete",
+		);
+	});
+});

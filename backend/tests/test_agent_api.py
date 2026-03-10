@@ -10,6 +10,8 @@ from starlette.requests import Request
 
 import app.main as main
 from app.main import (
+	create_agent_task,
+	create_cash_transfer,
 	create_account,
 	create_holding_transaction,
 	get_agent_context,
@@ -19,11 +21,13 @@ from app.main import (
 	list_all_holding_transactions,
 	revoke_agent_token,
 )
-from app.models import AgentAccessToken, UserAccount
+from app.models import AgentAccessToken, AgentTask, CashTransfer, SecurityHoldingTransaction, UserAccount
 from app.schemas import (
+	AgentTaskCreate,
 	AgentTokenIssueCreate,
 	AllocationSlice,
 	CashAccountCreate,
+	CashTransferCreate,
 	DashboardResponse,
 	SecurityHoldingTransactionCreate,
 	ValuedCashAccount,
@@ -433,3 +437,190 @@ def test_get_agent_context_returns_dashboard_summary_and_recent_transactions(
 	assert len(context.recent_holding_transactions) == 1
 	assert context.recent_holding_transactions[0].symbol == "AAPL"
 	assert context.warnings == ["quote-cache-hit"]
+
+
+def test_create_holding_transaction_replays_by_idempotency_key(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+
+	first = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=180,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 9),
+		),
+		current_user,
+		session,
+		"buy-001",
+	)
+	second = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=180,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 9),
+		),
+		current_user,
+		session,
+		"buy-001",
+	)
+
+	assert first.transaction.id == second.transaction.id
+	assert len(session.exec(select(SecurityHoldingTransaction)).all()) == 1
+
+
+def test_list_holding_transactions_includes_buy_funding_metadata(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=2000,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=180,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 9),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	transactions = list_all_holding_transactions(
+		current_user,
+		session,
+		symbol="AAPL",
+		market="US",
+		side=None,
+		limit=50,
+	)
+
+	assert transactions[0].buy_funding_handling == "DEDUCT_FROM_EXISTING_CASH"
+	assert transactions[0].buy_funding_account_id == cash_account.id
+
+
+def test_create_cash_transfer_replays_by_idempotency_key(session: Session) -> None:
+	current_user = make_user(session)
+	source_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=1000,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	target_account = create_account(
+		CashAccountCreate(
+			name="备用金",
+			platform="Cash",
+			currency="CNY",
+			balance=100,
+			account_type="CASH",
+		),
+		current_user,
+		session,
+	)
+
+	first = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=source_account.id or 0,
+			to_account_id=target_account.id or 0,
+			source_amount=200,
+			transferred_on=date(2026, 3, 9),
+		),
+		current_user,
+		session,
+		"transfer-001",
+	)
+	second = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=source_account.id or 0,
+			to_account_id=target_account.id or 0,
+			source_amount=200,
+			transferred_on=date(2026, 3, 9),
+		),
+		current_user,
+		session,
+		"transfer-001",
+	)
+
+	assert first.transfer.id == second.transfer.id
+	assert len(session.exec(select(CashTransfer)).all()) == 1
+
+
+def test_create_agent_task_executes_cash_transfer(session: Session) -> None:
+	current_user = make_user(session)
+	source_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=500,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	target_account = create_account(
+		CashAccountCreate(
+			name="零钱",
+			platform="Cash",
+			currency="CNY",
+			balance=0,
+			account_type="CASH",
+		),
+		current_user,
+		session,
+	)
+
+	task = create_agent_task(
+		AgentTaskCreate(
+			task_type="CREATE_CASH_TRANSFER",
+			payload={
+				"from_account_id": source_account.id,
+				"to_account_id": target_account.id,
+				"source_amount": 120,
+				"transferred_on": "2026-03-09",
+			},
+		),
+		current_user,
+		session,
+		"agent-task-001",
+	)
+
+	assert task.status == "DONE"
+	assert task.result is not None
+	assert task.result["transfer"]["source_amount"] == 120
+	assert len(session.exec(select(AgentTask)).all()) == 1

@@ -18,6 +18,8 @@ export interface UseAssetCollectionResult<TInput, TRecord extends IdentifiableRe
 	errorMessage: string | null;
 	isEditorOpen: boolean;
 	editingRecord: TRecord | null;
+	editorSeedRecord: TRecord | null;
+	editorSessionKey: number;
 	isRefreshing: boolean;
 	isSubmitting: boolean;
 	openCreate: () => void;
@@ -49,6 +51,8 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isEditorOpen, setIsEditorOpen] = useState(false);
 	const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+	const [editorSeedRecord, setEditorSeedRecord] = useState<TRecord | null>(null);
+	const [editorSessionKey, setEditorSessionKey] = useState(0);
 	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const nextLocalIdRef = useRef(getNextLocalId(initialItems));
@@ -76,18 +80,23 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 	function openCreate(): void {
 		setErrorMessage(null);
 		setEditingRecordId(null);
+		setEditorSeedRecord(null);
+		setEditorSessionKey((currentKey) => currentKey + 1);
 		setIsEditorOpen(true);
 	}
 
 	function openEdit(record: TRecord): void {
 		setErrorMessage(null);
 		setEditingRecordId(record.id);
+		setEditorSeedRecord(record);
+		setEditorSessionKey((currentKey) => currentKey + 1);
 		setIsEditorOpen(true);
 	}
 
 	function closeEditor(): void {
 		setErrorMessage(null);
 		setEditingRecordId(null);
+		setEditorSeedRecord(null);
 		setIsEditorOpen(false);
 	}
 
@@ -258,6 +267,8 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 		errorMessage,
 		isEditorOpen,
 		editingRecord,
+		editorSeedRecord,
+		editorSessionKey,
 		isRefreshing,
 		isSubmitting,
 		openCreate,

@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CashAccountForm } from "./CashAccountForm";
 import { CashAccountList } from "./CashAccountList";
+import { CashTransferPanel } from "./CashTransferPanel";
 import { FixedAssetForm } from "./FixedAssetForm";
 import { FixedAssetList } from "./FixedAssetList";
 import { HoldingForm } from "./HoldingForm";
 import { HoldingList } from "./HoldingList";
+import { HoldingTransactionHistory } from "./HoldingTransactionHistory";
 import { LiabilityForm } from "./LiabilityForm";
 import { LiabilityList } from "./LiabilityList";
 import { OtherAssetForm } from "./OtherAssetForm";
@@ -15,6 +17,8 @@ import type {
 	CashAccountFormDraft,
 	CashAccountInput,
 	CashAccountRecord,
+	CashTransferInput,
+	CashTransferRecord,
 	FixedAssetFormDraft,
 	FixedAssetInput,
 	FixedAssetRecord,
@@ -22,6 +26,8 @@ import type {
 	HoldingFormDraft,
 	HoldingInput,
 	HoldingRecord,
+	HoldingTransactionRecord,
+	HoldingTransactionUpdateInput,
 	LiabilityFormDraft,
 	LiabilityInput,
 	LiabilityRecord,
@@ -39,7 +45,9 @@ type SummarySection = {
 };
 
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
+const EMPTY_CASH_TRANSFERS: CashTransferRecord[] = [];
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
+const EMPTY_HOLDING_TRANSACTIONS: HoldingTransactionRecord[] = [];
 const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
 const EMPTY_LIABILITIES: LiabilityRecord[] = [];
 const EMPTY_OTHER_ASSETS: OtherAssetRecord[] = [];
@@ -51,7 +59,9 @@ export interface AssetManagerProps {
 	initialLiabilities?: LiabilityRecord[];
 	initialOtherAssets?: OtherAssetRecord[];
 	cashActions?: AssetManagerController["cashAccounts"];
+	cashTransferActions?: AssetManagerController["cashTransfers"];
 	holdingActions?: AssetManagerController["holdings"];
+	holdingTransactionActions?: AssetManagerController["holdingTransactions"];
 	fixedAssetActions?: AssetManagerController["fixedAssets"];
 	liabilityActions?: AssetManagerController["liabilities"];
 	otherAssetActions?: AssetManagerController["otherAssets"];
@@ -88,6 +98,8 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		note: record.note ?? "",
 		sell_proceeds_handling: "CREATE_NEW_CASH",
 		sell_proceeds_account_id: "",
+		buy_funding_handling: "",
+		buy_funding_account_id: "",
 	};
 }
 
@@ -316,7 +328,9 @@ export function AssetManager({
 	initialLiabilities,
 	initialOtherAssets,
 	cashActions,
+	cashTransferActions,
 	holdingActions,
+	holdingTransactionActions,
 	fixedAssetActions,
 	liabilityActions,
 	otherAssetActions,
@@ -329,6 +343,16 @@ export function AssetManager({
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
 	const [holdingEditorIntent, setHoldingEditorIntent] = useState<HoldingEditorIntent>("buy");
+	const [cashTransfers, setCashTransfers] = useState<CashTransferRecord[]>(
+		EMPTY_CASH_TRANSFERS,
+	);
+	const [cashTransfersLoading, setCashTransfersLoading] = useState(false);
+	const [cashTransfersError, setCashTransfersError] = useState<string | null>(null);
+	const [holdingTransactions, setHoldingTransactions] = useState<HoldingTransactionRecord[]>(
+		EMPTY_HOLDING_TRANSACTIONS,
+	);
+	const [holdingTransactionsLoading, setHoldingTransactionsLoading] = useState(false);
+	const [holdingTransactionsError, setHoldingTransactionsError] = useState<string | null>(null);
 	const cashCollection = useAssetCollection({
 		initialItems: initialCashAccounts ?? EMPTY_CASH_ACCOUNTS,
 		actions: cashActions,
@@ -359,6 +383,12 @@ export function AssetManager({
 		createLocalRecord: createLocalOtherAsset,
 		updateLocalRecord: updateLocalOtherAsset,
 	});
+	const holdingCreateSeed = useMemo(
+		() => ({
+			side: holdingEditorIntent === "sell" ? ("SELL" as const) : ("BUY" as const),
+		}),
+		[holdingEditorIntent],
+	);
 
 	function openHoldingBuyEditor(): void {
 		setHoldingEditorIntent("buy");
@@ -392,6 +422,74 @@ export function AssetManager({
 		void otherAssetCollection.refresh();
 	}, [autoRefreshOnMount, refreshToken]);
 
+	useEffect(() => {
+		if (!cashTransferActions?.onRefresh) {
+			setCashTransfers(EMPTY_CASH_TRANSFERS);
+			return;
+		}
+
+		let cancelled = false;
+		setCashTransfersLoading(true);
+		setCashTransfersError(null);
+		void Promise.resolve(cashTransferActions.onRefresh())
+			.then((items) => {
+				if (cancelled) {
+					return;
+				}
+				setCashTransfers(items);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				setCashTransfersError(error instanceof Error ? error.message : "加载账户划转失败。");
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setCashTransfersLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [cashTransferActions, refreshToken]);
+
+	useEffect(() => {
+		if (!holdingTransactionActions?.onRefresh) {
+			setHoldingTransactions(EMPTY_HOLDING_TRANSACTIONS);
+			return;
+		}
+
+		let cancelled = false;
+		setHoldingTransactionsLoading(true);
+		setHoldingTransactionsError(null);
+		void Promise.resolve(holdingTransactionActions.onRefresh())
+			.then((items) => {
+				if (cancelled) {
+					return;
+				}
+				setHoldingTransactions(items);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				setHoldingTransactionsError(
+					error instanceof Error ? error.message : "加载投资交易记录失败。",
+				);
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setHoldingTransactionsLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [holdingTransactionActions, refreshToken]);
+
 	async function removeCashRecord(recordId: number): Promise<void> {
 		const record = cashCollection.items.find((item) => item.id === recordId);
 		if (!record) {
@@ -400,12 +498,66 @@ export function AssetManager({
 		await cashCollection.remove(record);
 	}
 
+	async function createCashTransferRecord(payload: CashTransferInput): Promise<CashTransferRecord> {
+		if (!cashTransferActions?.onCreate) {
+			throw new Error("当前未配置账户划转能力。");
+		}
+
+		setCashTransfersError(null);
+		const createdRecord = await cashTransferActions.onCreate(payload);
+		if (!createdRecord) {
+			throw new Error("新增账户划转失败，请稍后重试。");
+		}
+		setCashTransfers((currentItems) => [createdRecord, ...currentItems]);
+		return createdRecord;
+	}
+
+	async function removeCashTransferRecord(recordId: number): Promise<void> {
+		if (!cashTransferActions?.onDelete) {
+			return;
+		}
+
+		setCashTransfersError(null);
+		await cashTransferActions.onDelete(recordId);
+		setCashTransfers((currentItems) =>
+			currentItems.filter((item) => item.id !== recordId),
+		);
+	}
+
 	async function removeHoldingRecord(recordId: number): Promise<void> {
 		const record = holdingCollection.items.find((item) => item.id === recordId);
 		if (!record) {
 			return;
 		}
 		await holdingCollection.remove(record);
+	}
+
+	async function updateHoldingTransactionRecord(
+		recordId: number,
+		payload: HoldingTransactionUpdateInput,
+	): Promise<HoldingTransactionRecord> {
+		if (!holdingTransactionActions?.onEdit) {
+			throw new Error("当前未配置交易修正能力。");
+		}
+
+		setHoldingTransactionsError(null);
+		const updatedRecord = await holdingTransactionActions.onEdit(recordId, payload);
+		setHoldingTransactions((currentItems) =>
+			currentItems.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
+		);
+		return updatedRecord;
+	}
+
+	async function removeHoldingTransactionRecord(recordId: number): Promise<void> {
+		if (!holdingTransactionActions?.onDelete) {
+			return;
+		}
+
+		setHoldingTransactionsError(null);
+		await holdingTransactionActions.onDelete(recordId);
+		setHoldingTransactions((currentItems) =>
+			currentItems.filter((item) => item.id !== recordId),
+		);
 	}
 
 	async function removeFixedAssetRecord(recordId: number): Promise<void> {
@@ -475,9 +627,10 @@ export function AssetManager({
 						{cashCollection.isEditorOpen ? (
 							<CashAccountForm
 								mode={cashCollection.editingRecord ? "edit" : "create"}
+								resetKey={cashCollection.editorSessionKey}
 								value={
-									cashCollection.editingRecord
-										? toCashDraft(cashCollection.editingRecord)
+									cashCollection.editorSeedRecord
+										? toCashDraft(cashCollection.editorSeedRecord)
 										: null
 								}
 								recordId={cashCollection.editingRecord?.id ?? null}
@@ -498,6 +651,16 @@ export function AssetManager({
 							onEdit={(account) => cashCollection.openEdit(account)}
 							onDelete={(recordId) => removeCashRecord(recordId)}
 						/>
+						<CashTransferPanel
+							accounts={cashCollection.items}
+							transfers={cashTransfers}
+							loading={cashTransfersLoading}
+							busy={cashCollection.isSubmitting}
+							errorMessage={cashTransfersError}
+							maxStartedOnDate={maxStartedOnDate}
+							onCreate={(payload) => createCashTransferRecord(payload)}
+							onDelete={(recordId) => removeCashTransferRecord(recordId)}
+						/>
 					</>
 				) : null}
 
@@ -506,13 +669,12 @@ export function AssetManager({
 						{holdingCollection.isEditorOpen ? (
 							<HoldingForm
 								mode={holdingCollection.editingRecord ? "edit" : "create"}
+								resetKey={holdingCollection.editorSessionKey}
 								intent={holdingCollection.editingRecord ? "edit" : holdingEditorIntent}
 								value={
-									holdingCollection.editingRecord
-										? toHoldingDraft(holdingCollection.editingRecord)
-										: {
-											side: holdingEditorIntent === "sell" ? "SELL" : "BUY",
-										}
+									holdingCollection.editorSeedRecord
+										? toHoldingDraft(holdingCollection.editorSeedRecord)
+										: holdingCreateSeed
 								}
 								existingHoldings={holdingCollection.items}
 								cashAccounts={cashCollection.items}
@@ -541,6 +703,18 @@ export function AssetManager({
 							}
 							onEdit={(holding) => openHoldingEditEditor(holding)}
 						/>
+						<HoldingTransactionHistory
+							transactions={holdingTransactions}
+							cashAccounts={cashCollection.items}
+							loading={holdingTransactionsLoading}
+							busy={holdingCollection.isSubmitting}
+							errorMessage={holdingTransactionsError}
+							maxStartedOnDate={maxStartedOnDate}
+							onEdit={(recordId, payload) =>
+								updateHoldingTransactionRecord(recordId, payload)
+							}
+							onDelete={(recordId) => removeHoldingTransactionRecord(recordId)}
+						/>
 					</>
 				) : null}
 
@@ -549,9 +723,10 @@ export function AssetManager({
 						{fixedAssetCollection.isEditorOpen ? (
 							<FixedAssetForm
 								mode={fixedAssetCollection.editingRecord ? "edit" : "create"}
+								resetKey={fixedAssetCollection.editorSessionKey}
 								value={
-									fixedAssetCollection.editingRecord
-										? toFixedAssetDraft(fixedAssetCollection.editingRecord)
+									fixedAssetCollection.editorSeedRecord
+										? toFixedAssetDraft(fixedAssetCollection.editorSeedRecord)
 										: null
 								}
 								recordId={fixedAssetCollection.editingRecord?.id ?? null}
@@ -580,9 +755,10 @@ export function AssetManager({
 						{liabilityCollection.isEditorOpen ? (
 							<LiabilityForm
 								mode={liabilityCollection.editingRecord ? "edit" : "create"}
+								resetKey={liabilityCollection.editorSessionKey}
 								value={
-									liabilityCollection.editingRecord
-										? toLiabilityDraft(liabilityCollection.editingRecord)
+									liabilityCollection.editorSeedRecord
+										? toLiabilityDraft(liabilityCollection.editorSeedRecord)
 										: null
 								}
 								recordId={liabilityCollection.editingRecord?.id ?? null}
@@ -611,9 +787,10 @@ export function AssetManager({
 						{otherAssetCollection.isEditorOpen ? (
 							<OtherAssetForm
 								mode={otherAssetCollection.editingRecord ? "edit" : "create"}
+								resetKey={otherAssetCollection.editorSessionKey}
 								value={
-									otherAssetCollection.editingRecord
-										? toOtherAssetDraft(otherAssetCollection.editingRecord)
+									otherAssetCollection.editorSeedRecord
+										? toOtherAssetDraft(otherAssetCollection.editorSeedRecord)
 										: null
 								}
 								recordId={otherAssetCollection.editingRecord?.id ?? null}

@@ -16,6 +16,7 @@ import {
 
 export interface FixedAssetFormProps {
 	mode?: AssetEditorMode;
+	resetKey?: number;
 	value?: Partial<FixedAssetFormDraft> | null;
 	recordId?: number | null;
 	title?: string;
@@ -56,6 +57,7 @@ function toFixedAssetInput(draft: FixedAssetFormDraft): FixedAssetInput {
 
 export function FixedAssetForm({
 	mode = "create",
+	resetKey = 0,
 	value,
 	recordId = null,
 	title,
@@ -75,7 +77,7 @@ export function FixedAssetForm({
 	useEffect(() => {
 		setDraft(toFixedAssetDraft(value));
 		setLocalError(null);
-	}, [mode, value]);
+	}, [mode, resetKey]);
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;

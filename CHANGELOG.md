@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.2 - 2026-03-10
+
+- Added cash-ledger replay, cash transfers, and buy-side cash settlements
+- Added holding transaction history editing and agent idempotency/task APIs
+- Fixed asset-form auto-refresh resets and tightened sell/transfer quantity guards
+
 ## v0.6.1 - 2026-03-10
 
 - Switched holdings to transaction-first semantics and added agent-ready trade correction APIs

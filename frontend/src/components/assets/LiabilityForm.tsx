@@ -17,6 +17,7 @@ import {
 
 export interface LiabilityFormProps {
 	mode?: AssetEditorMode;
+	resetKey?: number;
 	value?: Partial<LiabilityFormDraft> | null;
 	recordId?: number | null;
 	title?: string;
@@ -56,6 +57,7 @@ function toLiabilityInput(draft: LiabilityFormDraft): LiabilityInput {
 
 export function LiabilityForm({
 	mode = "create",
+	resetKey = 0,
 	value,
 	recordId = null,
 	title,
@@ -75,7 +77,7 @@ export function LiabilityForm({
 	useEffect(() => {
 		setDraft(toLiabilityDraft(value));
 		setLocalError(null);
-	}, [mode, value]);
+	}, [mode, resetKey]);
 
 	const effectiveError = localError ?? errorMessage;
 	const isSubmitting = busy || isWorking;

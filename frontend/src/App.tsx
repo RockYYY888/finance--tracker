@@ -1118,6 +1118,18 @@ function App() {
 				void loadDashboard();
 			},
 		},
+		cashTransfers: {
+			onCreate: async (payload) => {
+				const createdRecord = await defaultAssetApiClient.createCashTransfer(payload);
+				void loadDashboard();
+				return createdRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteCashTransfer(recordId);
+				void loadDashboard();
+			},
+			onRefresh: () => defaultAssetApiClient.listCashTransfers(),
+		},
 		holdings: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createHolding(payload);
@@ -1154,6 +1166,21 @@ function App() {
 				},
 				onSearch: (query) => defaultAssetApiClient.searchSecurities(query),
 			},
+		holdingTransactions: {
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateHoldingTransaction(
+					recordId,
+					payload,
+				);
+				void loadDashboard();
+				return updatedRecord;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteHoldingTransaction(recordId);
+				void loadDashboard();
+			},
+			onRefresh: () => defaultAssetApiClient.listHoldingTransactions(),
+		},
 		fixedAssets: {
 			onCreate: async (payload) => {
 				const createdRecord = await defaultAssetApiClient.createFixedAsset(payload);

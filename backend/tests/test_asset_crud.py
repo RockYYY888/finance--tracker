@@ -14,6 +14,7 @@ from app.main import (
 	_create_user_account,
 	_update_user_email,
 	create_fixed_asset,
+	create_cash_transfer,
 	_persist_hour_snapshot,
 	_persist_holdings_return_snapshot,
 	_reset_user_password_with_email,
@@ -34,6 +35,8 @@ from app.main import (
 )
 from app.models import (
 	CashAccount,
+	CashLedgerEntry,
+	CashTransfer,
 	FixedAsset,
 	HoldingHistorySyncRequest,
 	HoldingPerformanceSnapshot,
@@ -49,6 +52,7 @@ from app.schemas import (
 	AuthLoginCredentials,
 	AuthRegisterCredentials,
 	CashAccountCreate,
+	CashTransferCreate,
 	CashAccountUpdate,
 	DashboardResponse,
 	FixedAssetCreate,
@@ -923,6 +927,58 @@ def test_holding_sell_transaction_can_merge_proceeds_into_existing_cash_account(
 	assert updated_account.started_on == cash_account.started_on
 
 
+def test_holding_buy_transaction_can_deduct_from_existing_cash_account(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=1000,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+
+	applied_buy = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_buy.cash_account is not None
+	assert applied_buy.cash_account.id == cash_account.id
+	assert applied_buy.cash_account.balance == 300.0
+	stored_settlement = session.exec(select(HoldingTransactionCashSettlement)).one()
+	assert stored_settlement.flow_direction == "OUTFLOW"
+	assert stored_settlement.handling == "DEDUCT_FROM_EXISTING_CASH"
+	ledger_entries = list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.holding_transaction_id == applied_buy.transaction.id),
+		),
+	)
+	assert len(ledger_entries) == 1
+	assert ledger_entries[0].entry_type == "BUY_FUNDING"
+	assert ledger_entries[0].amount == -700.0
+
+
 def test_holding_transaction_sell_rejects_when_quantity_is_insufficient(
 	session: Session,
 ) -> None:
@@ -1141,6 +1197,101 @@ def test_update_holding_transaction_rebuilds_projection_and_cash_settlement(
 	assert settlement.holding_transaction_id == applied_sell.transaction.id
 	assert settlement.cash_account_id == cash_account.id
 	assert settlement.settled_amount == 1400.0
+
+
+def test_create_cash_transfer_records_ledger_and_updates_balances(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	from_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=1000,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	to_account = create_account(
+		CashAccountCreate(
+			name="备用金",
+			platform="Cash",
+			currency="cny",
+			balance=200,
+			account_type="cash",
+		),
+		current_user,
+		session,
+	)
+
+	applied_transfer = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=from_account.id or 0,
+			to_account_id=to_account.id or 0,
+			source_amount=300,
+			transferred_on=date(2026, 3, 2),
+			note="周转",
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_transfer.from_account.balance == 700.0
+	assert applied_transfer.to_account.balance == 500.0
+	stored_transfer = session.exec(select(CashTransfer)).one()
+	assert stored_transfer.source_amount == 300.0
+	ledger_entries = list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.cash_transfer_id == stored_transfer.id),
+		),
+	)
+	assert len(ledger_entries) == 2
+	assert sorted(entry.entry_type for entry in ledger_entries) == ["TRANSFER_IN", "TRANSFER_OUT"]
+
+
+def test_build_dashboard_replays_total_series_from_cash_ledger_and_holding_transactions(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=1000,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 1),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	dashboard = asyncio.run(main._build_dashboard(session, current_user))
+
+	assert dashboard.cash_value_cny == 300.0
+	assert dashboard.holdings_value_cny == 700.0
+	assert dashboard.total_value_cny == 1000.0
+	assert any(point.value == 1000.0 for point in dashboard.hour_series)
 
 
 def test_create_holding_rejects_future_started_on_based_on_server_date(

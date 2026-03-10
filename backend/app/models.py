@@ -10,6 +10,16 @@ CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
 SECURITY_MARKETS = ("CN", "HK", "US", "FUND", "CRYPTO", "OTHER")
 HOLDING_TRANSACTION_SIDES = ("BUY", "SELL", "ADJUST")
 SELL_PROCEEDS_HANDLINGS = ("DISCARD", "ADD_TO_EXISTING_CASH", "CREATE_NEW_CASH")
+BUY_FUNDING_HANDLINGS = ("DEDUCT_FROM_EXISTING_CASH",)
+CASH_SETTLEMENT_DIRECTIONS = ("INFLOW", "OUTFLOW")
+CASH_LEDGER_ENTRY_TYPES = (
+	"INITIAL_BALANCE",
+	"SELL_PROCEEDS",
+	"BUY_FUNDING",
+	"TRANSFER_OUT",
+	"TRANSFER_IN",
+	"MANUAL_ADJUSTMENT",
+)
 FIXED_ASSET_CATEGORIES = (
 	"REAL_ESTATE",
 	"VEHICLE",
@@ -37,6 +47,13 @@ FEEDBACK_PRIORITIES = ("LOW", "MEDIUM", "HIGH")
 FEEDBACK_SOURCES = ("USER", "SYSTEM", "API_MONITOR", "TRADING_AGENT", "ADMIN")
 FEEDBACK_STATUSES = ("OPEN", "ACKED", "IN_PROGRESS", "SILENCED", "RESOLVED")
 INBOX_MESSAGE_KINDS = ("FEEDBACK", "RELEASE_NOTE")
+AGENT_TASK_TYPES = (
+	"CREATE_BUY_TRANSACTION",
+	"CREATE_SELL_TRANSACTION",
+	"UPDATE_HOLDING_TRANSACTION",
+	"CREATE_CASH_TRANSFER",
+)
+AGENT_TASK_STATUSES = ("DONE", "FAILED")
 
 
 def utc_now() -> datetime:
@@ -212,9 +229,73 @@ class HoldingTransactionCashSettlement(SQLModel, table=True):
 	settled_currency: str = Field(default="CNY", max_length=8)
 	source_amount: float = Field(default=0)
 	source_currency: str = Field(default="CNY", max_length=8)
+	flow_direction: str = Field(default="INFLOW", max_length=8)
 	auto_created_cash_account: bool = Field(default=False)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class CashLedgerEntry(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	cash_account_id: int = Field(index=True)
+	entry_type: str = Field(default="INITIAL_BALANCE", index=True, max_length=32)
+	amount: float = Field(default=0)
+	currency: str = Field(default="CNY", max_length=8)
+	happened_on: date = Field(index=True)
+	note: Optional[str] = Field(default=None, max_length=500)
+	holding_transaction_id: int | None = Field(default=None, index=True)
+	cash_transfer_id: int | None = Field(default=None, index=True)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class CashTransfer(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	from_account_id: int = Field(index=True)
+	to_account_id: int = Field(index=True)
+	source_amount: float = Field(gt=0)
+	target_amount: float = Field(gt=0)
+	source_currency: str = Field(default="CNY", max_length=8)
+	target_currency: str = Field(default="CNY", max_length=8)
+	transferred_on: date = Field(index=True)
+	note: Optional[str] = Field(default=None, max_length=500)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class AgentIdempotencyKey(SQLModel, table=True):
+	__table_args__ = (
+		UniqueConstraint(
+			"user_id",
+			"scope",
+			"idempotency_key",
+			name="uq_agent_idempotency_user_scope_key",
+		),
+	)
+
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	scope: str = Field(index=True, max_length=64)
+	idempotency_key: str = Field(max_length=160)
+	request_hash: str = Field(max_length=64)
+	response_json: str = Field(max_length=16000)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
+class AgentTask(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	task_type: str = Field(index=True, max_length=40)
+	status: str = Field(default="DONE", index=True, max_length=16)
+	input_json: str = Field(max_length=16000)
+	result_json: str | None = Field(default=None, max_length=16000)
+	error_message: str | None = Field(default=None, max_length=1000)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	completed_at: datetime | None = Field(default=None, index=True)
 
 
 class FixedAsset(SQLModel, table=True):

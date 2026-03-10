@@ -25,6 +25,7 @@ export type SellProceedsHandling =
 	| "DISCARD"
 	| "ADD_TO_EXISTING_CASH"
 	| "CREATE_NEW_CASH";
+export type BuyFundingHandling = "DEDUCT_FROM_EXISTING_CASH";
 
 export const SELL_PROCEEDS_HANDLING_OPTIONS: Array<{
 	value: SellProceedsHandling;
@@ -142,6 +143,40 @@ export interface CashAccountRecord extends CashAccountInput {
 	value_cny?: number | null;
 }
 
+export interface CashTransferInput {
+	from_account_id: number;
+	to_account_id: number;
+	source_amount: number;
+	target_amount?: number;
+	transferred_on: string;
+	note?: string;
+}
+
+export interface CashTransferFormDraft {
+	from_account_id: string;
+	to_account_id: string;
+	source_amount: string;
+	target_amount: string;
+	transferred_on: string;
+	note: string;
+}
+
+export interface CashTransferRecord extends CashTransferInput {
+	id: number;
+	target_amount: number;
+	source_currency: string;
+	target_currency: string;
+}
+
+export const DEFAULT_CASH_TRANSFER_FORM_DRAFT: CashTransferFormDraft = {
+	from_account_id: "",
+	to_account_id: "",
+	source_amount: "",
+	target_amount: "",
+	transferred_on: "",
+	note: "",
+};
+
 export const DEFAULT_CASH_ACCOUNT_FORM_DRAFT: CashAccountFormDraft = {
 	name: "",
 	currency: "CNY",
@@ -164,6 +199,8 @@ export interface HoldingInput {
 	note?: string;
 	sell_proceeds_handling?: SellProceedsHandling;
 	sell_proceeds_account_id?: number;
+	buy_funding_handling?: BuyFundingHandling;
+	buy_funding_account_id?: number;
 }
 
 export type HoldingEditorIntent = "buy" | "sell" | "edit";
@@ -181,6 +218,8 @@ export interface HoldingFormDraft {
 	note: string;
 	sell_proceeds_handling: SellProceedsHandling;
 	sell_proceeds_account_id: string;
+	buy_funding_handling: BuyFundingHandling | "";
+	buy_funding_account_id: string;
 }
 
 export interface HoldingRecord extends HoldingInput {
@@ -190,6 +229,39 @@ export interface HoldingRecord extends HoldingInput {
 	value_cny?: number | null;
 	return_pct?: number | null;
 	last_updated?: string | null;
+}
+
+export interface HoldingTransactionRecord {
+	id: number;
+	symbol: string;
+	name: string;
+	side: "BUY" | "SELL" | "ADJUST";
+	quantity: number;
+	price?: number | null;
+	fallback_currency: string;
+	market: SecurityMarket;
+	broker?: string;
+	traded_on: string;
+	note?: string;
+	sell_proceeds_handling?: SellProceedsHandling;
+	sell_proceeds_account_id?: number;
+	buy_funding_handling?: BuyFundingHandling;
+	buy_funding_account_id?: number;
+	created_at?: string;
+	updated_at?: string;
+}
+
+export interface HoldingTransactionUpdateInput {
+	quantity?: number;
+	price?: number;
+	fallback_currency?: string;
+	broker?: string;
+	traded_on?: string;
+	note?: string;
+	sell_proceeds_handling?: SellProceedsHandling;
+	sell_proceeds_account_id?: number;
+	buy_funding_handling?: BuyFundingHandling;
+	buy_funding_account_id?: number;
 }
 
 export interface FixedAssetInput {
@@ -313,6 +385,8 @@ export const DEFAULT_HOLDING_FORM_DRAFT: HoldingFormDraft = {
 	note: "",
 	sell_proceeds_handling: "CREATE_NEW_CASH",
 	sell_proceeds_account_id: "",
+	buy_funding_handling: "",
+	buy_funding_account_id: "",
 };
 
 export type CreateAssetAction<TInput, TRecord> = (
@@ -352,9 +426,23 @@ export interface HoldingCollectionActions
 	onMergeDuplicate?: MergeHoldingAction;
 }
 
+export interface HoldingTransactionCollectionActions {
+	onEdit?: EditAssetAction<HoldingTransactionUpdateInput, HoldingTransactionRecord>;
+	onDelete?: DeleteAssetAction;
+	onRefresh?: RefreshAssetAction<HoldingTransactionRecord>;
+}
+
+export interface CashTransferCollectionActions {
+	onCreate?: CreateAssetAction<CashTransferInput, CashTransferRecord>;
+	onDelete?: DeleteAssetAction;
+	onRefresh?: RefreshAssetAction<CashTransferRecord>;
+}
+
 export interface AssetManagerController {
 	cashAccounts?: AssetCollectionActions<CashAccountInput, CashAccountRecord>;
+	cashTransfers?: CashTransferCollectionActions;
 	holdings?: HoldingCollectionActions;
+	holdingTransactions?: HoldingTransactionCollectionActions;
 	fixedAssets?: AssetCollectionActions<FixedAssetInput, FixedAssetRecord>;
 	liabilities?: AssetCollectionActions<LiabilityInput, LiabilityRecord>;
 	otherAssets?: AssetCollectionActions<OtherAssetInput, OtherAssetRecord>;
@@ -365,10 +453,19 @@ export interface AssetApiClient {
 	createCashAccount: (payload: CashAccountInput) => Promise<CashAccountRecord>;
 	updateCashAccount: (recordId: number, payload: CashAccountInput) => Promise<CashAccountRecord>;
 	deleteCashAccount: (recordId: number) => Promise<void>;
+	listCashTransfers: () => Promise<CashTransferRecord[]>;
+	createCashTransfer: (payload: CashTransferInput) => Promise<CashTransferRecord>;
+	deleteCashTransfer: (recordId: number) => Promise<void>;
 	listHoldings: () => Promise<HoldingRecord[]>;
 	createHolding: (payload: HoldingInput) => Promise<HoldingRecord | null>;
 	updateHolding: (recordId: number, payload: HoldingInput) => Promise<HoldingRecord>;
 	deleteHolding: (recordId: number) => Promise<void>;
+	listHoldingTransactions: () => Promise<HoldingTransactionRecord[]>;
+	updateHoldingTransaction: (
+		recordId: number,
+		payload: HoldingTransactionUpdateInput,
+	) => Promise<HoldingTransactionRecord>;
+	deleteHoldingTransaction: (recordId: number) => Promise<void>;
 	listFixedAssets: () => Promise<FixedAssetRecord[]>;
 	createFixedAsset: (payload: FixedAssetInput) => Promise<FixedAssetRecord>;
 	updateFixedAsset: (recordId: number, payload: FixedAssetInput) => Promise<FixedAssetRecord>;

@@ -29,6 +29,7 @@ import {
 export interface HoldingFormProps {
 	mode?: AssetEditorMode;
 	intent?: HoldingEditorIntent;
+	resetKey?: number;
 	value?: Partial<HoldingFormDraft> | null;
 	existingHoldings?: HoldingRecord[];
 	cashAccounts?: CashAccountRecord[];
@@ -76,6 +77,8 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 	const normalizedNote = draft.note.trim();
 	const shouldMergeIntoExistingCash =
 		draft.side === "SELL" && draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH";
+	const shouldDeductFromExistingCash =
+		draft.side === "BUY" && draft.buy_funding_account_id.trim().length > 0;
 
 	return {
 		side: draft.side,
@@ -96,6 +99,10 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 			shouldMergeIntoExistingCash && draft.sell_proceeds_account_id
 				? Number(draft.sell_proceeds_account_id)
 				: undefined,
+		buy_funding_handling:
+			shouldDeductFromExistingCash ? "DEDUCT_FROM_EXISTING_CASH" : undefined,
+		buy_funding_account_id:
+			shouldDeductFromExistingCash ? Number(draft.buy_funding_account_id) : undefined,
 	};
 }
 
@@ -277,6 +284,19 @@ function resolveSellPriceDraftValue(holding: HoldingRecord): string {
 	return "";
 }
 
+function clampSellQuantityDraftValue(nextValue: string, maxQuantity?: number): string {
+	if (!nextValue.trim() || maxQuantity == null || !Number.isFinite(maxQuantity) || maxQuantity <= 0) {
+		return nextValue;
+	}
+
+	const parsedQuantity = Number(nextValue);
+	if (!Number.isFinite(parsedQuantity) || parsedQuantity <= maxQuantity) {
+		return nextValue;
+	}
+
+	return String(maxQuantity);
+}
+
 function applyHoldingSelectionToDraft(
 	currentDraft: HoldingFormDraft,
 	holding: HoldingRecord,
@@ -315,6 +335,7 @@ function createHoldingResetDraft(
 export function HoldingForm({
 	mode = "create",
 	intent,
+	resetKey = 0,
 	value,
 	existingHoldings = EMPTY_HOLDINGS,
 	cashAccounts = EMPTY_CASH_ACCOUNTS,
@@ -391,7 +412,7 @@ export function HoldingForm({
 		setSearchError(null);
 		setLocalError(null);
 		setPendingMergePreview(null);
-	}, [maxStartedOnDate, resolvedIntent, sellableHoldings, value]);
+	}, [resetKey, resolvedIntent]);
 
 	useEffect(() => {
 		if (!onSearch) {
@@ -521,6 +542,7 @@ export function HoldingForm({
 		)
 		: null;
 	const canSelectExistingCashAccount = cashAccounts.length > 0;
+	const canSelectBuyFundingCashAccount = cashAccounts.length > 0;
 	const availableSellProceedsOptions = SELL_PROCEEDS_HANDLING_OPTIONS.filter((option) =>
 		option.value !== "ADD_TO_EXISTING_CASH" || canSelectExistingCashAccount
 	);
@@ -579,6 +601,25 @@ export function HoldingForm({
 		shouldMergeIntoExistingCash,
 	]);
 
+	useEffect(() => {
+		if (isSellTransaction || canSelectBuyFundingCashAccount) {
+			return;
+		}
+
+		if (!draft.buy_funding_account_id) {
+			return;
+		}
+
+		setDraft((currentDraft) => ({
+			...currentDraft,
+			buy_funding_account_id: "",
+		}));
+	}, [
+		canSelectBuyFundingCashAccount,
+		draft.buy_funding_account_id,
+		isSellTransaction,
+	]);
+
 	function updateDraft<K extends keyof HoldingFormDraft>(
 		field: K,
 		nextValue: HoldingFormDraft[K],
@@ -588,6 +629,13 @@ export function HoldingForm({
 			...currentDraft,
 			[field]: nextValue,
 		}));
+	}
+
+	function handleQuantityChange(nextValue: string): void {
+		updateDraft(
+			"quantity",
+			clampSellQuantityDraftValue(nextValue, selectedSellHolding?.quantity),
+		);
 	}
 
 	function handleSellHoldingChange(selectionKey: string): void {
@@ -1038,7 +1086,7 @@ export function HoldingForm({
 							}
 							step={quantityStep}
 							value={draft.quantity}
-							onChange={(event) => updateDraft("quantity", event.target.value)}
+							onChange={(event) => handleQuantityChange(event.target.value)}
 							placeholder={allowsFractionalQuantity(draft.market) ? "1.0000" : "100"}
 						/>
 					</label>
@@ -1139,6 +1187,30 @@ export function HoldingForm({
 							</label>
 						) : null}
 					</>
+				) : null}
+
+				{!isEditIntent && !isSellTransaction ? (
+					<label className="asset-manager__field">
+						<span>买入扣款账户</span>
+						<select
+							value={draft.buy_funding_account_id}
+							onChange={(event) =>
+								updateDraft("buy_funding_account_id", event.target.value)
+							}
+						>
+							<option value="">不登记到现金账户</option>
+							{cashAccounts.map((account) => (
+								<option key={account.id} value={String(account.id)}>
+									{formatCashAccountOptionLabel(account)}
+								</option>
+							))}
+						</select>
+						{!canSelectBuyFundingCashAccount ? (
+							<p className="asset-manager__helper-text">
+								当前没有现金账户 如需记录买入扣款 请先新增现金账户
+							</p>
+						) : null}
+					</label>
 				) : null}
 
 				<label className="asset-manager__field">
