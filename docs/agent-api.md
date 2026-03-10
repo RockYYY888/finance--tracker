@@ -155,6 +155,7 @@ If the key is reused with a different body, the backend returns `409`.
 - Task status moves through `PENDING` -> `RUNNING` -> `DONE` or `FAILED`
 - Poll `GET /api/agent/tasks` to observe completion and read `result`
 - Agent-triggered writes schedule snapshot rebuild jobs asynchronously
+- Those background jobs are executed by the dedicated `worker` process, not by the API process
 - `GET /api/dashboard` stays read-only and does not execute pending rebuild jobs inline
 
 ## Minimal Agent Call Pattern

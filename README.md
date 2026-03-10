@@ -13,6 +13,7 @@ docker compose up -d --build
 ```
 
 Open `http://127.0.0.1:8080`.
+This starts `backend`, `worker`, `frontend`, `caddy`, and `redis`.
 
 ### Server Or Proxy Build
 

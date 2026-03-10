@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.5 - 2026-03-10
+
+- Split the background job worker into a dedicated process and compose service
+- Stopped the API process from starting or owning portfolio rebuild and agent task execution loops
+
 ## v0.6.4 - 2026-03-10
 
 - Moved portfolio snapshot rebuilds and agent task execution onto durable background jobs

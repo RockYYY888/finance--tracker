@@ -19,7 +19,6 @@ from app.runtime_state import (
 	login_attempt_states,
 )
 from app.services import core_support
-from app.services.job_service import start_background_job_worker, stop_background_job_worker
 
 logger = logging.getLogger(__name__)
 settings = core_support.settings
@@ -30,11 +29,7 @@ market_data_client = core_support.market_data_client
 async def lifespan(_: FastAPI):
 	settings.validate_runtime()
 	init_db()
-	start_background_job_worker()
-	try:
-		yield
-	finally:
-		await stop_background_job_worker()
+	yield
 
 
 def create_app() -> FastAPI:

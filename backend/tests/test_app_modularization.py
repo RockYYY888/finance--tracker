@@ -9,6 +9,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 import app.database as database
 from app import runtime_state
 import app.main as main
+import app.worker as worker
 from app.main import create_holding_transaction
 from app.models import OutboxJob, UserAccount
 from app.schemas import SecurityHoldingTransactionCreate
@@ -82,7 +83,7 @@ def make_user(session: Session, username: str = "tester") -> UserAccount:
 	return user
 
 
-def test_lifespan_only_initializes_db_and_snapshot_worker(
+def test_api_lifespan_only_initializes_db(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	call_order: list[str] = []
@@ -90,18 +91,10 @@ def test_lifespan_only_initializes_db_and_snapshot_worker(
 	def fake_init_db() -> None:
 		call_order.append("init_db")
 
-	def fake_start_background_job_worker() -> None:
-		call_order.append("start_background_job_worker")
-
-	async def fake_stop_background_job_worker() -> None:
-		call_order.append("stop_background_job_worker")
-
 	def fail_heavy_startup(*_args, **_kwargs) -> None:
 		raise AssertionError("Legacy startup backfill should not run during app lifespan.")
 
 	monkeypatch.setattr(main, "init_db", fake_init_db)
-	monkeypatch.setattr(main, "start_background_job_worker", fake_start_background_job_worker)
-	monkeypatch.setattr(main, "stop_background_job_worker", fake_stop_background_job_worker)
 	monkeypatch.setattr(main.core_support, "_ensure_legacy_schema", fail_heavy_startup)
 	monkeypatch.setattr(main.core_support, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
 	monkeypatch.setattr(
@@ -120,8 +113,51 @@ def test_lifespan_only_initializes_db_and_snapshot_worker(
 
 	assert call_order == [
 		"init_db",
-		"start_background_job_worker",
 		"inside_lifespan",
+	]
+
+
+def test_worker_lifecycle_initializes_db_and_background_job_worker(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	call_order: list[str] = []
+
+	def fake_init_db() -> None:
+		call_order.append("init_db")
+
+	def fake_validate_runtime() -> None:
+		call_order.append("validate_runtime")
+
+	def fake_start_background_job_worker() -> None:
+		call_order.append("start_background_job_worker")
+
+	async def fake_stop_background_job_worker() -> None:
+		call_order.append("stop_background_job_worker")
+
+	class FakeLoop:
+		def add_signal_handler(self, _sig, callback) -> None:
+			call_order.append("add_signal_handler")
+			if call_order.count("add_signal_handler") == 2:
+				callback()
+
+	class FakeSettings:
+		def validate_runtime(self) -> None:
+			fake_validate_runtime()
+
+	monkeypatch.setattr(worker, "init_db", fake_init_db)
+	monkeypatch.setattr(worker, "settings", FakeSettings())
+	monkeypatch.setattr(worker, "start_background_job_worker", fake_start_background_job_worker)
+	monkeypatch.setattr(worker, "stop_background_job_worker", fake_stop_background_job_worker)
+	monkeypatch.setattr(asyncio, "get_running_loop", lambda: FakeLoop())
+
+	asyncio.run(worker.run_worker())
+
+	assert call_order == [
+		"validate_runtime",
+		"init_db",
+		"add_signal_handler",
+		"add_signal_handler",
+		"start_background_job_worker",
 		"stop_background_job_worker",
 	]
 
