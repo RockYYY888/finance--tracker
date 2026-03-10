@@ -48,6 +48,9 @@ function toJsonBody(
 
 function toHoldingUpdateBody(payload: HoldingInput): string {
 	return JSON.stringify({
+		quantity: payload.quantity,
+		cost_basis_price: payload.cost_basis_price,
+		started_on: payload.started_on,
 		broker: payload.broker,
 		note: payload.note,
 	});

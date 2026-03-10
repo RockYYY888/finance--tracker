@@ -27,7 +27,6 @@ import type {
 	HoldingInput,
 	HoldingRecord,
 	HoldingTransactionRecord,
-	HoldingTransactionUpdateInput,
 	LiabilityFormDraft,
 	LiabilityInput,
 	LiabilityRecord,
@@ -151,14 +150,6 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 		buy_funding_handling: "",
 		buy_funding_account_id: "",
 	};
-}
-
-function matchesHoldingTransaction(
-	holding: Pick<HoldingRecord, "symbol" | "market">,
-	transaction: Pick<HoldingTransactionRecord, "symbol" | "market">,
-): boolean {
-	return holding.symbol.trim().toUpperCase() === transaction.symbol.trim().toUpperCase() &&
-		holding.market === transaction.market;
 }
 
 function toFixedAssetDraft(record: FixedAssetRecord): FixedAssetFormDraft {
@@ -461,24 +452,6 @@ export function AssetManager({
 		}),
 		[holdingEditorIntent],
 	);
-	const editingHoldingRecord = holdingCollection.editorSeedRecord ?? holdingCollection.editingRecord;
-	const relatedHoldingTransactions = useMemo(() => {
-		if (!editingHoldingRecord) {
-			return EMPTY_HOLDING_TRANSACTIONS;
-		}
-
-		return holdingTransactions.filter((transaction) =>
-			matchesHoldingTransaction(editingHoldingRecord, transaction)
-		);
-	}, [editingHoldingRecord, holdingTransactions]);
-	const editableHoldingTransaction = useMemo(() => {
-		const buyTransactions = relatedHoldingTransactions.filter((transaction) =>
-			transaction.side === "BUY"
-		);
-		return relatedHoldingTransactions.length === 1 && buyTransactions.length === 1
-			? buyTransactions[0]
-			: null;
-	}, [relatedHoldingTransactions]);
 	const hasLoadedInitialSectionRef = useRef(false);
 	const loadingResourcesRef = useRef<Set<AssetResource>>(new Set());
 
@@ -869,28 +842,13 @@ export function AssetManager({
 
 	async function submitHoldingRecord(payload: HoldingInput): Promise<void> {
 		const isHoldingMetadataEdit = holdingCollection.editingRecordId !== null;
-		if (isHoldingMetadataEdit && editableHoldingTransaction) {
-			await updateHoldingTransactionRecord(editableHoldingTransaction.id, {
-				quantity: payload.quantity,
-				price: payload.cost_basis_price,
-				fallback_currency: payload.fallback_currency,
-				broker: payload.broker,
-				traded_on: payload.started_on,
-				note: payload.note,
-				buy_funding_handling: payload.buy_funding_handling,
-				buy_funding_account_id: payload.buy_funding_account_id,
-			});
-			closeHoldingEditor();
-			return;
-		}
-
 		const saved = await holdingCollection.submit(payload);
 		if (!saved) {
 			return;
 		}
 
 		if (isHoldingMetadataEdit) {
-			markResourcesLoaded("holdings");
+			await Promise.all([refreshHoldings(), refreshHoldingTransactions()]);
 			notifyRecordsCommitted("investment");
 			return;
 		}
@@ -928,52 +886,6 @@ export function AssetManager({
 			refreshVisibleCashAccountActivity();
 			notifyRecordsCommitted("cash", "investment");
 		}
-	}
-
-	async function updateHoldingTransactionRecord(
-		recordId: number,
-		payload: HoldingTransactionUpdateInput,
-	): Promise<HoldingTransactionRecord> {
-		if (!holdingTransactionActions?.onEdit) {
-			throw new Error("当前未配置交易修正能力。");
-		}
-
-		setHoldingTransactionsError(null);
-		const updatedRecord = await holdingTransactionActions.onEdit(recordId, payload);
-		setHoldingTransactions((currentItems) =>
-			currentItems.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
-		);
-		markResourcesLoaded("holdingTransactions");
-		await Promise.all([
-			refreshCashAccounts(),
-			refreshHoldings(),
-			refreshHoldingTransactions(),
-		]);
-		invalidateResources("cashTransfers", "cashLedger");
-		refreshVisibleCashAccountActivity();
-		notifyRecordsCommitted("cash", "investment");
-		return updatedRecord;
-	}
-
-	async function removeHoldingTransactionRecord(recordId: number): Promise<void> {
-		if (!holdingTransactionActions?.onDelete) {
-			return;
-		}
-
-		setHoldingTransactionsError(null);
-		await holdingTransactionActions.onDelete(recordId);
-		setHoldingTransactions((currentItems) =>
-			currentItems.filter((item) => item.id !== recordId),
-		);
-		markResourcesLoaded("holdingTransactions");
-		await Promise.all([
-			refreshCashAccounts(),
-			refreshHoldings(),
-			refreshHoldingTransactions(),
-		]);
-		invalidateResources("cashTransfers", "cashLedger");
-		refreshVisibleCashAccountActivity();
-		notifyRecordsCommitted("cash", "investment");
 	}
 
 	async function submitFixedAssetRecord(payload: FixedAssetInput): Promise<void> {
@@ -1142,8 +1054,6 @@ export function AssetManager({
 										: holdingCreateSeed
 								}
 								existingHoldings={holdingCollection.items}
-								relatedTransactions={relatedHoldingTransactions}
-								editableTransaction={editableHoldingTransaction}
 								cashAccounts={cashCollection.items}
 								recordId={holdingCollection.editingRecordId}
 								busy={holdingCollection.isSubmitting}
@@ -1173,15 +1083,8 @@ export function AssetManager({
 								/>
 								<HoldingTransactionHistory
 									transactions={holdingTransactions}
-									cashAccounts={cashCollection.items}
 									loading={holdingTransactionsLoading}
-									busy={holdingCollection.isSubmitting}
 									errorMessage={holdingTransactionsError}
-									maxStartedOnDate={maxStartedOnDate}
-									onEdit={(recordId, payload) =>
-										updateHoldingTransactionRecord(recordId, payload)
-									}
-									onDelete={(recordId) => removeHoldingTransactionRecord(recordId)}
 								/>
 							</>
 						)}

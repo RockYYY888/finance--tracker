@@ -21,6 +21,7 @@ from app.services import service_context
 from app.services.common_service import (
 	_capture_model_state,
 	_coerce_utc_datetime,
+	_current_hour_bucket,
     _date_start_utc,
     _normalize_currency,
     _normalize_optional_text,
@@ -60,17 +61,22 @@ class ProjectedHoldingState:
 	lots: list[HoldingLot]
 
 def _holding_transaction_side_priority(side: str) -> int:
-	if side == "ADJUST":
-		return 0
 	if side == "BUY":
+		return 0
+	if side == "SELL":
 		return 1
 	return 2
 
+def _holding_transaction_event_at(transaction: SecurityHoldingTransaction) -> datetime:
+	if transaction.side == "ADJUST":
+		return _current_hour_bucket(_coerce_utc_datetime(transaction.created_at))
+	return _date_start_utc(transaction.traded_on)
+
 def _holding_transaction_sort_key(
 	transaction: SecurityHoldingTransaction,
-) -> tuple[date, int, datetime, int]:
+) -> tuple[datetime, int, datetime, int]:
 	return (
-		transaction.traded_on,
+		_holding_transaction_event_at(transaction),
 		_holding_transaction_side_priority(transaction.side),
 		_coerce_utc_datetime(transaction.created_at),
 		transaction.id or 0,
@@ -1278,4 +1284,4 @@ def _apply_sell_proceeds_handling(
 		transaction_id=transaction_id,
 	)
 
-__all__ = ['AppliedCashSettlement', 'HoldingLot', 'ProjectedHoldingState', '_holding_transaction_side_priority', '_holding_transaction_sort_key', '_projected_holding_quantity', '_projected_holding_started_on', '_projected_holding_cost_basis', '_validate_holding_quantity_for_market', '_normalize_holding_transaction_side', '_list_holdings_for_symbol', '_delete_holding_transactions_for_symbol', '_reverse_and_delete_holding_transactions_for_symbol', '_list_holding_transaction_settlements', '_to_holding_transaction_reads', '_ensure_transaction_baseline_from_holding_snapshot', '_reset_holding_transactions_from_snapshot', '_get_latest_holding_transaction_for_symbol', '_apply_holding_transaction_to_state', '_project_holding_state_from_sorted_transactions', '_project_holding_state_from_transactions', '_sync_holding_projection_for_symbol', '_resolve_sell_execution_price_and_currency', '_build_sell_proceeds_note', '_prepend_note_entry', '_convert_cash_amount_between_currencies', '_list_cash_ledger_entries_for_account', '_get_cash_account_initial_ledger_entry', '_sum_cash_account_ledger_balance', '_sync_cash_account_balance_from_ledger', '_create_cash_ledger_entry', '_reconcile_cash_account_initial_ledger_entry', '_delete_cash_ledger_entries_for_holding_transaction', '_delete_cash_ledger_entries_for_transfer', '_get_manual_cash_ledger_adjustment', '_create_auto_cash_account_from_sell', '_add_sell_proceeds_to_existing_cash_account', '_build_cash_settlement_reversal_note', '_build_buy_funding_note', '_get_holding_transaction_cash_settlement', '_record_holding_transaction_cash_settlement', '_reverse_holding_transaction_cash_settlement', '_apply_buy_funding_handling', '_apply_sell_proceeds_handling']
+__all__ = ['AppliedCashSettlement', 'HoldingLot', 'ProjectedHoldingState', '_holding_transaction_side_priority', '_holding_transaction_event_at', '_holding_transaction_sort_key', '_projected_holding_quantity', '_projected_holding_started_on', '_projected_holding_cost_basis', '_validate_holding_quantity_for_market', '_normalize_holding_transaction_side', '_list_holdings_for_symbol', '_delete_holding_transactions_for_symbol', '_reverse_and_delete_holding_transactions_for_symbol', '_list_holding_transaction_settlements', '_to_holding_transaction_reads', '_ensure_transaction_baseline_from_holding_snapshot', '_reset_holding_transactions_from_snapshot', '_get_latest_holding_transaction_for_symbol', '_apply_holding_transaction_to_state', '_project_holding_state_from_sorted_transactions', '_project_holding_state_from_transactions', '_sync_holding_projection_for_symbol', '_resolve_sell_execution_price_and_currency', '_build_sell_proceeds_note', '_prepend_note_entry', '_convert_cash_amount_between_currencies', '_list_cash_ledger_entries_for_account', '_get_cash_account_initial_ledger_entry', '_sum_cash_account_ledger_balance', '_sync_cash_account_balance_from_ledger', '_create_cash_ledger_entry', '_reconcile_cash_account_initial_ledger_entry', '_delete_cash_ledger_entries_for_holding_transaction', '_delete_cash_ledger_entries_for_transfer', '_get_manual_cash_ledger_adjustment', '_create_auto_cash_account_from_sell', '_add_sell_proceeds_to_existing_cash_account', '_build_cash_settlement_reversal_note', '_build_buy_funding_note', '_get_holding_transaction_cash_settlement', '_record_holding_transaction_cash_settlement', '_reverse_holding_transaction_cash_settlement', '_apply_buy_funding_handling', '_apply_sell_proceeds_handling']

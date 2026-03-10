@@ -39,6 +39,7 @@ from app.services.portfolio_service import (
     HOLDING_QUANTITY_EPSILON,
     ProjectedHoldingState,
     _apply_holding_transaction_to_state,
+    _holding_transaction_event_at,
     _holding_transaction_sort_key,
     _projected_holding_cost_basis,
     _projected_holding_quantity,
@@ -131,11 +132,6 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 		hours = _build_hour_buckets(start_at, end_hour)
 		filled_prices = _fill_hourly_prices(hours, known_points, fallback_price)
 		symbol_rows: list[HoldingPerformanceSnapshot] = []
-		transactions_by_date: dict[date, list[SecurityHoldingTransaction]] = {}
-		for item in sorted_transactions:
-			transactions_by_date.setdefault(item.traded_on, []).append(item)
-
-		event_dates = sorted(transactions_by_date)
 		event_index = 0
 		first_transaction = sorted_transactions[0]
 		projected_state = ProjectedHoldingState(
@@ -148,9 +144,14 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 			lots=[],
 		)
 		for hour in hours:
-			while event_index < len(event_dates) and _date_start_utc(event_dates[event_index]) <= hour:
-				for event_transaction in transactions_by_date[event_dates[event_index]]:
-					_apply_holding_transaction_to_state(projected_state, event_transaction)
+			while (
+				event_index < len(sorted_transactions)
+				and _holding_transaction_event_at(sorted_transactions[event_index]) <= hour
+			):
+				_apply_holding_transaction_to_state(
+					projected_state,
+					sorted_transactions[event_index],
+				)
 				event_index += 1
 
 			quantity = _projected_holding_quantity(projected_state)
@@ -415,11 +416,6 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 			currency_for_pricing or sorted_transactions[-1].fallback_currency,
 		)
 		filled_prices = _fill_hourly_prices(hours, known_points, fallback_price)
-		transactions_by_date: dict[date, list[SecurityHoldingTransaction]] = {}
-		for item in sorted_transactions:
-			transactions_by_date.setdefault(item.traded_on, []).append(item)
-
-		event_dates = sorted(transactions_by_date)
 		event_index = 0
 		first_transaction = sorted_transactions[0]
 		projected_state = ProjectedHoldingState(
@@ -432,9 +428,14 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 			lots=[],
 		)
 		for hour in hours:
-			while event_index < len(event_dates) and _date_start_utc(event_dates[event_index]) <= hour:
-				for event_transaction in transactions_by_date[event_dates[event_index]]:
-					_apply_holding_transaction_to_state(projected_state, event_transaction)
+			while (
+				event_index < len(sorted_transactions)
+				and _holding_transaction_event_at(sorted_transactions[event_index]) <= hour
+			):
+				_apply_holding_transaction_to_state(
+					projected_state,
+					sorted_transactions[event_index],
+				)
 				event_index += 1
 
 			quantity = _projected_holding_quantity(projected_state)

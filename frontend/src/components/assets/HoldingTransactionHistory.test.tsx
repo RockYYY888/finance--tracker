@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { HoldingTransactionHistory } from "./HoldingTransactionHistory";
 
 afterEach(() => {
@@ -7,21 +7,7 @@ afterEach(() => {
 });
 
 describe("HoldingTransactionHistory", () => {
-	it("submits buy funding account updates for buy transactions", async () => {
-		const onEdit = vi.fn().mockResolvedValue({
-			id: 1,
-			symbol: "AAPL",
-			name: "Apple",
-			side: "BUY",
-			quantity: 1,
-			price: 180,
-			fallback_currency: "USD",
-			market: "US",
-			traded_on: "2026-03-09",
-			buy_funding_handling: "DEDUCT_FROM_EXISTING_CASH",
-			buy_funding_account_id: 9,
-		});
-
+	it("renders read-only transaction cards and shows adjustment records as edits", () => {
 		render(
 			<HoldingTransactionHistory
 				transactions={[
@@ -35,37 +21,28 @@ describe("HoldingTransactionHistory", () => {
 						fallback_currency: "USD",
 						market: "US",
 						traded_on: "2026-03-09",
+						note: "首次买入",
 					},
-				]}
-				cashAccounts={[
 					{
-						id: 9,
-						name: "主账户",
-						platform: "Bank",
-						currency: "CNY",
-						balance: 1200,
-						account_type: "BANK",
+						id: 2,
+						symbol: "AAPL",
+						name: "Apple",
+						side: "ADJUST",
+						quantity: 2,
+						price: 182,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-10",
+						note: "修正持仓",
 					},
 				]}
-				onEdit={onEdit}
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "修正记录" }));
-		fireEvent.change(screen.getByLabelText("扣款现金账户"), {
-			target: { value: "9" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "保存修正" }));
-
-		await waitFor(() => {
-			expect(onEdit).toHaveBeenCalledWith(
-				1,
-				expect.objectContaining({
-					quantity: 1,
-					buy_funding_handling: "DEDUCT_FROM_EXISTING_CASH",
-					buy_funding_account_id: 9,
-				}),
-			);
-		});
+		expect(screen.getByText("交易记录用于留痕和核对 持仓纠错请回到左侧持仓卡片点击编辑")).not.toBeNull();
+		expect(screen.queryByRole("button", { name: "修正记录" })).toBeNull();
+		expect(screen.getByText("编辑")).not.toBeNull();
+		expect(screen.getByText("首次买入")).not.toBeNull();
+		expect(screen.getByText("修正持仓")).not.toBeNull();
 	});
 });

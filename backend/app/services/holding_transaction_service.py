@@ -167,25 +167,76 @@ def update_holding(
 		raise HTTPException(status_code=404, detail="Holding not found.")
 
 	before_state = _capture_model_state(holding)
+	creates_adjustment = bool(
+		{"quantity", "cost_basis_price", "started_on"} & payload.model_fields_set,
+	)
+	if payload.started_on is not None:
+		_ensure_date_not_future(payload.started_on, field_label="买入日期")
+	if payload.quantity is not None:
+		_validate_holding_quantity_for_market(payload.quantity, holding.market)
+
+	if creates_adjustment:
+		adjustment_transaction = SecurityHoldingTransaction(
+			user_id=current_user.username,
+			symbol=holding.symbol,
+			name=holding.name,
+			side="ADJUST",
+			quantity=payload.quantity if payload.quantity is not None else holding.quantity,
+			price=(
+				payload.cost_basis_price
+				if "cost_basis_price" in payload.model_fields_set
+				else holding.cost_basis_price
+			),
+			fallback_currency=_normalize_currency(holding.fallback_currency),
+			market=holding.market,
+			broker=_normalize_optional_text(payload.broker)
+			if "broker" in payload.model_fields_set
+			else holding.broker,
+			traded_on=payload.started_on or holding.started_on,
+			note=_normalize_optional_text(payload.note)
+			if "note" in payload.model_fields_set
+			else holding.note,
+		)
+		session.add(adjustment_transaction)
+		session.flush()
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="HOLDING_TRANSACTION",
+			entity_id=adjustment_transaction.id,
+			operation="CREATE",
+			before_state=None,
+			after_state=_capture_model_state(adjustment_transaction),
+			reason=f"HOLDING_EDIT#{holding.id}",
+		)
+		synced_holding = _sync_holding_projection_for_symbol(
+			session,
+			user_id=current_user.username,
+			symbol=holding.symbol,
+			market=holding.market,
+		)
+		if synced_holding is not None:
+			holding = synced_holding
 	if "broker" in payload.model_fields_set:
 		holding.broker = _normalize_optional_text(payload.broker)
 	if "note" in payload.model_fields_set:
 		holding.note = _normalize_optional_text(payload.note)
 	_touch_model(holding)
 	session.add(holding)
-	latest_transaction = _get_latest_holding_transaction_for_symbol(
-		session,
-		user_id=current_user.username,
-		symbol=holding.symbol,
-		market=holding.market,
-	)
-	if latest_transaction is not None:
-		if "broker" in payload.model_fields_set:
-			latest_transaction.broker = _normalize_optional_text(payload.broker)
-		if "note" in payload.model_fields_set:
-			latest_transaction.note = _normalize_optional_text(payload.note)
-		_touch_model(latest_transaction)
-		session.add(latest_transaction)
+	if not creates_adjustment:
+		latest_transaction = _get_latest_holding_transaction_for_symbol(
+			session,
+			user_id=current_user.username,
+			symbol=holding.symbol,
+			market=holding.market,
+		)
+		if latest_transaction is not None:
+			if "broker" in payload.model_fields_set:
+				latest_transaction.broker = _normalize_optional_text(payload.broker)
+			if "note" in payload.model_fields_set:
+				latest_transaction.note = _normalize_optional_text(payload.note)
+			_touch_model(latest_transaction)
+			session.add(latest_transaction)
 	_record_asset_mutation(
 		session,
 		current_user,
@@ -195,6 +246,13 @@ def update_holding(
 		before_state=before_state,
 		after_state=_capture_model_state(holding),
 	)
+	if creates_adjustment:
+		_enqueue_holding_history_sync_request(
+			session,
+			user_id=current_user.username,
+			trigger_symbol=holding.symbol,
+		)
+		job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)

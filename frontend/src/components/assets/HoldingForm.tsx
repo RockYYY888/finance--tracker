@@ -19,7 +19,6 @@ import type {
 	HoldingInput,
 	HoldingMergeRequest,
 	HoldingRecord,
-	HoldingTransactionRecord,
 	MaybePromise,
 	SecuritySearchResult,
 } from "../../types/assets";
@@ -35,8 +34,6 @@ export interface HoldingFormProps {
 	resetKey?: number;
 	value?: Partial<HoldingFormDraft> | null;
 	existingHoldings?: HoldingRecord[];
-	relatedTransactions?: HoldingTransactionRecord[];
-	editableTransaction?: HoldingTransactionRecord | null;
 	cashAccounts?: CashAccountRecord[];
 	recordId?: number | null;
 	title?: string;
@@ -55,8 +52,6 @@ export interface HoldingFormProps {
 
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
-const EMPTY_HOLDING_TRANSACTIONS: HoldingTransactionRecord[] = [];
-
 type HoldingMergePreview = {
 	targetRecord: HoldingRecord;
 	sourceRecordId: number | null;
@@ -344,8 +339,6 @@ export function HoldingForm({
 	resetKey = 0,
 	value,
 	existingHoldings = EMPTY_HOLDINGS,
-	relatedTransactions = EMPTY_HOLDING_TRANSACTIONS,
-	editableTransaction = null,
 	cashAccounts = EMPTY_CASH_ACCOUNTS,
 	recordId = null,
 	title,
@@ -506,7 +499,7 @@ export function HoldingForm({
 	);
 	const resolvedSubmitLabel = submitLabel ?? (
 		isEditIntent
-			? "保存资料"
+			? "保存编辑"
 			: isSellTransaction
 				? "确认卖出"
 				: "确认买入"
@@ -519,44 +512,25 @@ export function HoldingForm({
 			: draft.market === ""
 				? "数量"
 				: "数量（股/支）";
-	const canEditPrimaryBuyTransaction = isEditIntent && editableTransaction !== null;
-	const quantityLabel = canEditPrimaryBuyTransaction
-		? `买入${quantityLabelBase}`
-		: isEditIntent
-			? `当前${quantityLabelBase}`
-			: quantityLabelBase;
+	const quantityLabel = isEditIntent ? `持仓${quantityLabelBase}` : quantityLabelBase;
 	const quantityStep = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
 	const quantityMin = allowsFractionalQuantity(draft.market) ? "0.0001" : "1";
 	const shouldMergeIntoExistingCash =
 		isSellTransaction && draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH";
-	const priceLabel = canEditPrimaryBuyTransaction
-		? "买入价（计价币种）"
-		: isEditIntent
-			? "持仓均价（计价币种）"
+	const priceLabel = isEditIntent
+		? "持仓价（计价币种）"
 		: isSellTransaction
 			? "卖出价（计价币种）"
 			: "买入价（计价币种）";
-	const pricePlaceholder = canEditPrimaryBuyTransaction
-		? "用于修正该笔买入成交价"
-		: isEditIntent
-			? "可选，用于修正当前持仓均价"
+	const pricePlaceholder = isEditIntent
+		? "请输入修正后的持仓价"
 		: isSellTransaction
 			? "可选，不填则优先使用当前行情"
 			: "可选，建议填写实际买入成交价";
-	const dateFieldLabel = canEditPrimaryBuyTransaction
-		? "买入日"
-		: isEditIntent
-			? "持仓日"
-			: "交易日";
+	const dateFieldLabel = isEditIntent ? "买入日期" : "交易日";
 	const dateLabel = dateFieldLabel;
-	const datePlaceholder = canEditPrimaryBuyTransaction
-		? "请选择买入日期"
-		: isEditIntent
-			? "请选择持仓日期"
-			: "请选择交易日期";
-	const defaultSaveErrorMessage = canEditPrimaryBuyTransaction
-		? "修正买入记录失败，请稍后重试。"
-		: isEditIntent
+	const datePlaceholder = isEditIntent ? "请选择买入日期" : "请选择交易日期";
+	const defaultSaveErrorMessage = isEditIntent
 		? "保存持仓资料失败，请稍后重试。"
 		: isSellTransaction
 			? "新增卖出失败，请稍后重试。"
@@ -581,7 +555,6 @@ export function HoldingForm({
 			: draft.sell_proceeds_handling;
 	const shouldShowSearchInput = !isSellTransaction && !isEditIntent;
 	const shouldShowIdentityFields = !isSellTransaction && !isEditIntent;
-	const shouldShowTransactionFields = !isEditIntent || canEditPrimaryBuyTransaction;
 
 	useEffect(() => {
 		if (!isSellTransaction) {
@@ -749,18 +722,23 @@ export function HoldingForm({
 			}
 
 			const payload = toHoldingInput(draft);
-			if (shouldShowTransactionFields && (!Number.isFinite(payload.quantity) || payload.quantity <= 0)) {
-				throw new Error(isSellTransaction ? "请输入有效的卖出数量。" : "请输入有效的买入数量。");
+			if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
+				throw new Error(
+					isEditIntent
+						? "请输入有效的持仓数量。"
+						: isSellTransaction
+							? "请输入有效的卖出数量。"
+							: "请输入有效的买入数量。",
+				);
 			}
-			if (shouldShowTransactionFields && !payload.started_on) {
+			if (!payload.started_on) {
 				throw new Error(`${dateFieldLabel}为必填项。`);
 			}
 			if (
-				shouldShowTransactionFields &&
 				payload.cost_basis_price !== undefined &&
 				(!Number.isFinite(payload.cost_basis_price) || payload.cost_basis_price <= 0)
 			) {
-				throw new Error("请输入有效的成交价。");
+				throw new Error(isEditIntent ? "请输入有效的持仓价。" : "请输入有效的成交价。");
 			}
 			if (
 				!isEditIntent &&
@@ -784,14 +762,12 @@ export function HoldingForm({
 				);
 			}
 			if (
-				shouldShowTransactionFields &&
 				!allowsFractionalQuantity(draft.market) &&
 				!Number.isInteger(payload.quantity)
 			) {
 				throw new Error("股票请使用整数数量，基金和加密货币可使用小数。");
 			}
 			if (
-				shouldShowTransactionFields &&
 				payload.started_on &&
 				maxStartedOnDate &&
 				payload.started_on > maxStartedOnDate
@@ -918,21 +894,10 @@ export function HoldingForm({
 
 			{isEditIntent ? (
 				<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
-					{canEditPrimaryBuyTransaction ? (
-						<>
-							<strong>此处会同步修正当前持仓对应的买入记录</strong>
-							<p className="asset-manager__helper-text">
-								当前持仓仅关联一笔买入 这里修改数量 买入价 买入日 会同步更新持仓结果
-							</p>
-						</>
-					) : (
-						<>
-							<strong>此处仅修改当前持仓资料</strong>
-							<p className="asset-manager__helper-text">
-								当前持仓由 {relatedTransactions.length || 0} 笔交易构成 数量 买入价 买入日请回到交易记录逐笔修正
-							</p>
-						</>
-					)}
+					<strong>这里用于修正当前已持仓内容里的已知错误</strong>
+					<p className="asset-manager__helper-text">
+						如果当前数量 持仓价 或买入日期录错了 请直接在这里更正 系统会按一笔编辑记录保存
+					</p>
 				</div>
 			) : null}
 
@@ -1080,9 +1045,8 @@ export function HoldingForm({
 					</div>
 				) : null}
 
-				{shouldShowTransactionFields ? (
-					<div className="asset-manager__field-grid asset-manager__field-grid--triple">
-					{isSellTransaction || canEditPrimaryBuyTransaction ? (
+				<div className="asset-manager__field-grid asset-manager__field-grid--triple">
+					{isSellTransaction || isEditIntent ? (
 						<label className="asset-manager__field">
 							<span>市场</span>
 							<input
@@ -1133,13 +1097,13 @@ export function HoldingForm({
 						/>
 					</label>
 
-					{isSellTransaction ? (
+					{isSellTransaction || isEditIntent ? (
 						<label className="asset-manager__field">
 							<span>计价币种</span>
 							<input
 								required
 								value={draft.fallback_currency}
-								placeholder="选择持仓后自动带出"
+								placeholder={isSellTransaction ? "选择持仓后自动带出" : "当前持仓币种"}
 								readOnly
 							/>
 						</label>
@@ -1156,24 +1120,21 @@ export function HoldingForm({
 							/>
 						</label>
 					)}
-					</div>
-				) : null}
+				</div>
 
-				{shouldShowTransactionFields ? (
-					<label className="asset-manager__field">
-						<span>{priceLabel}</span>
-						<input
-							type="number"
-							min="0.0001"
-							step="0.0001"
-							value={draft.cost_basis_price}
-							onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
-							placeholder={pricePlaceholder}
-						/>
-					</label>
-				) : null}
+				<label className="asset-manager__field">
+					<span>{priceLabel}</span>
+					<input
+						type="number"
+						min="0.0001"
+						step="0.0001"
+						value={draft.cost_basis_price}
+						onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
+						placeholder={pricePlaceholder}
+					/>
+				</label>
 
-				{isSellTransaction && shouldShowTransactionFields ? (
+				{isSellTransaction ? (
 					<>
 						<label className="asset-manager__field">
 							<span>卖出回款去向</span>
@@ -1255,16 +1216,17 @@ export function HoldingForm({
 					</label>
 				) : null}
 
-				<label className="asset-manager__field">
-					<span>账户 / 来源</span>
-					<input
-						value={draft.broker}
-						onChange={(event) => updateDraft("broker", event.target.value)}
-						placeholder="搜索后自动填入，可手动修改"
-					/>
-				</label>
+				{!isEditIntent ? (
+					<label className="asset-manager__field">
+						<span>账户 / 来源</span>
+						<input
+							value={draft.broker}
+							onChange={(event) => updateDraft("broker", event.target.value)}
+							placeholder="搜索后自动填入，可手动修改"
+						/>
+					</label>
+				) : null}
 
-				{shouldShowTransactionFields ? (
 					<label className="asset-manager__field">
 						<span>{dateLabel}</span>
 						<DatePickerField
@@ -1274,16 +1236,17 @@ export function HoldingForm({
 							placeholder={datePlaceholder}
 						/>
 					</label>
-				) : null}
 
-				<label className="asset-manager__field">
-					<span>备注</span>
-					<textarea
-						value={draft.note}
-						onChange={(event) => updateDraft("note", event.target.value)}
-						placeholder="可选"
-					/>
-				</label>
+				{!isEditIntent ? (
+					<label className="asset-manager__field">
+						<span>备注</span>
+						<textarea
+							value={draft.note}
+							onChange={(event) => updateDraft("note", event.target.value)}
+							placeholder="可选"
+						/>
+					</label>
+				) : null}
 
 				<div className="asset-manager__form-actions">
 					<button

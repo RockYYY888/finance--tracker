@@ -100,7 +100,7 @@ describe("HoldingForm reset behavior", () => {
 });
 
 describe("HoldingForm started_on guard", () => {
-	it("allows editing holding metadata without validating transaction date fields", async () => {
+	it("requires a buy date when correcting an existing holding", async () => {
 		const onEdit = vi.fn().mockResolvedValue(undefined);
 
 		render(
@@ -114,58 +114,37 @@ describe("HoldingForm started_on guard", () => {
 					quantity: "2",
 					fallback_currency: "USD",
 					market: "US",
-					started_on: "2026-03-06",
+					cost_basis_price: "180",
+					started_on: "2026-03-05",
 				}}
 				onEdit={onEdit}
 			/>,
 		);
 
-		fireEvent.change(screen.getByLabelText("账户 / 来源"), {
-			target: { value: "Futu" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "保存资料" }));
+		fireEvent.click(screen.getByRole("button", { name: "买入日期" }));
+		fireEvent.click(screen.getByRole("button", { name: "清除" }));
+		fireEvent.click(screen.getByRole("button", { name: "保存编辑" }));
 
 		await waitFor(() => {
-			expect(onEdit).toHaveBeenCalledTimes(1);
+			expect(screen.getByText("买入日期为必填项。")).not.toBeNull();
 		});
+		expect(onEdit).not.toHaveBeenCalled();
 	});
 });
 
 describe("HoldingForm edit intent", () => {
-	it("keeps metadata-only editing when the holding is backed by multiple transactions", () => {
+	it("uses the holding editor as the only correction entry and limits editable fields", () => {
 		render(
 			<HoldingForm
 				mode="edit"
 				recordId={1}
-				relatedTransactions={[
-					{
-						id: 10,
-						symbol: "AAPL",
-						name: "Apple",
-						side: "BUY",
-						quantity: 2,
-						price: 180,
-						fallback_currency: "USD",
-						market: "US",
-						traded_on: "2026-03-05",
-					},
-					{
-						id: 11,
-						symbol: "AAPL",
-						name: "Apple",
-						side: "BUY",
-						quantity: 1,
-						price: 181,
-						fallback_currency: "USD",
-						market: "US",
-						traded_on: "2026-03-06",
-					},
-				]}
+				maxStartedOnDate="2026-03-04"
 				value={{
 					symbol: "AAPL",
 					name: "Apple",
 					quantity: "2",
 					fallback_currency: "USD",
+					cost_basis_price: "180",
 					market: "US",
 					started_on: "2026-03-05",
 				}}
@@ -173,46 +152,30 @@ describe("HoldingForm edit intent", () => {
 			/>,
 		);
 
-		expect(screen.queryByLabelText("卖出回款去向")).toBeNull();
-		expect(screen.queryByText("交易类型")).toBeNull();
-		expect(screen.queryByLabelText("交易日")).toBeNull();
-		expect(screen.queryByLabelText("数量（股/支）")).toBeNull();
-		expect(screen.getByText(/当前持仓由 2 笔交易构成/)).not.toBeNull();
-		expect(screen.getByRole("button", { name: "保存资料" })).not.toBeNull();
+		expect(screen.getByText("这里用于修正当前已持仓内容里的已知错误")).not.toBeNull();
+		expect(
+			screen.getByText(
+				"如果当前数量 持仓价 或买入日期录错了 请直接在这里更正 系统会按一笔编辑记录保存",
+			),
+		).not.toBeNull();
+		expect(screen.getByLabelText("持仓数量（股/支）")).not.toBeNull();
+		expect(screen.getByLabelText("持仓价（计价币种）")).not.toBeNull();
+		expect(screen.getByLabelText("买入日期")).not.toBeNull();
+		expect(screen.queryByLabelText("账户 / 来源")).toBeNull();
+		expect(screen.queryByLabelText("备注")).toBeNull();
+		expect(screen.queryByLabelText("搜索投资标的")).toBeNull();
+		expect(screen.getByRole("button", { name: "保存编辑" })).not.toBeNull();
 		expect(screen.getByRole("button", { name: "取消编辑" })).not.toBeNull();
 	});
 
-	it("allows correcting quantity price and traded_on when the holding maps to one buy transaction", async () => {
+	it("submits quantity price and buy date corrections from the holding editor", async () => {
 		const onEdit = vi.fn().mockResolvedValue(undefined);
 
 		render(
 			<HoldingForm
 				mode="edit"
 				recordId={1}
-				editableTransaction={{
-					id: 10,
-					symbol: "AAPL",
-					name: "Apple",
-					side: "BUY",
-					quantity: 2,
-					price: 180,
-					fallback_currency: "USD",
-					market: "US",
-					traded_on: "2026-03-05",
-				}}
-				relatedTransactions={[
-					{
-						id: 10,
-						symbol: "AAPL",
-						name: "Apple",
-						side: "BUY",
-						quantity: 2,
-						price: 180,
-						fallback_currency: "USD",
-						market: "US",
-						traded_on: "2026-03-05",
-					},
-				]}
+				maxStartedOnDate="2026-03-04"
 				value={{
 					symbol: "AAPL",
 					name: "Apple",
@@ -227,13 +190,15 @@ describe("HoldingForm edit intent", () => {
 			/>,
 		);
 
-		fireEvent.change(screen.getByLabelText("买入数量（股/支）"), {
+		fireEvent.change(screen.getByLabelText("持仓数量（股/支）"), {
 			target: { value: "3" },
 		});
-		fireEvent.change(screen.getByLabelText("买入价（计价币种）"), {
+		fireEvent.change(screen.getByLabelText("持仓价（计价币种）"), {
 			target: { value: "182" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "保存资料" }));
+		fireEvent.click(screen.getByRole("button", { name: "买入日期" }));
+		fireEvent.click(screen.getByRole("button", { name: "今天" }));
+		fireEvent.click(screen.getByRole("button", { name: "保存编辑" }));
 
 		await waitFor(() => {
 			expect(onEdit).toHaveBeenCalledWith(
@@ -241,12 +206,10 @@ describe("HoldingForm edit intent", () => {
 				expect.objectContaining({
 					quantity: 3,
 					cost_basis_price: 182,
-					started_on: "2026-03-05",
+					started_on: "2026-03-04",
 				}),
 			);
 		});
-
-		expect(screen.getByText(/当前持仓仅关联一笔买入/)).not.toBeNull();
 	});
 });
 

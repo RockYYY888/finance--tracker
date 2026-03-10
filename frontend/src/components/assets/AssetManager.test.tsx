@@ -90,7 +90,66 @@ describe("AssetManager refresh stability", () => {
 		);
 
 		expect(screen.getByRole("heading", { name: "编辑投资持仓" })).not.toBeNull();
-		expect(screen.getByRole("button", { name: "保存资料" })).not.toBeNull();
+		expect(screen.getByRole("button", { name: "保存编辑" })).not.toBeNull();
+	});
+
+	it("uses the holding card edit flow instead of transaction-level repair", async () => {
+		const holdingUpdate = vi.fn().mockResolvedValue({
+			...baseHolding,
+			quantity: 3,
+			cost_basis_price: 182,
+			started_on: "2026-03-07",
+		});
+		const transactionEdit = vi.fn();
+		const holdingTransactionRefresh = vi.fn().mockResolvedValue([
+			{
+				id: 9,
+				symbol: "AAPL",
+				name: "Apple",
+				side: "ADJUST" as const,
+				quantity: 3,
+				price: 182,
+				fallback_currency: "USD",
+				market: "US" as const,
+				traded_on: "2026-03-07",
+				note: "修正持仓",
+			},
+		]);
+
+		render(
+			<AssetManager
+				defaultSection="investment"
+				initialHoldings={[baseHolding]}
+				holdingActions={{ onEdit: holdingUpdate }}
+				holdingTransactionActions={{
+					onRefresh: holdingTransactionRefresh,
+					onEdit: transactionEdit,
+				}}
+				title="资产管理"
+			/>,
+		);
+
+		expect(screen.queryByRole("button", { name: "修正记录" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+		fireEvent.change(screen.getByLabelText("持仓数量（股/支）"), {
+			target: { value: "3" },
+		});
+		fireEvent.change(screen.getByLabelText("持仓价（计价币种）"), {
+			target: { value: "182" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "保存编辑" }));
+
+		await waitFor(() => {
+			expect(holdingUpdate).toHaveBeenCalledWith(
+				1,
+				expect.objectContaining({
+					quantity: 3,
+					cost_basis_price: 182,
+					started_on: "2026-03-08",
+				}),
+			);
+		});
+		expect(transactionEdit).not.toHaveBeenCalled();
 	});
 
 	it("loads each section once and does not refetch a loaded tab on revisit", async () => {

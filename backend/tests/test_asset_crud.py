@@ -1460,7 +1460,9 @@ def test_create_holding_rejects_future_started_on_based_on_server_date(
 	assert "持仓日不能晚于今日" in error.value.detail
 
 
-def test_update_holding_updates_metadata_without_rewriting_transactions(session: Session) -> None:
+def test_update_holding_creates_adjustment_transaction_for_holding_correction(
+	session: Session,
+) -> None:
 	current_user = make_user(session)
 	holding = create_holding(
 		SecurityHoldingCreate(
@@ -1496,8 +1498,9 @@ def test_update_holding_updates_metadata_without_rewriting_transactions(session:
 	updated_holding = update_holding(
 		holding.id or 0,
 		SecurityHoldingUpdate(
-			broker="  Futu  ",
-			note="  core position  ",
+			quantity=4,
+			cost_basis_price=118,
+			started_on=date(2026, 2, 10),
 		),
 		current_user,
 		session,
@@ -1505,12 +1508,13 @@ def test_update_holding_updates_metadata_without_rewriting_transactions(session:
 
 	assert updated_holding.symbol == "AAPL"
 	assert updated_holding.name == "Apple"
-	assert updated_holding.quantity == 3
+	assert updated_holding.quantity == 4
 	assert updated_holding.fallback_currency == "USD"
-	assert updated_holding.cost_basis_price is None
+	assert updated_holding.cost_basis_price == 118
 	assert updated_holding.market == "US"
-	assert updated_holding.broker == "Futu"
-	assert updated_holding.note == "core position"
+	assert updated_holding.broker == "IBKR"
+	assert updated_holding.note == "legacy note"
+	assert updated_holding.started_on == date(2026, 2, 10)
 
 	transactions = list(
 		session.exec(
@@ -1518,23 +1522,26 @@ def test_update_holding_updates_metadata_without_rewriting_transactions(session:
 			.where(SecurityHoldingTransaction.user_id == current_user.username),
 		),
 	)
-	transactions.sort(key=lambda item: (item.traded_on, item.id or 0))
-	assert len(transactions) == 2
-	assert [item.side for item in transactions] == ["BUY", "BUY"]
-	assert transactions[0].symbol == "AAPL"
-	assert transactions[0].market == "US"
-	assert sorted(item.traded_on for item in transactions) == [holding.started_on, date(2026, 3, 1)]
-	assert transactions[-1].broker == "Futu"
-	assert transactions[-1].note == "core position"
+	adjustments = [item for item in transactions if item.side == "ADJUST"]
+	assert len(transactions) == 3
+	assert len(adjustments) == 1
+	assert adjustments[0].symbol == "AAPL"
+	assert adjustments[0].market == "US"
+	assert adjustments[0].quantity == 4
+	assert adjustments[0].price == 118
+	assert adjustments[0].traded_on == date(2026, 2, 10)
 
 
-def test_update_holding_only_accepts_metadata_fields() -> None:
-	with pytest.raises(ValidationError):
-		SecurityHoldingUpdate(
-			broker="Futu",
-			note="core position",
-			started_on=date(2026, 2, 14),
-		)
+def test_update_holding_accepts_holding_correction_fields() -> None:
+	payload = SecurityHoldingUpdate(
+		quantity=4,
+		cost_basis_price=118,
+		started_on=date(2026, 2, 10),
+	)
+
+	assert payload.quantity == 4
+	assert payload.cost_basis_price == 118
+	assert payload.started_on == date(2026, 2, 10)
 
 
 def test_delete_holding_removes_record(session: Session) -> None:

@@ -625,6 +625,9 @@ class SecurityHoldingCreate(BaseModel):
 class SecurityHoldingUpdate(BaseModel):
 	model_config = ConfigDict(extra="forbid")
 
+	quantity: Optional[float] = Field(default=None, gt=0)
+	cost_basis_price: Optional[float] = Field(default=None, gt=0)
+	started_on: Optional[date] = None
 	broker: Optional[str] = Field(default=None, max_length=120)
 	note: Optional[str] = Field(default=None, max_length=500)
 
