@@ -1106,17 +1106,6 @@ function App() {
 					<button
 						type="button"
 						role="tab"
-						aria-selected={activeWorkspaceView === "agent"}
-						className={`workspace-switch__button ${
-							activeWorkspaceView === "agent" ? "is-active" : ""
-						}`}
-						onClick={() => setActiveWorkspaceView("agent")}
-					>
-						智能体
-					</button>
-					<button
-						type="button"
-						role="tab"
 						aria-selected={activeWorkspaceView === "insights"}
 						className={`workspace-switch__button ${
 							activeWorkspaceView === "insights" ? "is-active" : ""
@@ -1124,6 +1113,17 @@ function App() {
 						onClick={() => setActiveWorkspaceView("insights")}
 					>
 						洞察
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeWorkspaceView === "agent"}
+						className={`workspace-switch__button ${
+							activeWorkspaceView === "agent" ? "is-active" : ""
+						}`}
+						onClick={() => setActiveWorkspaceView("agent")}
+					>
+						智能体
 					</button>
 				</div>
 			</section>

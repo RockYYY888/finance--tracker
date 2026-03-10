@@ -614,21 +614,23 @@ h3 {
 
 .workspace-switch {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 10px;
 }
 
 .workspace-switch__button {
 	border: 1px solid transparent;
-	padding: 0.9rem 1rem;
+	min-width: 0;
+	padding: clamp(0.72rem, 2vw, 0.9rem) clamp(0.72rem, 2.6vw, 1rem);
 	border-radius: 18px;
 	background:
 		linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 42%),
 		linear-gradient(145deg, rgba(11, 24, 42, 0.88), rgba(7, 14, 26, 0.92));
 	color: var(--text-muted);
 	font-weight: 700;
-	font-size: 0.98rem;
+	font-size: clamp(0.88rem, 2vw, 0.98rem);
 	letter-spacing: 0.02em;
+	white-space: nowrap;
 	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 	transition:
 		transform 0.18s ease,
@@ -705,11 +707,15 @@ h3 {
 }
 
 .feedback-modal__head {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: flex-start;
-	justify-content: space-between;
 	gap: 16px;
 	margin-bottom: 16px;
+}
+
+.feedback-modal__head > :first-child {
+	min-width: 0;
 }
 
 .feedback-modal__copy {
@@ -725,6 +731,7 @@ h3 {
 
 .feedback-form__footer {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
@@ -1278,12 +1285,6 @@ th {
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	}
 
-	.feedback-modal__head,
-	.feedback-form__footer {
-		flex-direction: column;
-		align-items: stretch;
-	}
-
 	.feedback-form__actions {
 		width: 100%;
 		justify-content: flex-end;
@@ -1354,5 +1355,10 @@ th {
 
 	.hero-rates {
 		grid-template-columns: 1fr;
+	}
+
+	.workspace-switch__button {
+		padding: 0.8rem 0.72rem;
+		font-size: 0.92rem;
 	}
 }

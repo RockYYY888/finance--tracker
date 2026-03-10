@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -269,5 +269,24 @@ describe("App session restore", () => {
 			await flushMicrotasks();
 		});
 		expect(dashboardApiMocks.getDashboard.mock.calls.length).toBeGreaterThan(callCountBeforeResume);
+	});
+
+	it("renders workspace tabs in manage insights agent order", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+
+		const workspaceTabLists = screen.getAllByRole("tablist", { name: "页面视图" });
+		const activeWorkspaceTabList = workspaceTabLists[workspaceTabLists.length - 1];
+
+		expect(
+			within(activeWorkspaceTabList)
+				.getAllByRole("tab")
+				.map((tab) => tab.textContent?.trim()),
+		).toEqual(["管理", "洞察", "智能体"]);
 	});
 });

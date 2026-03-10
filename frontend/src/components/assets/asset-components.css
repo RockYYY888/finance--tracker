@@ -176,6 +176,13 @@
 	gap: 0.6rem;
 }
 
+.asset-manager__panel-actions,
+.asset-manager__card-actions {
+	margin-left: auto;
+	justify-content: flex-end;
+	align-self: flex-start;
+}
+
 .asset-manager__form {
 	display: grid;
 	gap: 0.85rem;
@@ -716,6 +723,8 @@
 .asset-manager__card-title {
 	display: grid;
 	gap: 0.25rem;
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 .asset-manager__badge-row {

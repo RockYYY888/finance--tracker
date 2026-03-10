@@ -37,6 +37,8 @@ describe("AssetManager refresh stability", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "新增买入" }));
+		expect(screen.queryByRole("heading", { name: "投资类持仓" })).toBeNull();
+		expect(screen.queryByRole("heading", { name: "交易记录" })).toBeNull();
 		fireEvent.change(screen.getByLabelText("数量"), {
 			target: { value: "12" },
 		});
@@ -77,6 +79,7 @@ describe("AssetManager refresh stability", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 		expect(screen.getByRole("heading", { name: "编辑投资持仓" })).not.toBeNull();
+		expect(screen.queryByRole("heading", { name: "交易记录" })).toBeNull();
 
 		rerender(
 			<AssetManager

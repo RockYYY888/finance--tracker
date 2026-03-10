@@ -157,6 +157,14 @@ function toHoldingDraft(record: HoldingRecord): HoldingFormDraft {
 	};
 }
 
+function matchesHoldingTransaction(
+	holding: Pick<HoldingRecord, "symbol" | "market">,
+	transaction: Pick<HoldingTransactionRecord, "symbol" | "market">,
+): boolean {
+	return holding.symbol.trim().toUpperCase() === transaction.symbol.trim().toUpperCase() &&
+		holding.market === transaction.market;
+}
+
 function toFixedAssetDraft(record: FixedAssetRecord): FixedAssetFormDraft {
 	return {
 		name: record.name,
@@ -459,6 +467,24 @@ export function AssetManager({
 		}),
 		[holdingEditorIntent],
 	);
+	const editingHoldingRecord = holdingCollection.editorSeedRecord ?? holdingCollection.editingRecord;
+	const relatedHoldingTransactions = useMemo(() => {
+		if (!editingHoldingRecord) {
+			return EMPTY_HOLDING_TRANSACTIONS;
+		}
+
+		return holdingTransactions.filter((transaction) =>
+			matchesHoldingTransaction(editingHoldingRecord, transaction)
+		);
+	}, [editingHoldingRecord, holdingTransactions]);
+	const editableHoldingTransaction = useMemo(() => {
+		const buyTransactions = relatedHoldingTransactions.filter((transaction) =>
+			transaction.side === "BUY"
+		);
+		return relatedHoldingTransactions.length === 1 && buyTransactions.length === 1
+			? buyTransactions[0]
+			: null;
+	}, [relatedHoldingTransactions]);
 	const hasLoadedInitialSectionRef = useRef(false);
 	const loadingResourcesRef = useRef<Set<AssetResource>>(new Set());
 
@@ -927,6 +953,21 @@ export function AssetManager({
 
 	async function submitHoldingRecord(payload: HoldingInput): Promise<void> {
 		const isHoldingMetadataEdit = holdingCollection.editingRecordId !== null;
+		if (isHoldingMetadataEdit && editableHoldingTransaction) {
+			await updateHoldingTransactionRecord(editableHoldingTransaction.id, {
+				quantity: payload.quantity,
+				price: payload.cost_basis_price,
+				fallback_currency: payload.fallback_currency,
+				broker: payload.broker,
+				traded_on: payload.started_on,
+				note: payload.note,
+				buy_funding_handling: payload.buy_funding_handling,
+				buy_funding_account_id: payload.buy_funding_account_id,
+			});
+			closeHoldingEditor();
+			return;
+		}
+
 		const saved = await holdingCollection.submit(payload);
 		if (!saved) {
 			return;
@@ -1182,6 +1223,8 @@ export function AssetManager({
 										: holdingCreateSeed
 								}
 								existingHoldings={holdingCollection.items}
+								relatedTransactions={relatedHoldingTransactions}
+								editableTransaction={editableHoldingTransaction}
 								cashAccounts={cashCollection.items}
 								recordId={holdingCollection.editingRecordId}
 								busy={holdingCollection.isSubmitting}
@@ -1194,32 +1237,35 @@ export function AssetManager({
 								onMergeDuplicate={holdingActions?.onMergeDuplicate}
 								onCancel={closeHoldingEditor}
 							/>
-						) : null}
-						<HoldingList
-							holdings={holdingCollection.items}
-							loading={holdingCollection.isRefreshing}
-							busy={holdingCollection.isSubmitting}
-							errorMessage={holdingCollection.errorMessage}
-							onCreateBuy={holdingCollection.isEditorOpen ? undefined : openHoldingBuyEditor}
-							onCreateSell={
-								holdingCollection.isEditorOpen || holdingCollection.items.length === 0
-									? undefined
-									: openHoldingSellEditor
-							}
-							onEdit={(holding) => openHoldingEditEditor(holding)}
-						/>
-						<HoldingTransactionHistory
-							transactions={holdingTransactions}
-							cashAccounts={cashCollection.items}
-							loading={holdingTransactionsLoading}
-							busy={holdingCollection.isSubmitting}
-							errorMessage={holdingTransactionsError}
-							maxStartedOnDate={maxStartedOnDate}
-							onEdit={(recordId, payload) =>
-								updateHoldingTransactionRecord(recordId, payload)
-							}
-							onDelete={(recordId) => removeHoldingTransactionRecord(recordId)}
-						/>
+						) : (
+							<>
+								<HoldingList
+									holdings={holdingCollection.items}
+									loading={holdingCollection.isRefreshing}
+									busy={holdingCollection.isSubmitting}
+									errorMessage={holdingCollection.errorMessage}
+									onCreateBuy={openHoldingBuyEditor}
+									onCreateSell={
+										holdingCollection.items.length === 0
+											? undefined
+											: openHoldingSellEditor
+									}
+									onEdit={(holding) => openHoldingEditEditor(holding)}
+								/>
+								<HoldingTransactionHistory
+									transactions={holdingTransactions}
+									cashAccounts={cashCollection.items}
+									loading={holdingTransactionsLoading}
+									busy={holdingCollection.isSubmitting}
+									errorMessage={holdingTransactionsError}
+									maxStartedOnDate={maxStartedOnDate}
+									onEdit={(recordId, payload) =>
+										updateHoldingTransactionRecord(recordId, payload)
+									}
+									onDelete={(recordId) => removeHoldingTransactionRecord(recordId)}
+								/>
+							</>
+						)}
 					</>
 				) : null}
 
