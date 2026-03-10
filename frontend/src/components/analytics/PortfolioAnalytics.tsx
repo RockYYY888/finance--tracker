@@ -65,6 +65,10 @@ export function PortfolioAnalytics({
 					<AllocationChart
 						total_value_cny={total_value_cny}
 						allocation={allocation}
+						cash_accounts={cash_accounts}
+						holdings={holdings}
+						fixed_assets={fixed_assets}
+						other_assets={other_assets}
 					/>
 				</div>
 

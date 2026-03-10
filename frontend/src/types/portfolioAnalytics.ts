@@ -130,6 +130,21 @@ export type BreakdownChartItem = {
 	color: string;
 };
 
+export type AllocationBreakdownItem = {
+	label: string;
+	value_cny: number;
+	category_percentage: number;
+	overall_percentage: number;
+	color: string;
+};
+
+export type AllocationBreakdownGroup = {
+	label: string;
+	value_cny: number;
+	percentage: number;
+	items: AllocationBreakdownItem[];
+};
+
 export type PortfolioInsightSummary = {
 	cashRatio: number;
 	topHolding: ValuedHolding | null;

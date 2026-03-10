@@ -38,6 +38,7 @@ import {
 	buildThresholdSegmentedChartData,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
+import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type ReturnTrendSeriesOption = {
@@ -178,6 +179,7 @@ export function ReturnTrendChart({
 	);
 	const chartData = buildReturnTrendChartData(series, ZERO_RETURN_THRESHOLD);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
+	const { chartInteractionHandlers } = useChartInteractionLock();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
 	const hasData = chartData.length > 0;
 	const visibleSummary = activePointIndex === null
@@ -287,7 +289,11 @@ export function ReturnTrendChart({
 			) : !hasData ? (
 				<div className="analytics-empty-state">{emptyMessage}</div>
 			) : (
-				<div className="analytics-chart" ref={chartContainerRef}>
+				<div
+					className="analytics-chart analytics-chart--interactive"
+					ref={chartContainerRef}
+					{...chartInteractionHandlers}
+				>
 					<ResponsiveContainer width="100%" height={300}>
 						<ComposedChart
 							data={chartData}

@@ -30,6 +30,7 @@ import {
 	getBarChartHeight,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type PlatformBreakdownChartProps = {
@@ -60,6 +61,7 @@ export function PlatformBreakdownChart({
 	);
 	const chartHeight = getBarChartHeight(platformBreakdown.length);
 	const { chartContainerRef, compactAxisMode } = useResponsiveChartFrame();
+	const { chartInteractionHandlers } = useChartInteractionLock();
 	const categoryAxisWidth = getAdaptiveCategoryAxisWidth(
 		platformBreakdown.map((item) => item.label),
 		{ compact: compactAxisMode },
@@ -80,7 +82,11 @@ export function PlatformBreakdownChart({
 				<div className="analytics-empty-state">暂无入口结构数据。</div>
 			) : (
 				<>
-					<div className="analytics-chart" ref={chartContainerRef}>
+					<div
+						className="analytics-chart analytics-chart--interactive"
+						ref={chartContainerRef}
+						{...chartInteractionHandlers}
+					>
 						<ResponsiveContainer width="100%" height={chartHeight}>
 							<BarChart
 								data={platformBreakdown}

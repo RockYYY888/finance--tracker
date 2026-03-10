@@ -1,4 +1,6 @@
 import type {
+	AllocationBreakdownGroup,
+	AllocationBreakdownItem,
 	AllocationSlice,
 	BreakdownChartItem,
 	ChartLegendItem,
@@ -12,6 +14,7 @@ import type {
 	ValuedOtherAsset,
 } from "../types/portfolioAnalytics";
 import {
+	getCashAccountTypeLabel,
 	getFixedAssetCategoryLabel,
 	getLiabilityCategoryLabel,
 	getOtherAssetCategoryLabel,
@@ -723,6 +726,123 @@ export function buildAllocationLegend(
 			percentage: denominator > 0 ? slice.value / denominator : 0,
 			color: CHART_COLORS[index % CHART_COLORS.length],
 		}));
+}
+
+type AllocationBreakdownSeed = {
+	label: string;
+	value_cny: number;
+};
+
+function aggregateBreakdownSeeds(
+	items: AllocationBreakdownSeed[],
+): AllocationBreakdownSeed[] {
+	const groupedItems = new Map<string, number>();
+
+	for (const item of items) {
+		if (item.value_cny <= 0) {
+			continue;
+		}
+
+		groupedItems.set(item.label, (groupedItems.get(item.label) ?? 0) + item.value_cny);
+	}
+
+	return [...groupedItems.entries()]
+		.map(([label, value_cny]) => ({ label, value_cny }))
+		.sort((left, right) => right.value_cny - left.value_cny);
+}
+
+function buildAllocationBreakdownItems(
+	items: AllocationBreakdownSeed[],
+	categoryTotal: number,
+	positiveAssetTotal: number,
+): AllocationBreakdownItem[] {
+	return aggregateBreakdownSeeds(items).map((item, index) => ({
+		label: item.label,
+		value_cny: item.value_cny,
+		category_percentage: categoryTotal > 0 ? item.value_cny / categoryTotal : 0,
+		overall_percentage: positiveAssetTotal > 0 ? item.value_cny / positiveAssetTotal : 0,
+		color: CHART_COLORS[index % CHART_COLORS.length],
+	}));
+}
+
+function getCashAllocationLabel(account: ValuedCashAccount): string {
+	const name = account.name.trim();
+	if (name) {
+		return name;
+	}
+
+	const platform = account.platform.trim();
+	if (platform) {
+		return platform;
+	}
+
+	return getCashAccountTypeLabel(account.account_type);
+}
+
+function getHoldingAllocationLabel(holding: ValuedHolding): string {
+	return holding.name.trim() || holding.symbol.trim() || "未命名持仓";
+}
+
+function getFixedAssetAllocationLabel(asset: ValuedFixedAsset): string {
+	return asset.name.trim() || getFixedAssetCategoryLabel(asset.category);
+}
+
+function getOtherAssetAllocationLabel(asset: ValuedOtherAsset): string {
+	return asset.name.trim() || getOtherAssetCategoryLabel(asset.category);
+}
+
+export function buildAllocationBreakdownGroups(
+	allocation: AllocationSlice[],
+	totalValueCny: number,
+	cashAccounts: ValuedCashAccount[],
+	holdings: ValuedHolding[],
+	fixedAssets: ValuedFixedAsset[],
+	otherAssets: ValuedOtherAsset[],
+): AllocationBreakdownGroup[] {
+	const legendItems = buildAllocationLegend(allocation, totalValueCny);
+	const positiveAssetTotal = legendItems.reduce((sum, item) => sum + item.value_cny, 0);
+	const cashItems = cashAccounts
+		.filter((account) => account.value_cny > 0)
+		.map((account) => ({
+			label: getCashAllocationLabel(account),
+			value_cny: account.value_cny,
+		}));
+	const holdingItems = holdings
+		.filter((holding) => holding.value_cny > 0)
+		.map((holding) => ({
+			label: getHoldingAllocationLabel(holding),
+			value_cny: holding.value_cny,
+		}));
+	const fixedAssetItems = fixedAssets
+		.filter((asset) => asset.value_cny > 0)
+		.map((asset) => ({
+			label: getFixedAssetAllocationLabel(asset),
+			value_cny: asset.value_cny,
+		}));
+	const otherAssetItems = otherAssets
+		.filter((asset) => asset.value_cny > 0)
+		.map((asset) => ({
+			label: getOtherAssetAllocationLabel(asset),
+			value_cny: asset.value_cny,
+		}));
+
+	const groupedItemsByCategory = new Map<string, AllocationBreakdownSeed[]>([
+		["现金", cashItems],
+		["投资类", holdingItems],
+		["固定资产", fixedAssetItems],
+		["其他", otherAssetItems],
+	]);
+
+	return legendItems.map((item) => ({
+		label: item.label,
+		value_cny: item.value_cny,
+		percentage: item.percentage,
+		items: buildAllocationBreakdownItems(
+			groupedItemsByCategory.get(item.label) ?? [],
+			item.value_cny,
+			positiveAssetTotal,
+		),
+	}));
 }
 
 export function buildHoldingsBreakdown(

@@ -24,6 +24,7 @@ import {
 	getBarChartHeight,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
+import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type HoldingsBreakdownChartProps = {
@@ -41,6 +42,7 @@ export function HoldingsBreakdownChart({
 	const chartHeight = getBarChartHeight(breakdown.length);
 	const visibleHoldingsCount = holdings.filter((holding) => holding.value_cny > 0).length;
 	const { chartContainerRef, compactAxisMode } = useResponsiveChartFrame();
+	const { chartInteractionHandlers } = useChartInteractionLock();
 	const categoryAxisWidth = getAdaptiveCategoryAxisWidth(
 		breakdown.map((item) => item.label),
 		{ compact: compactAxisMode },
@@ -63,7 +65,11 @@ export function HoldingsBreakdownChart({
 				</div>
 			) : (
 				<>
-					<div className="analytics-chart" ref={chartContainerRef}>
+					<div
+						className="analytics-chart analytics-chart--interactive"
+						ref={chartContainerRef}
+						{...chartInteractionHandlers}
+					>
 						<ResponsiveContainer width="100%" height={chartHeight}>
 							<BarChart
 								data={breakdown}

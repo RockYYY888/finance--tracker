@@ -33,6 +33,7 @@ import {
 	buildThresholdSegmentedChartData,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
+import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 
 type PortfolioTrendChartProps = {
@@ -109,6 +110,7 @@ export function PortfolioTrendChart({
 	);
 	const chartData = buildPortfolioTrendChartData(series, baselineValue);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
+	const { chartInteractionHandlers } = useChartInteractionLock();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
 	const hasData = chartData.length > 0;
 	const visibleSummary = activePointIndex === null
@@ -191,7 +193,11 @@ export function PortfolioTrendChart({
 					还没有足够的资产快照。随着资产变动，这里会逐步形成趋势。
 				</div>
 			) : (
-				<div className="analytics-chart" ref={chartContainerRef}>
+				<div
+					className="analytics-chart analytics-chart--interactive"
+					ref={chartContainerRef}
+					{...chartInteractionHandlers}
+				>
 					<ResponsiveContainer width="100%" height={320}>
 						<ComposedChart
 							data={chartData}
