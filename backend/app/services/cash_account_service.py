@@ -57,9 +57,11 @@ def list_asset_mutation_audits(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 	limit: int = 200,
-	agent_task_id: int | None = Query(default=None, ge=1),
+	agent_task_id: int | None = None,
 ) -> list[AssetMutationAuditRead]:
 	clamped_limit = max(1, min(limit, 500))
+	if agent_task_id is not None and agent_task_id <= 0:
+		raise HTTPException(status_code=422, detail="agent_task_id 必须是正整数。")
 	statement = (
 		select(AssetMutationAudit)
 		.where(AssetMutationAudit.user_id == current_user.username)

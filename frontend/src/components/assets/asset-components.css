@@ -823,6 +823,81 @@
 	text-align: center;
 }
 
+.asset-records__modal-panel {
+	width: min(100%, 960px);
+}
+
+.asset-records__head {
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 1rem;
+}
+
+.asset-records__filters {
+	display: grid;
+	gap: 0.9rem;
+	padding: 0.9rem 1rem;
+	border-radius: 20px;
+	border: 1px solid rgba(122, 214, 255, 0.1);
+	background: rgba(8, 18, 34, 0.52);
+}
+
+.asset-records__filter-group {
+	display: grid;
+	gap: 0.55rem;
+}
+
+.asset-records__filter-label {
+	font-size: 0.78rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	color: var(--text-muted);
+}
+
+.asset-records__list {
+	padding-right: 0.15rem;
+}
+
+.asset-records__source-badge {
+	background: rgba(55, 240, 200, 0.12);
+	color: var(--accent-mint);
+}
+
+.asset-records__profit-chip {
+	position: relative;
+	overflow: hidden;
+}
+
+.asset-records__profit-chip--positive {
+	background:
+		linear-gradient(135deg, rgba(0, 155, 193, 0.14), rgba(0, 155, 193, 0.05)),
+		rgba(4, 12, 24, 0.34);
+	border-color: rgba(0, 155, 193, 0.28);
+}
+
+.asset-records__profit-chip--positive strong,
+.asset-records__profit-chip--positive .asset-records__profit-rate {
+	color: rgba(181, 241, 255, 0.96);
+}
+
+.asset-records__profit-chip--negative {
+	background:
+		linear-gradient(135deg, rgba(215, 51, 108, 0.14), rgba(215, 51, 108, 0.05)),
+		rgba(4, 12, 24, 0.34);
+	border-color: rgba(215, 51, 108, 0.28);
+}
+
+.asset-records__profit-chip--negative strong,
+.asset-records__profit-chip--negative .asset-records__profit-rate {
+	color: rgba(255, 196, 216, 0.96);
+}
+
+.asset-records__profit-rate {
+	margin: 0.35rem 0 0;
+	font-size: 0.78rem;
+	color: var(--text-soft);
+}
+
 @media (min-width: 768px) {
 	.asset-manager__header {
 		padding: 1.35rem;
@@ -853,6 +928,10 @@
 	}
 
 	.asset-manager__field-grid--triple {
+		grid-template-columns: 1fr;
+	}
+
+	.asset-records__head {
 		grid-template-columns: 1fr;
 	}
 }

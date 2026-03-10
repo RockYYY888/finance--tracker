@@ -13,6 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.router import api_router
 from app.database import init_db
 from app.runtime_state import (
+	current_actor_source_context,
 	dashboard_cache,
 	live_holdings_return_states,
 	live_portfolio_states,
@@ -62,7 +63,11 @@ def create_app() -> FastAPI:
 
 	@app.middleware("http")
 	async def add_security_headers(request: Request, call_next):
-		response: Response = await call_next(request)
+		context_token = current_actor_source_context.set("USER")
+		try:
+			response: Response = await call_next(request)
+		finally:
+			current_actor_source_context.reset(context_token)
 		response.headers["Cache-Control"] = "no-store"
 		response.headers["Pragma"] = "no-cache"
 		response.headers["Cross-Origin-Opener-Policy"] = "same-origin"

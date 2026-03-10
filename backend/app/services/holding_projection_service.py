@@ -539,17 +539,18 @@ def _resolve_sell_execution_price_and_currency(
 	resolved_price = payload_price if payload_price and payload_price > 0 else None
 	resolved_currency = _normalize_currency(fallback_currency)
 
-	try:
-		quote, _warnings = asyncio.run(
-			service_context.market_data_client.fetch_quote(symbol, market),
-		)
-		if quote.price > 0:
-			resolved_price = quote.price
-		if quote.currency:
-			resolved_currency = _normalize_currency(quote.currency)
-	except (QuoteLookupError, ValueError):
-		# Fallback to payload-provided price/currency when live quote is temporarily unavailable.
-		pass
+	if resolved_price is None:
+		try:
+			quote, _warnings = asyncio.run(
+				service_context.market_data_client.fetch_quote(symbol, market),
+			)
+			if quote.price > 0:
+				resolved_price = quote.price
+			if quote.currency:
+				resolved_currency = _normalize_currency(quote.currency)
+		except (QuoteLookupError, ValueError):
+			# Fallback to payload-provided price/currency when live quote is temporarily unavailable.
+			pass
 
 	if resolved_price is None or resolved_price <= 0:
 		raise HTTPException(

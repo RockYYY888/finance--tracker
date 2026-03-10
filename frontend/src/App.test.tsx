@@ -1,5 +1,5 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
 	__resetAutoRefreshGuardsForTests,
@@ -39,6 +39,10 @@ const feedbackApiMocks = vi.hoisted(() => ({
 	publishReleaseNoteForAdmin: vi.fn(),
 }));
 
+const assetRecordsDialogMocks = vi.hoisted(() => ({
+	lastOpenState: false,
+}));
+
 vi.mock("./lib/authApi", () => ({
 	getAuthSession: authApiMocks.getAuthSession,
 	loginWithPassword: authApiMocks.loginWithPassword,
@@ -62,6 +66,13 @@ vi.mock("./components/assets", () => ({
 
 vi.mock("./components/analytics", () => ({
 	PortfolioAnalytics: () => <div data-testid="portfolio-analytics">分析模块</div>,
+}));
+
+vi.mock("./components/assets/AssetRecordsDialog", () => ({
+	AssetRecordsDialog: ({ open }: { open: boolean }) => {
+		assetRecordsDialogMocks.lastOpenState = open;
+		return open ? <div data-testid="asset-records-dialog">记录弹窗</div> : null;
+	},
 }));
 
 vi.mock("./components/feedback/FeedbackDialog", () => ({
@@ -118,9 +129,14 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe("App session restore", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.useRealTimers();
+		assetRecordsDialogMocks.lastOpenState = false;
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
@@ -288,5 +304,24 @@ describe("App session restore", () => {
 				.getAllByRole("tab")
 				.map((tab) => tab.textContent?.trim()),
 		).toEqual(["管理", "洞察", "智能体"]);
+	});
+
+	it("opens the asset records dialog from the hero actions", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+
+		expect(screen.queryByTestId("asset-records-dialog")).toBeNull();
+
+		await act(async () => {
+			screen.getByRole("button", { name: "记录" }).click();
+		});
+
+		expect(screen.getByTestId("asset-records-dialog")).not.toBeNull();
+		expect(assetRecordsDialogMocks.lastOpenState).toBe(true);
 	});
 });

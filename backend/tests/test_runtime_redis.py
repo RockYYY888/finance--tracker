@@ -12,6 +12,8 @@ from sqlalchemy import text
 import app.database as database
 from app import runtime_state
 
+CURRENT_SCHEMA_REVISION = "20260310_02"
+
 
 def test_validate_runtime_redis_connection_raises_when_ping_fails(
 	monkeypatch: pytest.MonkeyPatch,
@@ -48,7 +50,7 @@ def test_init_db_stamps_legacy_schema_without_version_table(
 	with engine.connect() as connection:
 		version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
 
-	assert version == database.ALEMBIC_BASELINE_REVISION
+	assert version == CURRENT_SCHEMA_REVISION
 
 
 def test_init_db_rejects_partial_legacy_schema_without_version_table(
@@ -95,7 +97,7 @@ def test_init_db_applies_migrations_to_empty_database(
 
 	assert "useraccount" in table_names
 	assert "cashaccount" in table_names
-	assert version == database.ALEMBIC_BASELINE_REVISION
+	assert version == CURRENT_SCHEMA_REVISION
 
 
 @pytest.mark.integration

@@ -13,6 +13,7 @@ import type {
 	HoldingRecord,
 	HoldingTransactionRecord,
 	AgentTaskRecord,
+	AssetRecordRecord,
 	AssetMutationAuditRecord,
 	LiabilityInput,
 	LiabilityRecord,
@@ -179,6 +180,24 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			const queryString = search.toString();
 			const query = queryString ? `?${queryString}` : "";
 			return apiClient.request<AssetMutationAuditRecord[]>(`/api/audit-log${query}`);
+		},
+		listAssetRecords: (params) => {
+			const search = new URLSearchParams();
+			if (params?.limit) {
+				search.set("limit", String(params.limit));
+			}
+			if (params?.assetClass) {
+				search.set("asset_class", params.assetClass);
+			}
+			if (params?.operationKind) {
+				search.set("operation_kind", params.operationKind);
+			}
+			if (params?.source) {
+				search.set("source", params.source);
+			}
+			const queryString = search.toString();
+			const query = queryString ? `?${queryString}` : "";
+			return apiClient.request<AssetRecordRecord[]>(`/api/asset-records${query}`);
 		},
 		listHoldings: async () => {
 			const holdings = await apiClient.request<HoldingRecord[]>("/api/holdings");

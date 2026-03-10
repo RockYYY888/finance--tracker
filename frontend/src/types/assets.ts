@@ -222,6 +222,16 @@ export type AgentTaskType =
 	| "DELETE_CASH_LEDGER_ADJUSTMENT";
 
 export type AgentTaskStatus = "DONE" | "FAILED";
+export type AssetRecordSource = "USER" | "SYSTEM" | "AGENT";
+export type AssetRecordAssetClass = "cash" | "investment" | "fixed" | "liability" | "other";
+export type AssetRecordOperationKind =
+	| "NEW"
+	| "EDIT"
+	| "DELETE"
+	| "BUY"
+	| "SELL"
+	| "TRANSFER"
+	| "ADJUST";
 
 export interface AgentTaskRecord {
 	id: number;
@@ -238,6 +248,7 @@ export interface AgentTaskRecord {
 export interface AssetMutationAuditRecord {
 	id: number;
 	agent_task_id?: number | null;
+	actor_source?: AssetRecordSource;
 	entity_type: string;
 	entity_id?: number | null;
 	operation: "CREATE" | "UPDATE" | "DELETE";
@@ -250,6 +261,25 @@ export interface AssetMutationAuditRecord {
 export interface AgentAuditSnapshot {
 	tasks: AgentTaskRecord[];
 	audits: AssetMutationAuditRecord[];
+}
+
+export interface AssetRecordRecord {
+	id: number;
+	source: AssetRecordSource;
+	asset_class: AssetRecordAssetClass;
+	operation_kind: AssetRecordOperationKind;
+	entity_type: string;
+	entity_id?: number | null;
+	title: string;
+	summary: string;
+	symbol?: string | null;
+	effective_date?: string | null;
+	amount?: number | null;
+	currency?: string | null;
+	profit_amount?: number | null;
+	profit_currency?: string | null;
+	profit_rate_pct?: number | null;
+	created_at?: string;
 }
 
 export const DEFAULT_CASH_TRANSFER_FORM_DRAFT: CashTransferFormDraft = {
@@ -569,6 +599,12 @@ export interface AssetApiClient {
 	listAssetMutationAudits: (params?: {
 		agentTaskId?: number;
 	}) => Promise<AssetMutationAuditRecord[]>;
+	listAssetRecords: (params?: {
+		limit?: number;
+		assetClass?: AssetRecordAssetClass;
+		operationKind?: AssetRecordOperationKind;
+		source?: AssetRecordSource;
+	}) => Promise<AssetRecordRecord[]>;
 	listHoldings: () => Promise<HoldingRecord[]>;
 	createHolding: (payload: HoldingInput) => Promise<HoldingRecord | null>;
 	updateHolding: (recordId: number, payload: HoldingInput) => Promise<HoldingRecord>;

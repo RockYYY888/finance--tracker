@@ -259,6 +259,10 @@ current_agent_task_id_context: ContextVar[int | None] = ContextVar(
 	"current_agent_task_id",
 	default=None,
 )
+current_actor_source_context: ContextVar[str] = ContextVar(
+	"current_actor_source",
+	default="USER",
+)
 background_refresh_task: asyncio.Task[None] | None = None
 snapshot_rebuild_worker_task: asyncio.Task[None] | None = None
 background_job_worker_task: asyncio.Task[None] | None = None

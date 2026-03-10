@@ -812,7 +812,7 @@ def test_holding_sell_transaction_auto_creates_cash_entry_with_source(
 			symbol="aapl",
 			name="Apple",
 			quantity=1,
-			price=12,
+			price=None,
 			fallback_currency="usd",
 			market="us",
 			traded_on=date(2026, 3, 1),
@@ -840,6 +840,55 @@ def test_holding_sell_transaction_auto_creates_cash_entry_with_source(
 	assert cash_entries[0].started_on == date(2026, 3, 1)
 	assert "来源：卖出 Apple(AAPL)" in (cash_entries[0].note or "")
 	assert "交易ID #" in (cash_entries[0].note or "")
+
+
+def test_holding_sell_transaction_keeps_user_supplied_execution_price(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
+	create_holding(
+		SecurityHoldingCreate(
+			symbol="aapl",
+			name="Apple",
+			quantity=2,
+			fallback_currency="usd",
+			cost_basis_price=80,
+			market="us",
+			started_on=date(2026, 2, 14),
+		),
+		current_user,
+		session,
+	)
+
+	applied_sell = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=12,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_sell.transaction.price == 12.0
+	assert applied_sell.transaction.fallback_currency == "USD"
+
+	cash_entries = list(
+		session.exec(
+			select(CashAccount)
+			.where(CashAccount.user_id == current_user.username)
+			.order_by(CashAccount.created_at.asc()),
+		),
+	)
+	assert len(cash_entries) == 1
+	assert cash_entries[0].balance == 12.0
 
 
 def test_holding_sell_transaction_can_discard_proceeds(
@@ -941,13 +990,13 @@ def test_holding_sell_transaction_can_merge_proceeds_into_existing_cash_account(
 	assert applied_sell.cash_account is not None
 	assert applied_sell.cash_account.id == cash_account.id
 	assert applied_sell.cash_account.currency == "CNY"
-	assert applied_sell.cash_account.balance == 900.0
-	assert "自动入账 700 CNY" in (applied_sell.cash_account.note or "")
+	assert applied_sell.cash_account.balance == 816.0
+	assert "自动入账 616 CNY" in (applied_sell.cash_account.note or "")
 	assert "长期备用金" in (applied_sell.cash_account.note or "")
 
 	updated_account = session.get(CashAccount, cash_account.id)
 	assert updated_account is not None
-	assert updated_account.balance == 900.0
+	assert updated_account.balance == 816.0
 	assert updated_account.started_on == cash_account.started_on
 
 
@@ -1136,7 +1185,7 @@ def test_delete_sell_transaction_reverses_existing_cash_settlement(
 	)
 
 	assert applied_sell.cash_account is not None
-	assert applied_sell.cash_account.balance == 900.0
+	assert applied_sell.cash_account.balance == 816.0
 
 	response = delete_holding_transaction(applied_sell.transaction.id, current_user, session)
 
@@ -1210,7 +1259,7 @@ def test_update_holding_transaction_rebuilds_projection_and_cash_settlement(
 	assert updated.transaction.note == "sold all"
 	assert updated.holding is None
 	assert updated.cash_account is not None
-	assert updated.cash_account.balance == 1600.0
+	assert updated.cash_account.balance == 1432.0
 	assert (
 		session.exec(
 			select(SecurityHolding).where(SecurityHolding.user_id == current_user.username),
@@ -1220,7 +1269,7 @@ def test_update_holding_transaction_rebuilds_projection_and_cash_settlement(
 	settlement = session.exec(select(HoldingTransactionCashSettlement)).one()
 	assert settlement.holding_transaction_id == applied_sell.transaction.id
 	assert settlement.cash_account_id == cash_account.id
-	assert settlement.settled_amount == 1400.0
+	assert settlement.settled_amount == 1232.0
 
 
 def test_create_cash_transfer_records_ledger_and_updates_balances(

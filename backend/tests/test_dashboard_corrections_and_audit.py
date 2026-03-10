@@ -18,7 +18,10 @@ from app.main import (
 )
 from app.models import AssetMutationAudit, PortfolioSnapshot, UserAccount
 from app.schemas import CashAccountCreate, CashAccountUpdate, DashboardCorrectionCreate
+from app.services.asset_record_service import list_asset_records
+from app.services.holding_transaction_service import create_holding_transaction
 from app.services import service_context
+from app.schemas import FixedAssetCreate, SecurityHoldingTransactionCreate
 
 
 class StaticMarketDataClient:
@@ -189,6 +192,102 @@ def test_account_crud_generates_mutation_audit_rows(session: Session) -> None:
 	assert "Audit Wallet 2" in (audits[1].after_state or "")
 	assert audits[2].before_state is not None
 	assert audits[2].after_state is None
+
+
+def test_asset_records_classify_user_system_and_investment_sell_profit(
+	session: Session,
+) -> None:
+	user = make_user(session, "record_user")
+	admin = make_user(session, "admin")
+
+	create_account(
+		CashAccountCreate(
+			name="应急金",
+			platform="支付宝",
+			currency="CNY",
+			balance=1_000,
+			account_type="ALIPAY",
+		),
+		user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="0700",
+			name="腾讯控股",
+			quantity=10,
+			price=100,
+			fallback_currency="HKD",
+			market="HK",
+			traded_on=datetime(2026, 3, 9, tzinfo=timezone.utc).date(),
+		),
+		user,
+		session,
+		None,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="SELL",
+			symbol="0700",
+			name="腾讯控股",
+			quantity=4,
+			price=120,
+			fallback_currency="HKD",
+			market="HK",
+			traded_on=datetime(2026, 3, 10, tzinfo=timezone.utc).date(),
+		),
+		user,
+		session,
+		None,
+	)
+	main.create_fixed_asset(
+		FixedAssetCreate(
+			name="管理员录入房产",
+			category="REAL_ESTATE",
+			current_value_cny=2_000_000,
+			purchase_value_cny=1_500_000,
+		),
+		admin,
+		session,
+	)
+
+	cash_records = list_asset_records(
+		user,
+		session,
+		asset_class="cash",
+		operation_kind="NEW",
+		source="USER",
+	)
+	assert len(cash_records) == 1
+	assert cash_records[0].title == "应急金"
+	assert cash_records[0].source == "USER"
+	assert cash_records[0].asset_class == "cash"
+	assert cash_records[0].operation_kind == "NEW"
+
+	investment_records = list_asset_records(
+		user,
+		session,
+		asset_class="investment",
+		operation_kind="SELL",
+		source="USER",
+	)
+	assert len(investment_records) == 1
+	assert investment_records[0].title == "腾讯控股 (0700.HK)"
+	assert investment_records[0].profit_amount == pytest.approx(80.0)
+	assert investment_records[0].profit_currency == "HKD"
+	assert investment_records[0].profit_rate_pct == pytest.approx(20.0)
+
+	system_records = list_asset_records(
+		admin,
+		session,
+		asset_class="fixed",
+		operation_kind="NEW",
+		source="SYSTEM",
+	)
+	assert len(system_records) == 1
+	assert system_records[0].title == "管理员录入房产"
+	assert system_records[0].source == "SYSTEM"
 
 
 def test_dashboard_correction_requires_symbol_for_holding_scope() -> None:

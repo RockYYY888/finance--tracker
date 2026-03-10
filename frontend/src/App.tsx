@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AdminFeedbackDialog } from "./components/feedback/AdminFeedbackDialog";
 import { AdminReleaseNotesDialog } from "./components/feedback/AdminReleaseNotesDialog";
 import { AgentExecutionAuditPanel } from "./components/assets/AgentExecutionAuditPanel";
+import { AssetRecordsDialog } from "./components/assets/AssetRecordsDialog";
 import { EmailDialog } from "./components/auth/EmailDialog";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
@@ -203,6 +204,9 @@ function App() {
 	const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+	const [isAssetRecordsOpen, setIsAssetRecordsOpen] = useState(false);
+	const [assetRecordsDialogVersion, setAssetRecordsDialogVersion] = useState(0);
+	const [assetRecordRefreshToken, setAssetRecordRefreshToken] = useState(0);
 	const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 	const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
@@ -265,6 +269,9 @@ function App() {
 		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
+		setIsAssetRecordsOpen(false);
+		setAssetRecordsDialogVersion(0);
+		setAssetRecordRefreshToken(0);
 		setActiveWorkspaceView("manage");
 		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
@@ -300,6 +307,9 @@ function App() {
 		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
+		setIsAssetRecordsOpen(false);
+		setAssetRecordsDialogVersion(0);
+		setAssetRecordRefreshToken(0);
 		setActiveWorkspaceView("manage");
 		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
@@ -476,6 +486,19 @@ function App() {
 		setFeedbackErrorMessage(null);
 		setFeedbackNoticeMessage(null);
 		setIsFeedbackOpen(true);
+	}
+
+	function openAssetRecordsDialog(): void {
+		if (authStatus !== "authenticated") {
+			return;
+		}
+
+		setAssetRecordsDialogVersion((currentValue) => currentValue + 1);
+		setIsAssetRecordsOpen(true);
+	}
+
+	function closeAssetRecordsDialog(): void {
+		setIsAssetRecordsOpen(false);
 	}
 
 	function openEmailDialog(): void {
@@ -998,6 +1021,14 @@ function App() {
 						<button
 							type="button"
 							className="hero-note hero-note--action"
+							onClick={openAssetRecordsDialog}
+							disabled={isRecoveringSession}
+						>
+							记录
+						</button>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
 							onClick={openFeedbackDialog}
 							disabled={isRecoveringSession}
 						>
@@ -1191,7 +1222,10 @@ function App() {
 						title="资产管理"
 						description="自动同步。"
 						loadOnMount
-						onRecordsCommitted={() => requestDashboardRefresh()}
+						onRecordsCommitted={() => {
+							requestDashboardRefresh();
+							setAssetRecordRefreshToken((currentValue) => currentValue + 1);
+						}}
 					/>
 				</div>
 			)}
@@ -1242,6 +1276,13 @@ function App() {
 				errorMessage={emailDialogErrorMessage}
 				onClose={closeEmailDialog}
 				onSubmit={(email) => handleSubmitEmail({ email })}
+			/>
+			<AssetRecordsDialog
+				key={assetRecordsDialogVersion}
+				open={isAssetRecordsOpen}
+				onClose={closeAssetRecordsDialog}
+				onLoadRecords={defaultAssetApiClient.listAssetRecords}
+				refreshToken={assetRecordRefreshToken}
 			/>
 		</div>
 	);

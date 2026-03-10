@@ -260,6 +260,7 @@ def _authenticate_agent_access_token(session: SessionDependency, raw_token: str)
 	user = _get_user(session, token.user_id)
 	if user is None:
 		raise HTTPException(status_code=401, detail="Bearer token user not found.")
+	runtime_state.current_actor_source_context.set("AGENT")
 
 	if token.last_used_at is None or (
 		now - _coerce_utc_datetime(token.last_used_at)
@@ -282,6 +283,9 @@ def get_session_current_user(
 	if user is None:
 		request.session.clear()
 		raise HTTPException(status_code=401, detail="请重新登录。")
+	runtime_state.current_actor_source_context.set(
+		"SYSTEM" if user.username == "admin" else "USER",
+	)
 	return user
 
 

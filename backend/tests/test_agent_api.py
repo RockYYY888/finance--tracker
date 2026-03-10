@@ -50,6 +50,7 @@ from app.schemas import (
 from app.security import hash_password
 from app.services.market_data import Quote
 from app.services import dashboard_service, job_service, legacy_service, service_context
+from app.services.asset_record_service import list_asset_records
 
 
 class StaticMarketDataClient:
@@ -200,6 +201,52 @@ def test_issue_agent_token_with_password_and_use_bearer_auth(session: Session) -
 	assert authenticated_user.username == "tester"
 	session.refresh(stored_token)
 	assert stored_token.last_used_at is not None
+
+
+def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) -> None:
+	make_user(session)
+	issued_token = issue_agent_token_with_password(
+		build_request(method="POST", path="/api/agent/tokens/issue"),
+		AgentTokenIssueCreate(
+			user_id="tester",
+			password="qwer1234",
+			name="agent-audit-source",
+			expires_in_days=30,
+		),
+		None,
+		session,
+	)
+	agent_user = get_current_user(
+		build_request(headers={"Authorization": f"Bearer {issued_token.access_token}"}),
+		session,
+		None,
+	)
+
+	create_account(
+		CashAccountCreate(
+			name="Agent Wallet",
+			platform="API",
+			currency="CNY",
+			balance=200,
+			account_type="BANK",
+		),
+		agent_user,
+		session,
+	)
+
+	mutations = list_asset_mutation_audits(agent_user, session, limit=20)
+	assert mutations[0].actor_source == "AGENT"
+
+	records = list_asset_records(
+		agent_user,
+		session,
+		asset_class="cash",
+		operation_kind="NEW",
+		source="AGENT",
+	)
+	assert len(records) == 1
+	assert records[0].title == "Agent Wallet"
+	assert records[0].source == "AGENT"
 
 
 def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> None:

@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from app import runtime_state
 from app.models import (
+	ASSET_MUTATION_ACTOR_SOURCES,
 	ASSET_MUTATION_OPERATIONS,
 	AgentIdempotencyKey,
 	AssetMutationAudit,
@@ -199,6 +200,15 @@ def _serialize_audit_state(state: dict[str, Any] | None) -> str | None:
 		return None
 	return json.dumps(_json_ready(state), ensure_ascii=False, sort_keys=True)
 
+def _resolve_asset_mutation_actor_source(current_user: UserAccount) -> str:
+	candidate_source = runtime_state.current_actor_source_context.get()
+	if candidate_source in ASSET_MUTATION_ACTOR_SOURCES:
+		if candidate_source == "USER" and current_user.username == "admin":
+			return "SYSTEM"
+		return candidate_source
+
+	return "SYSTEM" if current_user.username == "admin" else "USER"
+
 def _record_asset_mutation(
 	session: Session,
 	current_user: UserAccount,
@@ -216,6 +226,7 @@ def _record_asset_mutation(
 		AssetMutationAudit(
 			user_id=current_user.username,
 			actor_user_id=current_user.username,
+			actor_source=_resolve_asset_mutation_actor_source(current_user),
 			agent_task_id=runtime_state.current_agent_task_id_context.get(),
 			entity_type=entity_type,
 			entity_id=entity_id,
@@ -333,6 +344,7 @@ def _invalidate_dashboard_cache(user_id: str | None = None) -> None:
 def _to_asset_mutation_audit_read(audit: AssetMutationAudit) -> AssetMutationAuditRead:
 	return AssetMutationAuditRead(
 		id=audit.id or 0,
+		actor_source=audit.actor_source,
 		agent_task_id=audit.agent_task_id,
 		entity_type=audit.entity_type,
 		entity_id=audit.entity_id,

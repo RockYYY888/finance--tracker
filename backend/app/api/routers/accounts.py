@@ -1,11 +1,13 @@
 from fastapi import APIRouter
 
 from app.schemas import (
+	AssetRecordRead,
 	AssetMutationAuditRead,
 	CashAccountRead,
 	CashLedgerAdjustmentApplyRead,
 	CashLedgerEntryRead,
 )
+from app.services.asset_record_service import list_asset_records
 from app.services.portfolio_service import (
 	create_account,
 	create_cash_ledger_adjustment,
@@ -54,4 +56,10 @@ router.add_api_route(
 	list_asset_mutation_audits,
 	methods=["GET"],
 	response_model=list[AssetMutationAuditRead],
+)
+router.add_api_route(
+	"/api/asset-records",
+	list_asset_records,
+	methods=["GET"],
+	response_model=list[AssetRecordRead],
 )

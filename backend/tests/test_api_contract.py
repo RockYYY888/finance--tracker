@@ -13,6 +13,7 @@ EXPECTED_API_ROUTE_METHODS = {
 	("DELETE", "/api/liabilities/{entry_id}"),
 	("DELETE", "/api/other-assets/{asset_id}"),
 	("GET", "/api/accounts"),
+	("GET", "/api/asset-records"),
 	("GET", "/api/admin/feedback"),
 	("GET", "/api/admin/feedback/system"),
 	("GET", "/api/admin/feedback/user"),
@@ -85,7 +86,7 @@ def test_api_route_contract_is_stable() -> None:
 	}
 
 	assert actual_routes == EXPECTED_API_ROUTE_METHODS
-	assert len(actual_routes) == 71
+	assert len(actual_routes) == 72
 
 
 def test_openapi_paths_match_route_contract() -> None:

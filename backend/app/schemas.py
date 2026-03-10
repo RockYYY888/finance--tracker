@@ -1123,6 +1123,7 @@ class DashboardCorrectionRead(UtcTimestampResponseModel):
 
 class AssetMutationAuditRead(UtcTimestampResponseModel):
 	id: int
+	actor_source: str
 	agent_task_id: int | None = None
 	entity_type: str
 	entity_id: int | None = None
@@ -1130,6 +1131,25 @@ class AssetMutationAuditRead(UtcTimestampResponseModel):
 	before_state: str | None = None
 	after_state: str | None = None
 	reason: str | None = None
+	created_at: datetime
+
+
+class AssetRecordRead(UtcTimestampResponseModel):
+	id: int
+	source: str
+	asset_class: str
+	operation_kind: str
+	entity_type: str
+	entity_id: int | None = None
+	title: str
+	summary: str | None = None
+	symbol: str | None = None
+	effective_date: date | None = None
+	amount: float | None = None
+	currency: str | None = None
+	profit_amount: float | None = None
+	profit_currency: str | None = None
+	profit_rate_pct: float | None = None
 	created_at: datetime
 
 
