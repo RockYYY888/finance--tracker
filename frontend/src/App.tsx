@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { AdminFeedbackDialog } from "./components/feedback/AdminFeedbackDialog";
 import { AdminReleaseNotesDialog } from "./components/feedback/AdminReleaseNotesDialog";
+import { AgentExecutionAuditPanel } from "./components/assets/AgentExecutionAuditPanel";
 import { EmailDialog } from "./components/auth/EmailDialog";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
@@ -40,6 +41,8 @@ import type {
 	UserEmailUpdate,
 } from "./types/auth";
 import type {
+	AgentTaskRecord,
+	AssetMutationAuditRecord,
 	AssetManagerController,
 	CashAccountRecord,
 	FixedAssetRecord,
@@ -60,10 +63,12 @@ import type {
 import { formatCny } from "./utils/portfolioAnalytics";
 
 type AuthStatus = "checking" | "anonymous" | "authenticated";
-type WorkspaceView = "records" | "insights";
+type WorkspaceView = "manage" | "agent" | "insights";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
+const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
+const EMPTY_ASSET_MUTATION_AUDITS: AssetMutationAuditRecord[] = [];
 const PortfolioAnalytics = lazy(async () => {
 	const module = await import("./components/analytics");
 	return { default: module.PortfolioAnalytics };
@@ -432,7 +437,13 @@ function App() {
 	const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
 	const [feedbackInboxCount, setFeedbackInboxCount] = useState(0);
-	const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>("records");
+	const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>("manage");
+	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
+	const [assetMutationAudits, setAssetMutationAudits] = useState<AssetMutationAuditRecord[]>(
+		EMPTY_ASSET_MUTATION_AUDITS,
+	);
+	const [isLoadingAgentAudit, setIsLoadingAgentAudit] = useState(false);
+	const [agentAuditErrorMessage, setAgentAuditErrorMessage] = useState<string | null>(null);
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
 	const [isAdminReleaseNotesOpen, setIsAdminReleaseNotesOpen] = useState(false);
 	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
@@ -481,7 +492,11 @@ function App() {
 		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
-		setActiveWorkspaceView("records");
+		setActiveWorkspaceView("manage");
+		setAgentTasks(EMPTY_AGENT_TASKS);
+		setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
+		setIsLoadingAgentAudit(false);
+		setAgentAuditErrorMessage(null);
 		setIsLoadingAdminInbox(false);
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
@@ -512,7 +527,11 @@ function App() {
 		setFeedbackInboxCount(0);
 		setFeedbackErrorMessage(null);
 		setIsFeedbackOpen(false);
-		setActiveWorkspaceView("records");
+		setActiveWorkspaceView("manage");
+		setAgentTasks(EMPTY_AGENT_TASKS);
+		setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
+		setIsLoadingAgentAudit(false);
+		setAgentAuditErrorMessage(null);
 		setIsLoadingAdminInbox(false);
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
@@ -1054,6 +1073,44 @@ function App() {
 		setDashboard((currentDashboard) => finalizeDashboardState(mutator(currentDashboard)));
 	}
 
+	useEffect(() => {
+		if (!currentUserId || activeWorkspaceView !== "agent") {
+			return;
+		}
+
+		let cancelled = false;
+		setIsLoadingAgentAudit(true);
+		setAgentAuditErrorMessage(null);
+		void Promise.all([
+			defaultAssetApiClient.listAgentTasks(),
+			defaultAssetApiClient.listAssetMutationAudits(),
+		])
+			.then(([tasks, audits]) => {
+				if (cancelled) {
+					return;
+				}
+				setAgentTasks(tasks);
+				setAssetMutationAudits(audits);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				setAgentAuditErrorMessage(
+					error instanceof Error ? error.message : "加载智能体审计失败。",
+				);
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setIsLoadingAgentAudit(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [activeWorkspaceView, currentUserId]);
+
 	const isRecoveringSession = authStatus === "checking" && currentUserId !== null;
 
 	if (!currentUserId || authStatus === "anonymous") {
@@ -1488,13 +1545,24 @@ function App() {
 					<button
 						type="button"
 						role="tab"
-						aria-selected={activeWorkspaceView === "records"}
+						aria-selected={activeWorkspaceView === "manage"}
 						className={`workspace-switch__button ${
-							activeWorkspaceView === "records" ? "is-active" : ""
+							activeWorkspaceView === "manage" ? "is-active" : ""
 						}`}
-						onClick={() => setActiveWorkspaceView("records")}
+						onClick={() => setActiveWorkspaceView("manage")}
 					>
-						记录
+						管理
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeWorkspaceView === "agent"}
+						className={`workspace-switch__button ${
+							activeWorkspaceView === "agent" ? "is-active" : ""
+						}`}
+						onClick={() => setActiveWorkspaceView("agent")}
+					>
+						智能体
 					</button>
 					<button
 						type="button"
@@ -1542,6 +1610,23 @@ function App() {
 						/>
 					</Suspense>
 				</section>
+			) : activeWorkspaceView === "agent" ? (
+				<section className="panel section-shell">
+					<div className="section-head">
+						<div>
+							<p className="eyebrow">AGENT</p>
+							<h2>任务与审计</h2>
+							<p className="section-copy">查看智能体执行结果与真实落库变更。</p>
+						</div>
+					</div>
+
+					<AgentExecutionAuditPanel
+						tasks={agentTasks}
+						audits={assetMutationAudits}
+						loading={isLoadingAgentAudit}
+						errorMessage={agentAuditErrorMessage}
+					/>
+				</section>
 			) : (
 				<div className="integrated-stack">
 					<AssetManager
@@ -1553,7 +1638,6 @@ function App() {
 						cashActions={assetManagerController.cashAccounts}
 						cashTransferActions={assetManagerController.cashTransfers}
 						cashLedgerAdjustmentActions={assetManagerController.cashLedgerAdjustments}
-						agentAuditActions={assetManagerController.agentAudit}
 						holdingActions={assetManagerController.holdings}
 						holdingTransactionActions={assetManagerController.holdingTransactions}
 						fixedAssetActions={assetManagerController.fixedAssets}

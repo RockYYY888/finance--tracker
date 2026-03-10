@@ -8,7 +8,6 @@ import { FixedAssetList } from "./FixedAssetList";
 import { HoldingForm } from "./HoldingForm";
 import { HoldingList } from "./HoldingList";
 import { HoldingTransactionHistory } from "./HoldingTransactionHistory";
-import { AgentExecutionAuditPanel } from "./AgentExecutionAuditPanel";
 import { LiabilityForm } from "./LiabilityForm";
 import { LiabilityList } from "./LiabilityList";
 import { OtherAssetForm } from "./OtherAssetForm";
@@ -16,8 +15,6 @@ import { OtherAssetList } from "./OtherAssetList";
 import { useAssetCollection } from "../../hooks/useAssetCollection";
 import type {
 	AssetManagerController,
-	AgentTaskRecord,
-	AssetMutationAuditRecord,
 	CashAccountFormDraft,
 	CashAccountInput,
 	CashAccountRecord,
@@ -53,8 +50,6 @@ type SummarySection = {
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
 const EMPTY_CASH_LEDGER_ENTRIES: CashLedgerEntryRecord[] = [];
 const EMPTY_CASH_TRANSFERS: CashTransferRecord[] = [];
-const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
-const EMPTY_ASSET_MUTATION_AUDITS: AssetMutationAuditRecord[] = [];
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
 const EMPTY_HOLDING_TRANSACTIONS: HoldingTransactionRecord[] = [];
 const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
@@ -70,7 +65,6 @@ export interface AssetManagerProps {
 	cashActions?: AssetManagerController["cashAccounts"];
 	cashTransferActions?: AssetManagerController["cashTransfers"];
 	cashLedgerAdjustmentActions?: AssetManagerController["cashLedgerAdjustments"];
-	agentAuditActions?: AssetManagerController["agentAudit"];
 	holdingActions?: AssetManagerController["holdings"];
 	holdingTransactionActions?: AssetManagerController["holdingTransactions"];
 	fixedAssetActions?: AssetManagerController["fixedAssets"];
@@ -341,7 +335,6 @@ export function AssetManager({
 	cashActions,
 	cashTransferActions,
 	cashLedgerAdjustmentActions,
-	agentAuditActions,
 	holdingActions,
 	holdingTransactionActions,
 	fixedAssetActions,
@@ -366,12 +359,6 @@ export function AssetManager({
 	);
 	const [cashLedgerLoading, setCashLedgerLoading] = useState(false);
 	const [cashLedgerError, setCashLedgerError] = useState<string | null>(null);
-	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
-	const [assetMutationAudits, setAssetMutationAudits] = useState<AssetMutationAuditRecord[]>(
-		EMPTY_ASSET_MUTATION_AUDITS,
-	);
-	const [agentAuditLoading, setAgentAuditLoading] = useState(false);
-	const [agentAuditError, setAgentAuditError] = useState<string | null>(null);
 	const [holdingTransactions, setHoldingTransactions] = useState<HoldingTransactionRecord[]>(
 		EMPTY_HOLDING_TRANSACTIONS,
 	);
@@ -546,41 +533,6 @@ export function AssetManager({
 			cancelled = true;
 		};
 	}, [cashLedgerAdjustmentActions, refreshToken]);
-
-	useEffect(() => {
-		if (!agentAuditActions?.onRefresh) {
-			setAgentTasks(EMPTY_AGENT_TASKS);
-			setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
-			return;
-		}
-
-		let cancelled = false;
-		setAgentAuditLoading(true);
-		setAgentAuditError(null);
-		void Promise.resolve(agentAuditActions.onRefresh())
-			.then((snapshot) => {
-				if (cancelled) {
-					return;
-				}
-				setAgentTasks(snapshot.tasks);
-				setAssetMutationAudits(snapshot.audits);
-			})
-			.catch((error) => {
-				if (cancelled) {
-					return;
-				}
-				setAgentAuditError(error instanceof Error ? error.message : "加载智能体审计失败。");
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setAgentAuditLoading(false);
-				}
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [agentAuditActions, refreshToken]);
 
 	async function removeCashRecord(recordId: number): Promise<void> {
 		const record = cashCollection.items.find((item) => item.id === recordId);
@@ -826,12 +778,6 @@ export function AssetManager({
 								updateCashLedgerAdjustmentRecord(recordId, payload)
 							}
 							onDelete={(recordId) => removeCashLedgerAdjustmentRecord(recordId)}
-						/>
-						<AgentExecutionAuditPanel
-							tasks={agentTasks}
-							audits={assetMutationAudits}
-							loading={agentAuditLoading}
-							errorMessage={agentAuditError}
 						/>
 					</>
 				) : null}
