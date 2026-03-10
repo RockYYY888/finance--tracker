@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetManager } from "./AssetManager";
 
 afterEach(() => {
+	window.sessionStorage.clear();
 	cleanup();
 });
 
@@ -87,5 +88,66 @@ describe("AssetManager refresh stability", () => {
 
 		expect(screen.getByRole("heading", { name: "编辑投资持仓" })).not.toBeNull();
 		expect(screen.getByRole("button", { name: "保存资料" })).not.toBeNull();
+	});
+
+	it("loads each section once and does not refetch a loaded tab on revisit", async () => {
+		const cashRefresh = vi.fn().mockResolvedValue([]);
+		const holdingRefresh = vi.fn().mockResolvedValue([baseHolding]);
+
+		render(
+			<AssetManager
+				defaultSection="investment"
+				loadOnMount
+				cashActions={{ onRefresh: cashRefresh }}
+				holdingActions={{ onRefresh: holdingRefresh }}
+				title="资产管理"
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(holdingRefresh).toHaveBeenCalledTimes(1);
+		});
+		expect(cashRefresh).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByRole("tab", { name: /现金/ }));
+
+		await waitFor(() => {
+			expect(cashRefresh).toHaveBeenCalledTimes(1);
+		});
+
+		fireEvent.click(screen.getByRole("tab", { name: /投资类/ }));
+
+		await waitFor(() => {
+			expect(holdingRefresh).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("does not refetch the active section on unrelated parent rerender", async () => {
+		const holdingRefresh = vi.fn().mockResolvedValue([baseHolding]);
+		const { rerender } = render(
+			<AssetManager
+				defaultSection="investment"
+				loadOnMount
+				holdingActions={{ onRefresh: holdingRefresh }}
+				title="资产管理"
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(holdingRefresh).toHaveBeenCalledTimes(1);
+		});
+
+		rerender(
+			<AssetManager
+				defaultSection="investment"
+				loadOnMount
+				holdingActions={{ onRefresh: holdingRefresh }}
+				title="资产管理（刷新摘要）"
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(holdingRefresh).toHaveBeenCalledTimes(1);
+		});
 	});
 });

@@ -28,9 +28,9 @@ export interface UseAssetCollectionResult<TInput, TRecord extends IdentifiableRe
 	openEdit: (record: TRecord) => void;
 	closeEditor: () => void;
 	clearError: () => void;
-	refresh: () => Promise<void>;
-	submit: (payload: TInput) => Promise<void>;
-	remove: (record: TRecord) => Promise<void>;
+	refresh: () => Promise<boolean>;
+	submit: (payload: TInput) => Promise<boolean>;
+	remove: (record: TRecord) => Promise<boolean>;
 }
 
 function getNextLocalId<TRecord extends IdentifiableRecord>(items: TRecord[]): number {
@@ -110,9 +110,9 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 		setErrorMessage(null);
 	}
 
-	async function refresh(): Promise<void> {
+	async function refresh(): Promise<boolean> {
 		if (!options.actions?.onRefresh) {
-			return;
+			return true;
 		}
 
 		setIsRefreshing(true);
@@ -125,14 +125,16 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 				nextLocalIdRef.current,
 				getNextLocalId(nextItems),
 			);
+			return true;
 		} catch (error) {
 			setErrorMessage(toErrorMessage(error, "加载资产失败，请稍后重试。"));
+			return false;
 		} finally {
 			setIsRefreshing(false);
 		}
 	}
 
-	async function submit(payload: TInput): Promise<void> {
+	async function submit(payload: TInput): Promise<boolean> {
 		setIsSubmitting(true);
 		setErrorMessage(null);
 
@@ -220,6 +222,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 			}
 
 			closeEditor();
+			return true;
 		} catch (error) {
 			setErrorMessage(
 				toErrorMessage(
@@ -229,12 +232,13 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 						: "保存修改失败，请稍后重试。",
 				),
 			);
+			return false;
 		} finally {
 			setIsSubmitting(false);
 		}
 	}
 
-	async function remove(record: TRecord): Promise<void> {
+	async function remove(record: TRecord): Promise<boolean> {
 		setIsSubmitting(true);
 		setErrorMessage(null);
 
@@ -263,8 +267,10 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 				}
 				throw error;
 			}
+			return true;
 		} catch (error) {
 			setErrorMessage(toErrorMessage(error, "删除记录失败，请稍后重试。"));
+			return false;
 		} finally {
 			setIsSubmitting(false);
 		}

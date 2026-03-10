@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CashAccountForm } from "./CashAccountForm";
 import { CashAccountList } from "./CashAccountList";
 import { CashLedgerAdjustmentPanel } from "./CashLedgerAdjustmentPanel";
@@ -40,11 +40,29 @@ import type {
 } from "../../types/assets";
 
 type AssetSection = "cash" | "investment" | "fixed" | "liability" | "other";
+type AssetResource =
+	| "cashAccounts"
+	| "cashTransfers"
+	| "cashLedger"
+	| "holdings"
+	| "holdingTransactions"
+	| "fixedAssets"
+	| "liabilities"
+	| "otherAssets";
 
 type SummarySection = {
 	key: AssetSection;
 	label: string;
 	count: number;
+};
+
+const ACTIVE_SECTION_STORAGE_KEY = "asset-manager-active-section";
+const SECTION_RESOURCES: Record<AssetSection, AssetResource[]> = {
+	cash: ["cashAccounts", "cashTransfers", "cashLedger"],
+	investment: ["cashAccounts", "holdings", "holdingTransactions"],
+	fixed: ["fixedAssets"],
+	liability: ["liabilities"],
+	other: ["otherAssets"],
 };
 
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
@@ -55,6 +73,16 @@ const EMPTY_HOLDING_TRANSACTIONS: HoldingTransactionRecord[] = [];
 const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
 const EMPTY_LIABILITIES: LiabilityRecord[] = [];
 const EMPTY_OTHER_ASSETS: OtherAssetRecord[] = [];
+const EMPTY_LOADED_RESOURCES: Record<AssetResource, boolean> = {
+	cashAccounts: false,
+	cashTransfers: false,
+	cashLedger: false,
+	holdings: false,
+	holdingTransactions: false,
+	fixedAssets: false,
+	liabilities: false,
+	otherAssets: false,
+};
 
 export interface AssetManagerProps {
 	initialCashAccounts?: CashAccountRecord[];
@@ -73,9 +101,30 @@ export interface AssetManagerProps {
 	defaultSection?: AssetSection;
 	title?: string;
 	description?: string;
-	autoRefreshOnMount?: boolean;
-	refreshToken?: number;
+	loadOnMount?: boolean;
 	maxStartedOnDate?: string;
+	onRecordsCommitted?: (sections: AssetSection[]) => void;
+}
+
+function isAssetSection(value: string): value is AssetSection {
+	return value === "cash" ||
+		value === "investment" ||
+		value === "fixed" ||
+		value === "liability" ||
+		value === "other";
+}
+
+function readInitialSection(defaultSection: AssetSection): AssetSection {
+	if (typeof window === "undefined") {
+		return defaultSection;
+	}
+
+	try {
+		const storedSection = window.sessionStorage.getItem(ACTIVE_SECTION_STORAGE_KEY);
+		return storedSection && isAssetSection(storedSection) ? storedSection : defaultSection;
+	} catch {
+		return defaultSection;
+	}
 }
 
 function toCashDraft(record: CashAccountRecord): CashAccountFormDraft {
@@ -343,12 +392,22 @@ export function AssetManager({
 	defaultSection = "cash",
 	title = "资产管理",
 	description,
-	autoRefreshOnMount = false,
-	refreshToken = 0,
+	loadOnMount = false,
 	maxStartedOnDate,
+	onRecordsCommitted,
 }: AssetManagerProps) {
-	const [activeSection, setActiveSection] = useState<AssetSection>(defaultSection);
+	const [activeSection, setActiveSection] = useState<AssetSection>(() =>
+		readInitialSection(defaultSection)
+	);
 	const [holdingEditorIntent, setHoldingEditorIntent] = useState<HoldingEditorIntent>("buy");
+	const [loadedResources, setLoadedResources] = useState<Record<AssetResource, boolean>>(() => ({
+		...EMPTY_LOADED_RESOURCES,
+		cashAccounts: initialCashAccounts !== undefined,
+		holdings: initialHoldings !== undefined,
+		fixedAssets: initialFixedAssets !== undefined,
+		liabilities: initialLiabilities !== undefined,
+		otherAssets: initialOtherAssets !== undefined,
+	}));
 	const [cashTransfers, setCashTransfers] = useState<CashTransferRecord[]>(
 		EMPTY_CASH_TRANSFERS,
 	);
@@ -400,6 +459,16 @@ export function AssetManager({
 		}),
 		[holdingEditorIntent],
 	);
+	const hasLoadedInitialSectionRef = useRef(false);
+	const loadingResourcesRef = useRef<Set<AssetResource>>(new Set());
+
+	useEffect(() => {
+		try {
+			window.sessionStorage.setItem(ACTIVE_SECTION_STORAGE_KEY, activeSection);
+		} catch {
+			// Ignore storage errors and keep the in-memory section selection.
+		}
+	}, [activeSection]);
 
 	function openHoldingBuyEditor(): void {
 		setHoldingEditorIntent("buy");
@@ -421,125 +490,326 @@ export function AssetManager({
 		setHoldingEditorIntent("buy");
 	}
 
-	useEffect(() => {
-		if (!autoRefreshOnMount && refreshToken === 0) {
+	function markResourcesLoaded(...resources: AssetResource[]): void {
+		setLoadedResources((currentResources) => {
+			let didChange = false;
+			const nextResources = { ...currentResources };
+			for (const resource of resources) {
+				if (nextResources[resource]) {
+					continue;
+				}
+				nextResources[resource] = true;
+				didChange = true;
+			}
+			return didChange ? nextResources : currentResources;
+		});
+	}
+
+	function invalidateResources(...resources: AssetResource[]): void {
+		setLoadedResources((currentResources) => {
+			let didChange = false;
+			const nextResources = { ...currentResources };
+			for (const resource of resources) {
+				if (!nextResources[resource]) {
+					continue;
+				}
+				nextResources[resource] = false;
+				didChange = true;
+			}
+			return didChange ? nextResources : currentResources;
+		});
+	}
+
+	function notifyRecordsCommitted(...sections: AssetSection[]): void {
+		if (!onRecordsCommitted) {
 			return;
 		}
 
-		void cashCollection.refresh();
-		void holdingCollection.refresh();
-		void fixedAssetCollection.refresh();
-		void liabilityCollection.refresh();
-		void otherAssetCollection.refresh();
-	}, [autoRefreshOnMount, refreshToken]);
+		onRecordsCommitted(Array.from(new Set(sections)));
+	}
 
-	useEffect(() => {
+	function hasLoadedSectionResources(section: AssetSection): boolean {
+		return SECTION_RESOURCES[section].every((resource) => loadedResources[resource]);
+	}
+
+	function startResourceRefresh(resource: AssetResource): boolean {
+		if (loadingResourcesRef.current.has(resource)) {
+			return false;
+		}
+
+		loadingResourcesRef.current.add(resource);
+		return true;
+	}
+
+	function finishResourceRefresh(resource: AssetResource): void {
+		loadingResourcesRef.current.delete(resource);
+	}
+
+	async function refreshCashAccounts(): Promise<void> {
+		if (!startResourceRefresh("cashAccounts")) {
+			return;
+		}
+
+		try {
+			const refreshed = await cashCollection.refresh();
+			if (refreshed) {
+				markResourcesLoaded("cashAccounts");
+			}
+		} finally {
+			finishResourceRefresh("cashAccounts");
+		}
+	}
+
+	async function refreshCashTransfers(): Promise<void> {
+		if (!startResourceRefresh("cashTransfers")) {
+			return;
+		}
+
 		if (!cashTransferActions?.onRefresh) {
-			setCashTransfers(EMPTY_CASH_TRANSFERS);
-			return;
+			try {
+				setCashTransfers(EMPTY_CASH_TRANSFERS);
+				setCashTransfersLoading(false);
+				setCashTransfersError(null);
+				markResourcesLoaded("cashTransfers");
+				return;
+			} finally {
+				finishResourceRefresh("cashTransfers");
+			}
 		}
 
-		let cancelled = false;
 		setCashTransfersLoading(true);
 		setCashTransfersError(null);
-		void Promise.resolve(cashTransferActions.onRefresh())
-			.then((items) => {
-				if (cancelled) {
-					return;
-				}
-				setCashTransfers(items);
-			})
-			.catch((error) => {
-				if (cancelled) {
-					return;
-				}
-				setCashTransfersError(error instanceof Error ? error.message : "加载账户划转失败。");
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setCashTransfersLoading(false);
-				}
-			});
+		try {
+			const items = await cashTransferActions.onRefresh();
+			setCashTransfers(items);
+			markResourcesLoaded("cashTransfers");
+		} catch (error) {
+			setCashTransfersError(error instanceof Error ? error.message : "加载账户划转失败。");
+		} finally {
+			setCashTransfersLoading(false);
+			finishResourceRefresh("cashTransfers");
+		}
+	}
 
-		return () => {
-			cancelled = true;
-		};
-	}, [cashTransferActions, refreshToken]);
-
-	useEffect(() => {
-		if (!holdingTransactionActions?.onRefresh) {
-			setHoldingTransactions(EMPTY_HOLDING_TRANSACTIONS);
+	async function refreshHoldings(): Promise<void> {
+		if (!startResourceRefresh("holdings")) {
 			return;
 		}
 
-		let cancelled = false;
+		try {
+			const refreshed = await holdingCollection.refresh();
+			if (refreshed) {
+				markResourcesLoaded("holdings");
+			}
+		} finally {
+			finishResourceRefresh("holdings");
+		}
+	}
+
+	async function refreshHoldingTransactions(): Promise<void> {
+		if (!startResourceRefresh("holdingTransactions")) {
+			return;
+		}
+
+		if (!holdingTransactionActions?.onRefresh) {
+			try {
+				setHoldingTransactions(EMPTY_HOLDING_TRANSACTIONS);
+				setHoldingTransactionsLoading(false);
+				setHoldingTransactionsError(null);
+				markResourcesLoaded("holdingTransactions");
+				return;
+			} finally {
+				finishResourceRefresh("holdingTransactions");
+			}
+		}
+
 		setHoldingTransactionsLoading(true);
 		setHoldingTransactionsError(null);
-		void Promise.resolve(holdingTransactionActions.onRefresh())
-			.then((items) => {
-				if (cancelled) {
-					return;
-				}
-				setHoldingTransactions(items);
-			})
-			.catch((error) => {
-				if (cancelled) {
-					return;
-				}
-				setHoldingTransactionsError(
-					error instanceof Error ? error.message : "加载投资交易记录失败。",
-				);
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setHoldingTransactionsLoading(false);
-				}
-			});
+		try {
+			const items = await holdingTransactionActions.onRefresh();
+			setHoldingTransactions(items);
+			markResourcesLoaded("holdingTransactions");
+		} catch (error) {
+			setHoldingTransactionsError(
+				error instanceof Error ? error.message : "加载投资交易记录失败。",
+			);
+		} finally {
+			setHoldingTransactionsLoading(false);
+			finishResourceRefresh("holdingTransactions");
+		}
+	}
 
-		return () => {
-			cancelled = true;
-		};
-	}, [holdingTransactionActions, refreshToken]);
-
-	useEffect(() => {
-		if (!cashLedgerAdjustmentActions?.onRefresh) {
-			setCashLedgerEntries(EMPTY_CASH_LEDGER_ENTRIES);
+	async function refreshCashLedgerEntries(): Promise<void> {
+		if (!startResourceRefresh("cashLedger")) {
 			return;
 		}
 
-		let cancelled = false;
+		if (!cashLedgerAdjustmentActions?.onRefresh) {
+			try {
+				setCashLedgerEntries(EMPTY_CASH_LEDGER_ENTRIES);
+				setCashLedgerLoading(false);
+				setCashLedgerError(null);
+				markResourcesLoaded("cashLedger");
+				return;
+			} finally {
+				finishResourceRefresh("cashLedger");
+			}
+		}
+
 		setCashLedgerLoading(true);
 		setCashLedgerError(null);
-		void Promise.resolve(cashLedgerAdjustmentActions.onRefresh())
-			.then((items) => {
-				if (cancelled) {
-					return;
-				}
-				setCashLedgerEntries(items);
-			})
-			.catch((error) => {
-				if (cancelled) {
-					return;
-				}
-				setCashLedgerError(error instanceof Error ? error.message : "加载现金账本失败。");
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setCashLedgerLoading(false);
-				}
-			});
+		try {
+			const items = await cashLedgerAdjustmentActions.onRefresh();
+			setCashLedgerEntries(items);
+			markResourcesLoaded("cashLedger");
+		} catch (error) {
+			setCashLedgerError(error instanceof Error ? error.message : "加载现金账本失败。");
+		} finally {
+			setCashLedgerLoading(false);
+			finishResourceRefresh("cashLedger");
+		}
+	}
 
-		return () => {
-			cancelled = true;
-		};
-	}, [cashLedgerAdjustmentActions, refreshToken]);
+	async function refreshFixedAssets(): Promise<void> {
+		if (!startResourceRefresh("fixedAssets")) {
+			return;
+		}
+
+		try {
+			const refreshed = await fixedAssetCollection.refresh();
+			if (refreshed) {
+				markResourcesLoaded("fixedAssets");
+			}
+		} finally {
+			finishResourceRefresh("fixedAssets");
+		}
+	}
+
+	async function refreshLiabilities(): Promise<void> {
+		if (!startResourceRefresh("liabilities")) {
+			return;
+		}
+
+		try {
+			const refreshed = await liabilityCollection.refresh();
+			if (refreshed) {
+				markResourcesLoaded("liabilities");
+			}
+		} finally {
+			finishResourceRefresh("liabilities");
+		}
+	}
+
+	async function refreshOtherAssets(): Promise<void> {
+		if (!startResourceRefresh("otherAssets")) {
+			return;
+		}
+
+		try {
+			const refreshed = await otherAssetCollection.refresh();
+			if (refreshed) {
+				markResourcesLoaded("otherAssets");
+			}
+		} finally {
+			finishResourceRefresh("otherAssets");
+		}
+	}
+
+	async function refreshCashSection(): Promise<void> {
+		const pendingRefreshes: Promise<void>[] = [];
+		if (!loadedResources.cashAccounts) {
+			pendingRefreshes.push(refreshCashAccounts());
+		}
+		if (!loadedResources.cashTransfers) {
+			pendingRefreshes.push(refreshCashTransfers());
+		}
+		if (!loadedResources.cashLedger) {
+			pendingRefreshes.push(refreshCashLedgerEntries());
+		}
+		await Promise.all(pendingRefreshes);
+	}
+
+	async function refreshInvestmentSection(): Promise<void> {
+		const pendingRefreshes: Promise<void>[] = [];
+		if (!loadedResources.cashAccounts) {
+			pendingRefreshes.push(refreshCashAccounts());
+		}
+		if (!loadedResources.holdings) {
+			pendingRefreshes.push(refreshHoldings());
+		}
+		if (!loadedResources.holdingTransactions) {
+			pendingRefreshes.push(refreshHoldingTransactions());
+		}
+		await Promise.all(pendingRefreshes);
+	}
+
+	async function refreshFixedSection(): Promise<void> {
+		if (!loadedResources.fixedAssets) {
+			await refreshFixedAssets();
+		}
+	}
+
+	async function refreshLiabilitySection(): Promise<void> {
+		if (!loadedResources.liabilities) {
+			await refreshLiabilities();
+		}
+	}
+
+	async function refreshOtherSection(): Promise<void> {
+		if (!loadedResources.otherAssets) {
+			await refreshOtherAssets();
+		}
+	}
+
+	useEffect(() => {
+		const shouldRefreshSection =
+			(!hasLoadedInitialSectionRef.current && loadOnMount) ||
+			!hasLoadedSectionResources(activeSection);
+		if (!shouldRefreshSection) {
+			return;
+		}
+
+		if (!hasLoadedInitialSectionRef.current && loadOnMount) {
+			hasLoadedInitialSectionRef.current = true;
+		}
+
+		switch (activeSection) {
+			case "cash":
+				void refreshCashSection();
+				return;
+			case "investment":
+				void refreshInvestmentSection();
+				return;
+			case "fixed":
+				void refreshFixedSection();
+				return;
+			case "liability":
+				void refreshLiabilitySection();
+				return;
+			case "other":
+				void refreshOtherSection();
+				return;
+		}
+	}, [activeSection, loadOnMount, loadedResources]);
 
 	async function removeCashRecord(recordId: number): Promise<void> {
 		const record = cashCollection.items.find((item) => item.id === recordId);
 		if (!record) {
 			return;
 		}
-		await cashCollection.remove(record);
+		const removed = await cashCollection.remove(record);
+		if (removed) {
+			markResourcesLoaded("cashAccounts");
+			notifyRecordsCommitted("cash");
+		}
+	}
+
+	async function submitCashRecord(payload: CashAccountInput): Promise<void> {
+		const saved = await cashCollection.submit(payload);
+		if (saved) {
+			markResourcesLoaded("cashAccounts");
+			notifyRecordsCommitted("cash");
+		}
 	}
 
 	async function createCashTransferRecord(payload: CashTransferInput): Promise<CashTransferRecord> {
@@ -553,6 +823,12 @@ export function AssetManager({
 			throw new Error("新增账户划转失败，请稍后重试。");
 		}
 		setCashTransfers((currentItems) => [createdRecord, ...currentItems]);
+		await Promise.all([
+			refreshCashAccounts(),
+			refreshCashLedgerEntries(),
+		]);
+		markResourcesLoaded("cashTransfers");
+		notifyRecordsCommitted("cash");
 		return createdRecord;
 	}
 
@@ -566,6 +842,12 @@ export function AssetManager({
 		setCashTransfers((currentItems) =>
 			currentItems.filter((item) => item.id !== recordId),
 		);
+		await Promise.all([
+			refreshCashAccounts(),
+			refreshCashLedgerEntries(),
+		]);
+		markResourcesLoaded("cashTransfers");
+		notifyRecordsCommitted("cash");
 	}
 
 	async function updateCashTransferRecord(
@@ -581,6 +863,12 @@ export function AssetManager({
 		setCashTransfers((currentItems) =>
 			currentItems.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
 		);
+		await Promise.all([
+			refreshCashAccounts(),
+			refreshCashLedgerEntries(),
+		]);
+		markResourcesLoaded("cashTransfers");
+		notifyRecordsCommitted("cash");
 		return updatedRecord;
 	}
 
@@ -597,6 +885,9 @@ export function AssetManager({
 			throw new Error("新增手工账本调整失败，请稍后重试。");
 		}
 		setCashLedgerEntries((currentItems) => [createdEntry, ...currentItems]);
+		markResourcesLoaded("cashLedger");
+		await refreshCashAccounts();
+		notifyRecordsCommitted("cash");
 		return createdEntry;
 	}
 
@@ -613,6 +904,9 @@ export function AssetManager({
 		setCashLedgerEntries((currentItems) =>
 			currentItems.map((item) => (item.id === updatedEntry.id ? updatedEntry : item)),
 		);
+		markResourcesLoaded("cashLedger");
+		await refreshCashAccounts();
+		notifyRecordsCommitted("cash");
 		return updatedEntry;
 	}
 
@@ -626,6 +920,38 @@ export function AssetManager({
 		setCashLedgerEntries((currentItems) =>
 			currentItems.filter((item) => item.id !== recordId),
 		);
+		markResourcesLoaded("cashLedger");
+		await refreshCashAccounts();
+		notifyRecordsCommitted("cash");
+	}
+
+	async function submitHoldingRecord(payload: HoldingInput): Promise<void> {
+		const isHoldingMetadataEdit = holdingCollection.editingRecordId !== null;
+		const saved = await holdingCollection.submit(payload);
+		if (!saved) {
+			return;
+		}
+
+		if (isHoldingMetadataEdit) {
+			markResourcesLoaded("holdings");
+			notifyRecordsCommitted("investment");
+			return;
+		}
+
+		const touchesCashAccounts =
+			payload.side === "SELL" || payload.buy_funding_account_id !== undefined;
+		await Promise.all([
+			refreshHoldings(),
+			refreshHoldingTransactions(),
+			touchesCashAccounts ? refreshCashAccounts() : Promise.resolve(),
+		]);
+		if (touchesCashAccounts) {
+			invalidateResources("cashTransfers", "cashLedger");
+			notifyRecordsCommitted("cash", "investment");
+			return;
+		}
+
+		notifyRecordsCommitted("investment");
 	}
 
 	async function removeHoldingRecord(recordId: number): Promise<void> {
@@ -633,7 +959,16 @@ export function AssetManager({
 		if (!record) {
 			return;
 		}
-		await holdingCollection.remove(record);
+		const removed = await holdingCollection.remove(record);
+		if (removed) {
+			await Promise.all([
+				refreshCashAccounts(),
+				refreshHoldings(),
+				refreshHoldingTransactions(),
+			]);
+			invalidateResources("cashTransfers", "cashLedger");
+			notifyRecordsCommitted("cash", "investment");
+		}
 	}
 
 	async function updateHoldingTransactionRecord(
@@ -649,6 +984,14 @@ export function AssetManager({
 		setHoldingTransactions((currentItems) =>
 			currentItems.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
 		);
+		markResourcesLoaded("holdingTransactions");
+		await Promise.all([
+			refreshCashAccounts(),
+			refreshHoldings(),
+			refreshHoldingTransactions(),
+		]);
+		invalidateResources("cashTransfers", "cashLedger");
+		notifyRecordsCommitted("cash", "investment");
 		return updatedRecord;
 	}
 
@@ -662,6 +1005,22 @@ export function AssetManager({
 		setHoldingTransactions((currentItems) =>
 			currentItems.filter((item) => item.id !== recordId),
 		);
+		markResourcesLoaded("holdingTransactions");
+		await Promise.all([
+			refreshCashAccounts(),
+			refreshHoldings(),
+			refreshHoldingTransactions(),
+		]);
+		invalidateResources("cashTransfers", "cashLedger");
+		notifyRecordsCommitted("cash", "investment");
+	}
+
+	async function submitFixedAssetRecord(payload: FixedAssetInput): Promise<void> {
+		const saved = await fixedAssetCollection.submit(payload);
+		if (saved) {
+			markResourcesLoaded("fixedAssets");
+			notifyRecordsCommitted("fixed");
+		}
 	}
 
 	async function removeFixedAssetRecord(recordId: number): Promise<void> {
@@ -669,7 +1028,19 @@ export function AssetManager({
 		if (!record) {
 			return;
 		}
-		await fixedAssetCollection.remove(record);
+		const removed = await fixedAssetCollection.remove(record);
+		if (removed) {
+			markResourcesLoaded("fixedAssets");
+			notifyRecordsCommitted("fixed");
+		}
+	}
+
+	async function submitLiabilityRecord(payload: LiabilityInput): Promise<void> {
+		const saved = await liabilityCollection.submit(payload);
+		if (saved) {
+			markResourcesLoaded("liabilities");
+			notifyRecordsCommitted("liability");
+		}
 	}
 
 	async function removeLiabilityRecord(recordId: number): Promise<void> {
@@ -677,7 +1048,19 @@ export function AssetManager({
 		if (!record) {
 			return;
 		}
-		await liabilityCollection.remove(record);
+		const removed = await liabilityCollection.remove(record);
+		if (removed) {
+			markResourcesLoaded("liabilities");
+			notifyRecordsCommitted("liability");
+		}
+	}
+
+	async function submitOtherAssetRecord(payload: OtherAssetInput): Promise<void> {
+		const saved = await otherAssetCollection.submit(payload);
+		if (saved) {
+			markResourcesLoaded("otherAssets");
+			notifyRecordsCommitted("other");
+		}
 	}
 
 	async function removeOtherAssetRecord(recordId: number): Promise<void> {
@@ -685,7 +1068,11 @@ export function AssetManager({
 		if (!record) {
 			return;
 		}
-		await otherAssetCollection.remove(record);
+		const removed = await otherAssetCollection.remove(record);
+		if (removed) {
+			markResourcesLoaded("otherAssets");
+			notifyRecordsCommitted("other");
+		}
 	}
 
 	function summaryCountClass(section: AssetSection): string {
@@ -740,8 +1127,8 @@ export function AssetManager({
 								recordId={cashCollection.editingRecordId}
 								busy={cashCollection.isSubmitting}
 								errorMessage={cashCollection.errorMessage}
-								onCreate={(payload) => cashCollection.submit(payload)}
-								onEdit={(_recordId, payload) => cashCollection.submit(payload)}
+								onCreate={(payload) => submitCashRecord(payload)}
+								onEdit={(_recordId, payload) => submitCashRecord(payload)}
 								onDelete={(recordId) => removeCashRecord(recordId)}
 								onCancel={cashCollection.closeEditor}
 							/>
@@ -800,8 +1187,8 @@ export function AssetManager({
 								busy={holdingCollection.isSubmitting}
 								errorMessage={holdingCollection.errorMessage}
 								maxStartedOnDate={maxStartedOnDate}
-								onCreate={(payload) => holdingCollection.submit(payload)}
-								onEdit={(_recordId, payload) => holdingCollection.submit(payload)}
+								onCreate={(payload) => submitHoldingRecord(payload)}
+								onEdit={(_recordId, payload) => submitHoldingRecord(payload)}
 								onDelete={(recordId) => removeHoldingRecord(recordId)}
 								onSearch={holdingActions?.onSearch}
 								onMergeDuplicate={holdingActions?.onMergeDuplicate}
@@ -850,8 +1237,8 @@ export function AssetManager({
 								recordId={fixedAssetCollection.editingRecordId}
 								busy={fixedAssetCollection.isSubmitting}
 								errorMessage={fixedAssetCollection.errorMessage}
-								onCreate={(payload) => fixedAssetCollection.submit(payload)}
-								onEdit={(_recordId, payload) => fixedAssetCollection.submit(payload)}
+								onCreate={(payload) => submitFixedAssetRecord(payload)}
+								onEdit={(_recordId, payload) => submitFixedAssetRecord(payload)}
 								onDelete={(recordId) => removeFixedAssetRecord(recordId)}
 								onCancel={fixedAssetCollection.closeEditor}
 							/>
@@ -882,8 +1269,8 @@ export function AssetManager({
 								recordId={liabilityCollection.editingRecordId}
 								busy={liabilityCollection.isSubmitting}
 								errorMessage={liabilityCollection.errorMessage}
-								onCreate={(payload) => liabilityCollection.submit(payload)}
-								onEdit={(_recordId, payload) => liabilityCollection.submit(payload)}
+								onCreate={(payload) => submitLiabilityRecord(payload)}
+								onEdit={(_recordId, payload) => submitLiabilityRecord(payload)}
 								onDelete={(recordId) => removeLiabilityRecord(recordId)}
 								onCancel={liabilityCollection.closeEditor}
 							/>
@@ -914,8 +1301,8 @@ export function AssetManager({
 								recordId={otherAssetCollection.editingRecordId}
 								busy={otherAssetCollection.isSubmitting}
 								errorMessage={otherAssetCollection.errorMessage}
-								onCreate={(payload) => otherAssetCollection.submit(payload)}
-								onEdit={(_recordId, payload) => otherAssetCollection.submit(payload)}
+								onCreate={(payload) => submitOtherAssetRecord(payload)}
+								onEdit={(_recordId, payload) => submitOtherAssetRecord(payload)}
 								onDelete={(recordId) => removeOtherAssetRecord(recordId)}
 								onCancel={otherAssetCollection.closeEditor}
 							/>
