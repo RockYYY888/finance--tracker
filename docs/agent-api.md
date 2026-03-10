@@ -90,10 +90,18 @@ Use holding routes only for metadata reads or metadata-only edits.
   Deletes a cash account only when it has no non-baseline ledger activity
 - `GET /api/cash-ledger`
   Lists ledger entries, supports `account_id` and `limit`
+- `POST /api/cash-ledger/adjustments`
+  Appends a manual cash-ledger correction and replays cash balance plus portfolio total history
+- `PATCH /api/cash-ledger/adjustments/{entry_id}`
+  Edits one manual ledger correction, only for `MANUAL_ADJUSTMENT` entries
+- `DELETE /api/cash-ledger/adjustments/{entry_id}`
+  Deletes one manual ledger correction and rolls back its cash effect
 - `GET /api/cash-transfers`
   Lists account-to-account transfer events
 - `POST /api/cash-transfers`
   Creates a transfer event and writes paired ledger entries
+- `PATCH /api/cash-transfers/{transfer_id}`
+  Edits a transfer event and replays both sides of the paired ledger entries
 - `DELETE /api/cash-transfers/{transfer_id}`
   Deletes a transfer event and rolls back paired ledger entries
 - `GET /api/holdings`
@@ -115,7 +123,9 @@ Use holding routes only for metadata reads or metadata-only edits.
 - `GET /api/agent/tasks`
   Lists structured agent tasks
 - `POST /api/agent/tasks`
-  Executes a validated task envelope for buy, sell, transfer, or trade correction
+  Executes a validated task envelope for buy, sell, transfer, transfer correction, or ledger correction
+- `GET /api/audit-log`
+  Lists asset mutation audits, supports `limit` and `agent_task_id`
 - `GET /api/securities/search?q=...`
   Searches tradable symbols
 - `GET /api/securities/quote?symbol=...&market=...`
@@ -133,6 +143,7 @@ Supported now:
 
 - `POST /api/holding-transactions`
 - `POST /api/cash-transfers`
+- `POST /api/cash-ledger/adjustments`
 - `POST /api/agent/tasks`
 
 If the same key is reused with the same request body, the backend replays the original response.
@@ -151,6 +162,13 @@ For cash movement:
 1. `GET /api/agent/context`
 2. `GET /api/cash-ledger`
 3. `POST /api/cash-transfers`
+4. `GET /api/agent/context`
+
+For cash-ledger anomaly correction:
+
+1. `GET /api/cash-ledger`
+2. `PATCH /api/cash-transfers/{transfer_id}` or `PATCH /api/cash-ledger/adjustments/{entry_id}`
+3. `GET /api/audit-log?agent_task_id=...` when the correction was triggered through `POST /api/agent/tasks`
 4. `GET /api/agent/context`
 
 If the agent needs to correct a previously recorded trade, prefer
@@ -222,6 +240,22 @@ curl -X POST http://127.0.0.1:8080/api/cash-transfers \
   }'
 ```
 
+## Manual Ledger Adjustment Example
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/cash-ledger/adjustments \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'Idempotency-Key: ledger-adjustment-20260310-001' \
+  -H 'X-API-Key: <server_api_token_if_configured>' \
+  -d '{
+    "cash_account_id": 3,
+    "amount": -18.6,
+    "happened_on": "2026-03-10",
+    "note": "bank reconciliation difference"
+  }'
+```
+
 ## Trade Correction Example
 
 ```bash
@@ -257,6 +291,17 @@ curl -X POST http://127.0.0.1:8080/api/agent/tasks \
     }
   }'
 ```
+
+Agent task types currently include:
+
+- `CREATE_BUY_TRANSACTION`
+- `CREATE_SELL_TRANSACTION`
+- `UPDATE_HOLDING_TRANSACTION`
+- `CREATE_CASH_TRANSFER`
+- `UPDATE_CASH_TRANSFER`
+- `CREATE_CASH_LEDGER_ADJUSTMENT`
+- `UPDATE_CASH_LEDGER_ADJUSTMENT`
+- `DELETE_CASH_LEDGER_ADJUSTMENT`
 
 ## Chart Semantics
 

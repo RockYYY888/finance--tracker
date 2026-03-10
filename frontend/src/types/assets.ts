@@ -168,6 +168,90 @@ export interface CashTransferRecord extends CashTransferInput {
 	target_currency: string;
 }
 
+export type CashLedgerEntryType =
+	| "INITIAL_BALANCE"
+	| "SELL_PROCEEDS"
+	| "BUY_FUNDING"
+	| "TRANSFER_OUT"
+	| "TRANSFER_IN"
+	| "MANUAL_ADJUSTMENT";
+
+export interface CashLedgerAdjustmentInput {
+	cash_account_id: number;
+	amount: number;
+	happened_on: string;
+	note?: string;
+}
+
+export interface CashLedgerAdjustmentFormDraft {
+	cash_account_id: string;
+	amount: string;
+	happened_on: string;
+	note: string;
+}
+
+export interface CashLedgerEntryRecord {
+	id: number;
+	cash_account_id: number;
+	entry_type: CashLedgerEntryType;
+	amount: number;
+	currency: string;
+	happened_on: string;
+	note?: string;
+	holding_transaction_id?: number | null;
+	cash_transfer_id?: number | null;
+	created_at?: string;
+	updated_at?: string;
+}
+
+export const DEFAULT_CASH_LEDGER_ADJUSTMENT_FORM_DRAFT: CashLedgerAdjustmentFormDraft = {
+	cash_account_id: "",
+	amount: "",
+	happened_on: "",
+	note: "",
+};
+
+export type AgentTaskType =
+	| "CREATE_BUY_TRANSACTION"
+	| "CREATE_SELL_TRANSACTION"
+	| "UPDATE_HOLDING_TRANSACTION"
+	| "CREATE_CASH_TRANSFER"
+	| "UPDATE_CASH_TRANSFER"
+	| "CREATE_CASH_LEDGER_ADJUSTMENT"
+	| "UPDATE_CASH_LEDGER_ADJUSTMENT"
+	| "DELETE_CASH_LEDGER_ADJUSTMENT";
+
+export type AgentTaskStatus = "DONE" | "FAILED";
+
+export interface AgentTaskRecord {
+	id: number;
+	task_type: AgentTaskType;
+	status: AgentTaskStatus;
+	payload: Record<string, unknown>;
+	result?: Record<string, unknown> | null;
+	error_message?: string | null;
+	created_at?: string;
+	updated_at?: string;
+	completed_at?: string | null;
+}
+
+export interface AssetMutationAuditRecord {
+	id: number;
+	agent_task_id?: number | null;
+	entity_type: string;
+	entity_id?: number | null;
+	operation: "CREATE" | "UPDATE" | "DELETE";
+	before_state?: string | null;
+	after_state?: string | null;
+	reason?: string | null;
+	created_at?: string;
+}
+
+export interface AgentAuditSnapshot {
+	tasks: AgentTaskRecord[];
+	audits: AssetMutationAuditRecord[];
+}
+
 export const DEFAULT_CASH_TRANSFER_FORM_DRAFT: CashTransferFormDraft = {
 	from_account_id: "",
 	to_account_id: "",
@@ -434,13 +518,27 @@ export interface HoldingTransactionCollectionActions {
 
 export interface CashTransferCollectionActions {
 	onCreate?: CreateAssetAction<CashTransferInput, CashTransferRecord>;
+	onEdit?: EditAssetAction<CashTransferInput, CashTransferRecord>;
 	onDelete?: DeleteAssetAction;
 	onRefresh?: RefreshAssetAction<CashTransferRecord>;
+}
+
+export interface CashLedgerAdjustmentCollectionActions {
+	onCreate?: CreateAssetAction<CashLedgerAdjustmentInput, CashLedgerEntryRecord>;
+	onEdit?: EditAssetAction<CashLedgerAdjustmentInput, CashLedgerEntryRecord>;
+	onDelete?: DeleteAssetAction;
+	onRefresh?: RefreshAssetAction<CashLedgerEntryRecord>;
+}
+
+export interface AgentAuditCollectionActions {
+	onRefresh?: () => MaybePromise<AgentAuditSnapshot>;
 }
 
 export interface AssetManagerController {
 	cashAccounts?: AssetCollectionActions<CashAccountInput, CashAccountRecord>;
 	cashTransfers?: CashTransferCollectionActions;
+	cashLedgerAdjustments?: CashLedgerAdjustmentCollectionActions;
+	agentAudit?: AgentAuditCollectionActions;
 	holdings?: HoldingCollectionActions;
 	holdingTransactions?: HoldingTransactionCollectionActions;
 	fixedAssets?: AssetCollectionActions<FixedAssetInput, FixedAssetRecord>;
@@ -455,7 +553,21 @@ export interface AssetApiClient {
 	deleteCashAccount: (recordId: number) => Promise<void>;
 	listCashTransfers: () => Promise<CashTransferRecord[]>;
 	createCashTransfer: (payload: CashTransferInput) => Promise<CashTransferRecord>;
+	updateCashTransfer: (recordId: number, payload: CashTransferInput) => Promise<CashTransferRecord>;
 	deleteCashTransfer: (recordId: number) => Promise<void>;
+	listCashLedgerEntries: () => Promise<CashLedgerEntryRecord[]>;
+	createCashLedgerAdjustment: (
+		payload: CashLedgerAdjustmentInput,
+	) => Promise<CashLedgerEntryRecord>;
+	updateCashLedgerAdjustment: (
+		recordId: number,
+		payload: CashLedgerAdjustmentInput,
+	) => Promise<CashLedgerEntryRecord>;
+	deleteCashLedgerAdjustment: (recordId: number) => Promise<void>;
+	listAgentTasks: () => Promise<AgentTaskRecord[]>;
+	listAssetMutationAudits: (params?: {
+		agentTaskId?: number;
+	}) => Promise<AssetMutationAuditRecord[]>;
 	listHoldings: () => Promise<HoldingRecord[]>;
 	createHolding: (payload: HoldingInput) => Promise<HoldingRecord | null>;
 	updateHolding: (recordId: number, payload: HoldingInput) => Promise<HoldingRecord>;

@@ -4,12 +4,16 @@ import type {
 	AssetManagerController,
 	CashAccountInput,
 	CashAccountRecord,
+	CashLedgerAdjustmentInput,
+	CashLedgerEntryRecord,
 	CashTransferRecord,
 	FixedAssetInput,
 	FixedAssetRecord,
 	HoldingInput,
 	HoldingRecord,
 	HoldingTransactionRecord,
+	AgentTaskRecord,
+	AssetMutationAuditRecord,
 	LiabilityInput,
 	LiabilityRecord,
 	OtherAssetInput,
@@ -26,9 +30,14 @@ type CashTransferApplyResponse = {
 	transfer: CashTransferRecord;
 };
 
+type CashLedgerAdjustmentApplyResponse = {
+	entry: CashLedgerEntryRecord;
+};
+
 function toJsonBody(
 	payload:
 		| CashAccountInput
+		| CashLedgerAdjustmentInput
 		| HoldingInput
 		| FixedAssetInput
 		| LiabilityInput
@@ -110,10 +119,55 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			});
 			return response.transfer;
 		},
+		updateCashTransfer: async (recordId, payload) => {
+			const response = await apiClient.request<CashTransferApplyResponse>(
+				`/api/cash-transfers/${recordId}`,
+				{
+					method: "PATCH",
+					body: JSON.stringify(payload),
+				},
+			);
+			return response.transfer;
+		},
 		deleteCashTransfer: (recordId) =>
 			apiClient.request<void>(`/api/cash-transfers/${recordId}`, {
 				method: "DELETE",
 			}),
+		listCashLedgerEntries: () => apiClient.request<CashLedgerEntryRecord[]>("/api/cash-ledger"),
+		createCashLedgerAdjustment: async (payload) => {
+			const response = await apiClient.request<CashLedgerAdjustmentApplyResponse>(
+				"/api/cash-ledger/adjustments",
+				{
+					method: "POST",
+					body: toJsonBody(payload),
+				},
+			);
+			return response.entry;
+		},
+		updateCashLedgerAdjustment: async (recordId, payload) => {
+			const response = await apiClient.request<CashLedgerAdjustmentApplyResponse>(
+				`/api/cash-ledger/adjustments/${recordId}`,
+				{
+					method: "PATCH",
+					body: toJsonBody(payload),
+				},
+			);
+			return response.entry;
+		},
+		deleteCashLedgerAdjustment: (recordId) =>
+			apiClient.request<void>(`/api/cash-ledger/adjustments/${recordId}`, {
+				method: "DELETE",
+			}),
+		listAgentTasks: () => apiClient.request<AgentTaskRecord[]>("/api/agent/tasks"),
+		listAssetMutationAudits: (params) => {
+			const search = new URLSearchParams();
+			if (params?.agentTaskId) {
+				search.set("agent_task_id", String(params.agentTaskId));
+			}
+			const queryString = search.toString();
+			const query = queryString ? `?${queryString}` : "";
+			return apiClient.request<AssetMutationAuditRecord[]>(`/api/audit-log${query}`);
+		},
 		listHoldings: async () => {
 			const holdings = await apiClient.request<HoldingRecord[]>("/api/holdings");
 			return holdings.map((record) => ({
@@ -233,8 +287,24 @@ export function createAssetManagerController(
 		},
 		cashTransfers: {
 			onCreate: (payload) => assetApiClient.createCashTransfer(payload),
+			onEdit: (recordId, payload) => assetApiClient.updateCashTransfer(recordId, payload),
 			onDelete: (recordId) => assetApiClient.deleteCashTransfer(recordId),
 			onRefresh: () => assetApiClient.listCashTransfers(),
+		},
+		cashLedgerAdjustments: {
+			onCreate: (payload) => assetApiClient.createCashLedgerAdjustment(payload),
+			onEdit: (recordId, payload) => assetApiClient.updateCashLedgerAdjustment(recordId, payload),
+			onDelete: (recordId) => assetApiClient.deleteCashLedgerAdjustment(recordId),
+			onRefresh: () => assetApiClient.listCashLedgerEntries(),
+		},
+		agentAudit: {
+			onRefresh: async () => {
+				const [tasks, audits] = await Promise.all([
+					assetApiClient.listAgentTasks(),
+					assetApiClient.listAssetMutationAudits(),
+				]);
+				return { tasks, audits };
+			},
 		},
 		holdings: {
 			onCreate: (payload) => assetApiClient.createHolding(payload),

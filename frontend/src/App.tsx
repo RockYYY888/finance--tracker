@@ -1124,11 +1124,45 @@ function App() {
 				void loadDashboard();
 				return createdRecord;
 			},
+			onEdit: async (recordId, payload) => {
+				const updatedRecord = await defaultAssetApiClient.updateCashTransfer(recordId, payload);
+				void loadDashboard();
+				return updatedRecord;
+			},
 			onDelete: async (recordId) => {
 				await defaultAssetApiClient.deleteCashTransfer(recordId);
 				void loadDashboard();
 			},
 			onRefresh: () => defaultAssetApiClient.listCashTransfers(),
+		},
+		cashLedgerAdjustments: {
+			onCreate: async (payload) => {
+				const createdEntry = await defaultAssetApiClient.createCashLedgerAdjustment(payload);
+				void loadDashboard();
+				return createdEntry;
+			},
+			onEdit: async (recordId, payload) => {
+				const updatedEntry = await defaultAssetApiClient.updateCashLedgerAdjustment(
+					recordId,
+					payload,
+				);
+				void loadDashboard();
+				return updatedEntry;
+			},
+			onDelete: async (recordId) => {
+				await defaultAssetApiClient.deleteCashLedgerAdjustment(recordId);
+				void loadDashboard();
+			},
+			onRefresh: () => defaultAssetApiClient.listCashLedgerEntries(),
+		},
+		agentAudit: {
+			onRefresh: async () => {
+				const [tasks, audits] = await Promise.all([
+					defaultAssetApiClient.listAgentTasks(),
+					defaultAssetApiClient.listAssetMutationAudits(),
+				]);
+				return { tasks, audits };
+			},
 		},
 		holdings: {
 			onCreate: async (payload) => {
@@ -1517,7 +1551,11 @@ function App() {
 						initialLiabilities={liabilityRecords}
 						initialOtherAssets={otherAssetRecords}
 						cashActions={assetManagerController.cashAccounts}
+						cashTransferActions={assetManagerController.cashTransfers}
+						cashLedgerAdjustmentActions={assetManagerController.cashLedgerAdjustments}
+						agentAuditActions={assetManagerController.agentAudit}
 						holdingActions={assetManagerController.holdings}
+						holdingTransactionActions={assetManagerController.holdingTransactions}
 						fixedAssetActions={assetManagerController.fixedAssets}
 						liabilityActions={assetManagerController.liabilities}
 						otherAssetActions={assetManagerController.otherAssets}

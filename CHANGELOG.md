@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.3 - 2026-03-10
+
+- Added transfer editing, manual cash-ledger corrections, and agent-linked audit traces
+- Added cash correction and audit panels to the records workspace
+
 ## v0.6.2 - 2026-03-10
 
 - Added cash-ledger replay, cash transfers, and buy-side cash settlements

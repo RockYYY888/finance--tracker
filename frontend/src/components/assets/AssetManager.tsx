@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { CashAccountForm } from "./CashAccountForm";
 import { CashAccountList } from "./CashAccountList";
+import { CashLedgerAdjustmentPanel } from "./CashLedgerAdjustmentPanel";
 import { CashTransferPanel } from "./CashTransferPanel";
 import { FixedAssetForm } from "./FixedAssetForm";
 import { FixedAssetList } from "./FixedAssetList";
 import { HoldingForm } from "./HoldingForm";
 import { HoldingList } from "./HoldingList";
 import { HoldingTransactionHistory } from "./HoldingTransactionHistory";
+import { AgentExecutionAuditPanel } from "./AgentExecutionAuditPanel";
 import { LiabilityForm } from "./LiabilityForm";
 import { LiabilityList } from "./LiabilityList";
 import { OtherAssetForm } from "./OtherAssetForm";
@@ -14,9 +16,13 @@ import { OtherAssetList } from "./OtherAssetList";
 import { useAssetCollection } from "../../hooks/useAssetCollection";
 import type {
 	AssetManagerController,
+	AgentTaskRecord,
+	AssetMutationAuditRecord,
 	CashAccountFormDraft,
 	CashAccountInput,
 	CashAccountRecord,
+	CashLedgerAdjustmentInput,
+	CashLedgerEntryRecord,
 	CashTransferInput,
 	CashTransferRecord,
 	FixedAssetFormDraft,
@@ -45,7 +51,10 @@ type SummarySection = {
 };
 
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
+const EMPTY_CASH_LEDGER_ENTRIES: CashLedgerEntryRecord[] = [];
 const EMPTY_CASH_TRANSFERS: CashTransferRecord[] = [];
+const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
+const EMPTY_ASSET_MUTATION_AUDITS: AssetMutationAuditRecord[] = [];
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
 const EMPTY_HOLDING_TRANSACTIONS: HoldingTransactionRecord[] = [];
 const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
@@ -60,6 +69,8 @@ export interface AssetManagerProps {
 	initialOtherAssets?: OtherAssetRecord[];
 	cashActions?: AssetManagerController["cashAccounts"];
 	cashTransferActions?: AssetManagerController["cashTransfers"];
+	cashLedgerAdjustmentActions?: AssetManagerController["cashLedgerAdjustments"];
+	agentAuditActions?: AssetManagerController["agentAudit"];
 	holdingActions?: AssetManagerController["holdings"];
 	holdingTransactionActions?: AssetManagerController["holdingTransactions"];
 	fixedAssetActions?: AssetManagerController["fixedAssets"];
@@ -329,6 +340,8 @@ export function AssetManager({
 	initialOtherAssets,
 	cashActions,
 	cashTransferActions,
+	cashLedgerAdjustmentActions,
+	agentAuditActions,
 	holdingActions,
 	holdingTransactionActions,
 	fixedAssetActions,
@@ -348,6 +361,17 @@ export function AssetManager({
 	);
 	const [cashTransfersLoading, setCashTransfersLoading] = useState(false);
 	const [cashTransfersError, setCashTransfersError] = useState<string | null>(null);
+	const [cashLedgerEntries, setCashLedgerEntries] = useState<CashLedgerEntryRecord[]>(
+		EMPTY_CASH_LEDGER_ENTRIES,
+	);
+	const [cashLedgerLoading, setCashLedgerLoading] = useState(false);
+	const [cashLedgerError, setCashLedgerError] = useState<string | null>(null);
+	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
+	const [assetMutationAudits, setAssetMutationAudits] = useState<AssetMutationAuditRecord[]>(
+		EMPTY_ASSET_MUTATION_AUDITS,
+	);
+	const [agentAuditLoading, setAgentAuditLoading] = useState(false);
+	const [agentAuditError, setAgentAuditError] = useState<string | null>(null);
 	const [holdingTransactions, setHoldingTransactions] = useState<HoldingTransactionRecord[]>(
 		EMPTY_HOLDING_TRANSACTIONS,
 	);
@@ -490,6 +514,74 @@ export function AssetManager({
 		};
 	}, [holdingTransactionActions, refreshToken]);
 
+	useEffect(() => {
+		if (!cashLedgerAdjustmentActions?.onRefresh) {
+			setCashLedgerEntries(EMPTY_CASH_LEDGER_ENTRIES);
+			return;
+		}
+
+		let cancelled = false;
+		setCashLedgerLoading(true);
+		setCashLedgerError(null);
+		void Promise.resolve(cashLedgerAdjustmentActions.onRefresh())
+			.then((items) => {
+				if (cancelled) {
+					return;
+				}
+				setCashLedgerEntries(items);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				setCashLedgerError(error instanceof Error ? error.message : "加载现金账本失败。");
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setCashLedgerLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [cashLedgerAdjustmentActions, refreshToken]);
+
+	useEffect(() => {
+		if (!agentAuditActions?.onRefresh) {
+			setAgentTasks(EMPTY_AGENT_TASKS);
+			setAssetMutationAudits(EMPTY_ASSET_MUTATION_AUDITS);
+			return;
+		}
+
+		let cancelled = false;
+		setAgentAuditLoading(true);
+		setAgentAuditError(null);
+		void Promise.resolve(agentAuditActions.onRefresh())
+			.then((snapshot) => {
+				if (cancelled) {
+					return;
+				}
+				setAgentTasks(snapshot.tasks);
+				setAssetMutationAudits(snapshot.audits);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				setAgentAuditError(error instanceof Error ? error.message : "加载智能体审计失败。");
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setAgentAuditLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [agentAuditActions, refreshToken]);
+
 	async function removeCashRecord(recordId: number): Promise<void> {
 		const record = cashCollection.items.find((item) => item.id === recordId);
 		if (!record) {
@@ -520,6 +612,66 @@ export function AssetManager({
 		setCashTransfersError(null);
 		await cashTransferActions.onDelete(recordId);
 		setCashTransfers((currentItems) =>
+			currentItems.filter((item) => item.id !== recordId),
+		);
+	}
+
+	async function updateCashTransferRecord(
+		recordId: number,
+		payload: CashTransferInput,
+	): Promise<CashTransferRecord> {
+		if (!cashTransferActions?.onEdit) {
+			throw new Error("当前未配置账户划转修正能力。");
+		}
+
+		setCashTransfersError(null);
+		const updatedRecord = await cashTransferActions.onEdit(recordId, payload);
+		setCashTransfers((currentItems) =>
+			currentItems.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
+		);
+		return updatedRecord;
+	}
+
+	async function createCashLedgerAdjustmentRecord(
+		payload: CashLedgerAdjustmentInput,
+	): Promise<CashLedgerEntryRecord> {
+		if (!cashLedgerAdjustmentActions?.onCreate) {
+			throw new Error("当前未配置现金账本调整能力。");
+		}
+
+		setCashLedgerError(null);
+		const createdEntry = await cashLedgerAdjustmentActions.onCreate(payload);
+		if (!createdEntry) {
+			throw new Error("新增手工账本调整失败，请稍后重试。");
+		}
+		setCashLedgerEntries((currentItems) => [createdEntry, ...currentItems]);
+		return createdEntry;
+	}
+
+	async function updateCashLedgerAdjustmentRecord(
+		recordId: number,
+		payload: CashLedgerAdjustmentInput,
+	): Promise<CashLedgerEntryRecord> {
+		if (!cashLedgerAdjustmentActions?.onEdit) {
+			throw new Error("当前未配置现金账本调整修正能力。");
+		}
+
+		setCashLedgerError(null);
+		const updatedEntry = await cashLedgerAdjustmentActions.onEdit(recordId, payload);
+		setCashLedgerEntries((currentItems) =>
+			currentItems.map((item) => (item.id === updatedEntry.id ? updatedEntry : item)),
+		);
+		return updatedEntry;
+	}
+
+	async function removeCashLedgerAdjustmentRecord(recordId: number): Promise<void> {
+		if (!cashLedgerAdjustmentActions?.onDelete) {
+			return;
+		}
+
+		setCashLedgerError(null);
+		await cashLedgerAdjustmentActions.onDelete(recordId);
+		setCashLedgerEntries((currentItems) =>
 			currentItems.filter((item) => item.id !== recordId),
 		);
 	}
@@ -659,7 +811,27 @@ export function AssetManager({
 							errorMessage={cashTransfersError}
 							maxStartedOnDate={maxStartedOnDate}
 							onCreate={(payload) => createCashTransferRecord(payload)}
+							onEdit={(recordId, payload) => updateCashTransferRecord(recordId, payload)}
 							onDelete={(recordId) => removeCashTransferRecord(recordId)}
+						/>
+						<CashLedgerAdjustmentPanel
+							accounts={cashCollection.items}
+							entries={cashLedgerEntries}
+							loading={cashLedgerLoading}
+							busy={cashCollection.isSubmitting}
+							errorMessage={cashLedgerError}
+							maxStartedOnDate={maxStartedOnDate}
+							onCreate={(payload) => createCashLedgerAdjustmentRecord(payload)}
+							onEdit={(recordId, payload) =>
+								updateCashLedgerAdjustmentRecord(recordId, payload)
+							}
+							onDelete={(recordId) => removeCashLedgerAdjustmentRecord(recordId)}
+						/>
+						<AgentExecutionAuditPanel
+							tasks={agentTasks}
+							audits={assetMutationAudits}
+							loading={agentAuditLoading}
+							errorMessage={agentAuditError}
 						/>
 					</>
 				) : null}

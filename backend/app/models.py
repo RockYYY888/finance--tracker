@@ -52,6 +52,10 @@ AGENT_TASK_TYPES = (
 	"CREATE_SELL_TRANSACTION",
 	"UPDATE_HOLDING_TRANSACTION",
 	"CREATE_CASH_TRANSFER",
+	"UPDATE_CASH_TRANSFER",
+	"CREATE_CASH_LEDGER_ADJUSTMENT",
+	"UPDATE_CASH_LEDGER_ADJUSTMENT",
+	"DELETE_CASH_LEDGER_ADJUSTMENT",
 )
 AGENT_TASK_STATUSES = ("DONE", "FAILED")
 
@@ -372,6 +376,7 @@ class AssetMutationAudit(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
 	actor_user_id: str = Field(index=True, max_length=32)
+	agent_task_id: int | None = Field(default=None, index=True)
 	entity_type: str = Field(index=True, max_length=32)
 	entity_id: int | None = Field(default=None, index=True)
 	operation: str = Field(index=True, max_length=16)

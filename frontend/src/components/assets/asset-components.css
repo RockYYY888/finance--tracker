@@ -630,6 +630,21 @@
 	color: var(--text-main);
 }
 
+.asset-manager__code-block {
+	margin: 0;
+	padding: 0.8rem 0.9rem;
+	overflow-x: auto;
+	border-radius: 14px;
+	border: 1px solid rgba(122, 214, 255, 0.1);
+	background: rgba(5, 14, 28, 0.88);
+	color: var(--text-soft);
+	font-size: 0.82rem;
+	line-height: 1.55;
+	font-family: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 .asset-manager__helper-block--highlight {
 	border-color: rgba(255, 124, 145, 0.24);
 	background:

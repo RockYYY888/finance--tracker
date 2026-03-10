@@ -20,6 +20,10 @@ export interface CashTransferPanelProps {
 	errorMessage?: string | null;
 	maxStartedOnDate?: string;
 	onCreate?: (payload: CashTransferInput) => MaybePromise<CashTransferRecord | null>;
+	onEdit?: (
+		recordId: number,
+		payload: CashTransferInput,
+	) => MaybePromise<CashTransferRecord>;
 	onDelete?: (recordId: number) => MaybePromise<void>;
 }
 
@@ -35,6 +39,17 @@ function createTransferDraft(maxStartedOnDate?: string): CashTransferFormDraft {
 	return {
 		...DEFAULT_CASH_TRANSFER_FORM_DRAFT,
 		transferred_on: maxStartedOnDate ?? getTodayDateValue(),
+	};
+}
+
+function toTransferDraft(transfer: CashTransferRecord): CashTransferFormDraft {
+	return {
+		from_account_id: String(transfer.from_account_id),
+		to_account_id: String(transfer.to_account_id),
+		source_amount: String(transfer.source_amount),
+		target_amount: "",
+		transferred_on: transfer.transferred_on,
+		note: transfer.note ?? "",
 	};
 }
 
@@ -59,9 +74,11 @@ export function CashTransferPanel({
 	errorMessage = null,
 	maxStartedOnDate,
 	onCreate,
+	onEdit,
 	onDelete,
 }: CashTransferPanelProps) {
 	const [isFormOpen, setIsFormOpen] = useState(false);
+	const [editingId, setEditingId] = useState<number | null>(null);
 	const [draft, setDraft] = useState<CashTransferFormDraft>(() =>
 		createTransferDraft(maxStartedOnDate),
 	);
@@ -69,6 +86,10 @@ export function CashTransferPanel({
 	const [isWorking, setIsWorking] = useState(false);
 	const [deletingId, setDeletingId] = useState<number | null>(null);
 	const effectiveError = localError ?? errorMessage;
+	const editingTransfer = useMemo(
+		() => transfers.find((transfer) => transfer.id === editingId) ?? null,
+		[editingId, transfers],
+	);
 	const sourceAccount = useMemo(
 		() => accounts.find((account) => String(account.id) === draft.from_account_id) ?? null,
 		[accounts, draft.from_account_id],
@@ -77,6 +98,15 @@ export function CashTransferPanel({
 		() => accounts.find((account) => String(account.id) === draft.to_account_id) ?? null,
 		[accounts, draft.to_account_id],
 	);
+	const availableSourceBalance = useMemo(() => {
+		if (!sourceAccount) {
+			return undefined;
+		}
+		if (editingTransfer && sourceAccount.id === editingTransfer.from_account_id) {
+			return sourceAccount.balance + editingTransfer.source_amount;
+		}
+		return sourceAccount.balance;
+	}, [editingTransfer, sourceAccount]);
 
 	useEffect(() => {
 		if (!isFormOpen) {
@@ -103,18 +133,27 @@ export function CashTransferPanel({
 
 	function openForm(): void {
 		setLocalError(null);
+		setEditingId(null);
 		setDraft(createTransferDraft(maxStartedOnDate));
+		setIsFormOpen(true);
+	}
+
+	function openEditForm(transfer: CashTransferRecord): void {
+		setLocalError(null);
+		setEditingId(transfer.id);
+		setDraft(toTransferDraft(transfer));
 		setIsFormOpen(true);
 	}
 
 	function closeForm(): void {
 		setLocalError(null);
+		setEditingId(null);
 		setDraft(createTransferDraft(maxStartedOnDate));
 		setIsFormOpen(false);
 	}
 
 	async function handleSubmit(): Promise<void> {
-		if (!onCreate) {
+		if (!onCreate && !onEdit) {
 			return;
 		}
 
@@ -130,9 +169,13 @@ export function CashTransferPanel({
 			if (!Number.isFinite(sourceAmount) || sourceAmount <= 0) {
 				throw new Error("请输入有效的划转金额。");
 			}
-			if (sourceAccount && sourceAmount > sourceAccount.balance) {
+			if (
+				sourceAccount &&
+				availableSourceBalance != null &&
+				sourceAmount > availableSourceBalance
+			) {
 				throw new Error(
-					`划转金额不能超过当前账户余额，当前最多可转 ${sourceAccount.balance} ${sourceAccount.currency}。`,
+					`划转金额不能超过当前账户可用余额，当前最多可转 ${availableSourceBalance} ${sourceAccount.currency}。`,
 				);
 			}
 			if (!draft.transferred_on) {
@@ -140,7 +183,7 @@ export function CashTransferPanel({
 			}
 
 			setIsWorking(true);
-			await onCreate({
+			const payload: CashTransferInput = {
 				from_account_id: Number(draft.from_account_id),
 				to_account_id: Number(draft.to_account_id),
 				source_amount: sourceAmount,
@@ -149,10 +192,21 @@ export function CashTransferPanel({
 					: undefined,
 				transferred_on: draft.transferred_on,
 				note: draft.note.trim() || undefined,
-			});
+			};
+			if (editingId != null) {
+				if (!onEdit) {
+					return;
+				}
+				await onEdit(editingId, payload);
+			} else {
+				if (!onCreate) {
+					return;
+				}
+				await onCreate(payload);
+			}
 			closeForm();
 		} catch (error) {
-			setLocalError(toErrorMessage(error, "新增账户划转失败，请稍后重试。"));
+			setLocalError(toErrorMessage(error, "保存账户划转失败，请稍后重试。"));
 		} finally {
 			setIsWorking(false);
 		}
@@ -168,6 +222,9 @@ export function CashTransferPanel({
 
 		try {
 			await onDelete(recordId);
+			if (editingId === recordId) {
+				closeForm();
+			}
 		} catch (error) {
 			setLocalError(toErrorMessage(error, "删除账户划转失败，请稍后重试。"));
 		} finally {
@@ -217,7 +274,15 @@ export function CashTransferPanel({
 									updateDraft("from_account_id", event.target.value);
 									updateDraft(
 										"source_amount",
-										clampTransferAmount(draft.source_amount, nextAccount?.balance),
+										clampTransferAmount(
+											draft.source_amount,
+											nextAccount == null
+												? undefined
+												: editingTransfer &&
+														nextAccount.id === editingTransfer.from_account_id
+													? nextAccount.balance + editingTransfer.source_amount
+													: nextAccount.balance,
+										),
 									);
 								}}
 							>
@@ -254,7 +319,7 @@ export function CashTransferPanel({
 								onChange={(event) =>
 									updateDraft(
 										"source_amount",
-										clampTransferAmount(event.target.value, sourceAccount?.balance),
+										clampTransferAmount(event.target.value, availableSourceBalance),
 									)
 								}
 								placeholder={sourceAccount?.currency ?? "输入金额"}
@@ -294,7 +359,11 @@ export function CashTransferPanel({
 							onClick={() => void handleSubmit()}
 							disabled={busy || isWorking}
 						>
-							{busy || isWorking ? "保存中..." : "确认划转"}
+							{busy || isWorking
+								? "保存中..."
+								: editingId != null
+									? "保存修正"
+									: "确认划转"}
 						</button>
 						<button
 							type="button"
@@ -333,6 +402,16 @@ export function CashTransferPanel({
 									</p>
 								</div>
 								<div className="asset-manager__card-actions">
+									{onEdit ? (
+										<button
+											type="button"
+											className="asset-manager__button asset-manager__button--secondary"
+											onClick={() => openEditForm(transfer)}
+											disabled={busy || isWorking}
+										>
+											编辑划转
+										</button>
+									) : null}
 									{onDelete ? (
 										<button
 											type="button"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import hashlib
@@ -80,10 +81,14 @@ from app.schemas import (
 	AuthSessionRead,
 	CashAccountCreate,
 	CashAccountRead,
+	CashLedgerAdjustmentApplyRead,
+	CashLedgerAdjustmentCreate,
+	CashLedgerAdjustmentUpdate,
 	CashLedgerEntryRead,
 	CashTransferApplyRead,
 	CashTransferCreate,
 	CashTransferRead,
+	CashTransferUpdate,
 	CashAccountUpdate,
 	DashboardCorrectionCreate,
 	DashboardCorrectionRead,
@@ -239,6 +244,10 @@ login_attempt_states: dict[tuple[str, str], LoginAttemptState] = {}
 dashboard_cache_lock = asyncio.Lock()
 global_force_refresh_lock = asyncio.Lock()
 last_global_force_refresh_at: datetime | None = None
+current_agent_task_id_context: ContextVar[int | None] = ContextVar(
+	"current_agent_task_id",
+	default=None,
+)
 background_refresh_task: asyncio.Task[None] | None = None
 holding_history_sync_lock = asyncio.Lock()
 login_attempts_lock = threading.Lock()
@@ -480,8 +489,11 @@ def _json_ready(value: Any) -> Any:
 
 def _capture_model_state(
 	model: CashAccount
+	| CashLedgerEntry
+	| CashTransfer
 	| SecurityHolding
 	| SecurityHoldingTransaction
+	| AgentTask
 	| FixedAsset
 	| LiabilityEntry
 	| OtherAsset,
@@ -512,6 +524,7 @@ def _record_asset_mutation(
 		AssetMutationAudit(
 			user_id=current_user.username,
 			actor_user_id=current_user.username,
+			agent_task_id=current_agent_task_id_context.get(),
 			entity_type=entity_type,
 			entity_id=entity_id,
 			operation=operation,
@@ -525,9 +538,12 @@ def _record_asset_mutation(
 def _touch_model(
 	model: AgentAccessToken
 	| CashAccount
+	| CashLedgerEntry
+	| CashTransfer
 	| SecurityHolding
 	| SecurityHoldingTransaction
 	| HoldingTransactionCashSettlement
+	| AgentTask
 	| FixedAsset
 	| LiabilityEntry
 	| OtherAsset
@@ -1482,6 +1498,12 @@ def _ensure_legacy_schema() -> None:
 			HoldingTransactionCashSettlement.__table__.name,
 			{
 				"flow_direction": "TEXT NOT NULL DEFAULT 'INFLOW'",
+			},
+		),
+		(
+			AssetMutationAudit.__table__.name,
+			{
+				"agent_task_id": "INTEGER",
 			},
 		),
 	)
@@ -2871,6 +2893,22 @@ def _delete_cash_ledger_entries_for_transfer(
 	for entry in entries:
 		session.delete(entry)
 	return entries
+
+
+def _get_manual_cash_ledger_adjustment(
+	session: Session,
+	*,
+	user_id: str,
+	entry_id: int,
+) -> CashLedgerEntry:
+	entry = session.get(CashLedgerEntry, entry_id)
+	if entry is None or entry.user_id != user_id:
+		raise HTTPException(status_code=404, detail="Cash ledger adjustment not found.")
+	if entry.entry_type != "MANUAL_ADJUSTMENT":
+		raise HTTPException(status_code=422, detail="只有手工账本调整允许直接编辑。")
+	if entry.holding_transaction_id is not None or entry.cash_transfer_id is not None:
+		raise HTTPException(status_code=422, detail="该账本记录由系统生成，不能直接修改。")
+	return entry
 
 
 def _create_auto_cash_account_from_sell(
@@ -4782,6 +4820,7 @@ def _to_dashboard_correction_read(correction: DashboardCorrection) -> DashboardC
 def _to_asset_mutation_audit_read(audit: AssetMutationAudit) -> AssetMutationAuditRead:
 	return AssetMutationAuditRead(
 		id=audit.id or 0,
+		agent_task_id=audit.agent_task_id,
 		entity_type=audit.entity_type,
 		entity_id=audit.entity_id,
 		operation=audit.operation,
@@ -5748,15 +5787,19 @@ def list_asset_mutation_audits(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 	limit: int = 200,
+	agent_task_id: int | None = Query(default=None, ge=1),
 ) -> list[AssetMutationAuditRead]:
 	clamped_limit = max(1, min(limit, 500))
+	statement = (
+		select(AssetMutationAudit)
+		.where(AssetMutationAudit.user_id == current_user.username)
+		.order_by(AssetMutationAudit.created_at.desc())
+		.limit(clamped_limit)
+	)
+	if agent_task_id is not None:
+		statement = statement.where(AssetMutationAudit.agent_task_id == agent_task_id)
 	rows = list(
-		session.exec(
-			select(AssetMutationAudit)
-			.where(AssetMutationAudit.user_id == current_user.username)
-			.order_by(AssetMutationAudit.created_at.desc())
-			.limit(clamped_limit),
-		),
+		session.exec(statement),
 	)
 	return [_to_asset_mutation_audit_read(row) for row in rows]
 
@@ -5971,6 +6014,196 @@ def list_cash_ledger_entries(
 	return [_to_cash_ledger_entry_read(entry) for entry in entries]
 
 
+@app.post("/api/cash-ledger/adjustments", response_model=CashLedgerAdjustmentApplyRead, status_code=201)
+def create_cash_ledger_adjustment(
+	payload: CashLedgerAdjustmentCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> CashLedgerAdjustmentApplyRead:
+	request_hash = _build_idempotency_request_hash(payload)
+	idempotent_response = _load_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="cash_ledger_adjustment.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response_model=CashLedgerAdjustmentApplyRead,
+	)
+	if idempotent_response is not None:
+		return idempotent_response
+
+	account = session.get(CashAccount, payload.cash_account_id)
+	if account is None or account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="现金账户不存在。")
+	_ensure_date_not_future(payload.happened_on, field_label="账本调整日")
+
+	account_before_state = _capture_model_state(account)
+	entry = _create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=account.id or 0,
+		entry_type="MANUAL_ADJUSTMENT",
+		amount=payload.amount,
+		currency=account.currency,
+		happened_on=payload.happened_on,
+		note=payload.note or "手工账本调整",
+	)
+	_sync_cash_account_balance_from_ledger(session, account=account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_LEDGER_ADJUSTMENT",
+		entity_id=entry.id,
+		operation="CREATE",
+		before_state=None,
+		after_state=_capture_model_state(entry),
+		reason=f"CASH_ACCOUNT#{account.id}",
+	)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="UPDATE",
+		before_state=account_before_state,
+		after_state=_capture_model_state(account),
+		reason=f"LEDGER_ADJUSTMENT_CREATE#{entry.id}",
+	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
+	response = CashLedgerAdjustmentApplyRead(
+		entry=_to_cash_ledger_entry_read(entry),
+		account=_to_cash_account_read(account),
+	)
+	_store_idempotent_response(
+		session,
+		user_id=current_user.username,
+		scope="cash_ledger_adjustment.create",
+		idempotency_key=idempotency_key,
+		request_hash=request_hash,
+		response=response,
+	)
+	session.commit()
+	session.refresh(entry)
+	session.refresh(account)
+	_invalidate_dashboard_cache(current_user.username)
+	return response
+
+
+@app.patch("/api/cash-ledger/adjustments/{entry_id}", response_model=CashLedgerAdjustmentApplyRead)
+def update_cash_ledger_adjustment(
+	entry_id: int,
+	payload: CashLedgerAdjustmentUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> CashLedgerAdjustmentApplyRead:
+	entry = _get_manual_cash_ledger_adjustment(
+		session,
+		user_id=current_user.username,
+		entry_id=entry_id,
+	)
+	account = session.get(CashAccount, entry.cash_account_id)
+	if account is None or account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="现金账户不存在。")
+
+	fields_set = payload.model_fields_set
+	if not fields_set:
+		return CashLedgerAdjustmentApplyRead(
+			entry=_to_cash_ledger_entry_read(entry),
+			account=_to_cash_account_read(account),
+		)
+
+	entry_before_state = _capture_model_state(entry)
+	account_before_state = _capture_model_state(account)
+	if payload.amount is not None:
+		entry.amount = round(payload.amount, 8)
+	if payload.happened_on is not None:
+		_ensure_date_not_future(payload.happened_on, field_label="账本调整日")
+		entry.happened_on = payload.happened_on
+	if "note" in fields_set:
+		entry.note = payload.note or "手工账本调整"
+	entry.currency = _normalize_currency(account.currency)
+	_touch_model(entry)
+	session.add(entry)
+	session.flush()
+	_sync_cash_account_balance_from_ledger(session, account=account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_LEDGER_ADJUSTMENT",
+		entity_id=entry.id,
+		operation="UPDATE",
+		before_state=entry_before_state,
+		after_state=_capture_model_state(entry),
+		reason=f"CASH_ACCOUNT#{account.id}",
+	)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="UPDATE",
+		before_state=account_before_state,
+		after_state=_capture_model_state(account),
+		reason=f"LEDGER_ADJUSTMENT_UPDATE#{entry.id}",
+	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
+	response = CashLedgerAdjustmentApplyRead(
+		entry=_to_cash_ledger_entry_read(entry),
+		account=_to_cash_account_read(account),
+	)
+	session.commit()
+	session.refresh(entry)
+	session.refresh(account)
+	_invalidate_dashboard_cache(current_user.username)
+	return response
+
+
+@app.delete("/api/cash-ledger/adjustments/{entry_id}", status_code=204)
+def delete_cash_ledger_adjustment(
+	entry_id: int,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> Response:
+	entry = _get_manual_cash_ledger_adjustment(
+		session,
+		user_id=current_user.username,
+		entry_id=entry_id,
+	)
+	account = session.get(CashAccount, entry.cash_account_id)
+	if account is None or account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="现金账户不存在。")
+
+	entry_before_state = _capture_model_state(entry)
+	account_before_state = _capture_model_state(account)
+	session.delete(entry)
+	_sync_cash_account_balance_from_ledger(session, account=account)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_LEDGER_ADJUSTMENT",
+		entity_id=entry_id,
+		operation="DELETE",
+		before_state=entry_before_state,
+		after_state=None,
+		reason=f"CASH_ACCOUNT#{account.id}",
+	)
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_ACCOUNT",
+		entity_id=account.id,
+		operation="UPDATE",
+		before_state=account_before_state,
+		after_state=_capture_model_state(account),
+		reason=f"LEDGER_ADJUSTMENT_DELETE#{entry_id}",
+	)
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
+	session.commit()
+	_invalidate_dashboard_cache(current_user.username)
+	return Response(status_code=204)
+
+
 @app.get("/api/cash-transfers", response_model=list[CashTransferRead])
 def list_cash_transfers(
 	current_user: CurrentUserDependency,
@@ -6121,6 +6354,180 @@ def create_cash_transfer(
 		idempotency_key=idempotency_key,
 		request_hash=request_hash,
 		response=response,
+	)
+	session.commit()
+	session.refresh(transfer)
+	session.refresh(source_account)
+	session.refresh(target_account)
+	_invalidate_dashboard_cache(current_user.username)
+	return response
+
+
+@app.patch("/api/cash-transfers/{transfer_id}", response_model=CashTransferApplyRead)
+def update_cash_transfer(
+	transfer_id: int,
+	payload: CashTransferUpdate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+) -> CashTransferApplyRead:
+	transfer = session.get(CashTransfer, transfer_id)
+	if transfer is None or transfer.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="Cash transfer not found.")
+
+	fields_set = payload.model_fields_set
+	if not fields_set:
+		source_account = session.get(CashAccount, transfer.from_account_id)
+		target_account = session.get(CashAccount, transfer.to_account_id)
+		if source_account is None or target_account is None:
+			raise HTTPException(status_code=404, detail="账户不存在。")
+		return CashTransferApplyRead(
+			transfer=_to_cash_transfer_read(transfer),
+			from_account=_to_cash_account_read(source_account),
+			to_account=_to_cash_account_read(target_account),
+		)
+
+	current_source_account = session.get(CashAccount, transfer.from_account_id)
+	current_target_account = session.get(CashAccount, transfer.to_account_id)
+	if current_source_account is None or current_source_account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="原转出账户不存在。")
+	if current_target_account is None or current_target_account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="原转入账户不存在。")
+
+	account_before_state_map: dict[int, dict[str, Any]] = {}
+	for account in (current_source_account, current_target_account):
+		account_id = account.id or 0
+		if account_id not in account_before_state_map:
+			account_before_state_map[account_id] = _capture_model_state(account)
+
+	transfer_before_state = _capture_model_state(transfer)
+	_delete_cash_ledger_entries_for_transfer(
+		session,
+		user_id=current_user.username,
+		cash_transfer_id=transfer.id or 0,
+	)
+	_sync_cash_account_balance_from_ledger(session, account=current_source_account)
+	if current_target_account.id != current_source_account.id:
+		_sync_cash_account_balance_from_ledger(session, account=current_target_account)
+
+	next_from_account_id = payload.from_account_id or transfer.from_account_id
+	next_to_account_id = payload.to_account_id or transfer.to_account_id
+	if next_from_account_id == next_to_account_id:
+		raise HTTPException(status_code=422, detail="转出账户和转入账户不能相同。")
+
+	source_account = session.get(CashAccount, next_from_account_id)
+	target_account = session.get(CashAccount, next_to_account_id)
+	if source_account is None or source_account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="转出账户不存在。")
+	if target_account is None or target_account.user_id != current_user.username:
+		raise HTTPException(status_code=404, detail="转入账户不存在。")
+
+	for account in (source_account, target_account):
+		account_id = account.id or 0
+		if account_id not in account_before_state_map:
+			account_before_state_map[account_id] = _capture_model_state(account)
+
+	source_amount = payload.source_amount or transfer.source_amount
+	transferred_on = payload.transferred_on or transfer.transferred_on
+	if "note" in fields_set:
+		note = payload.note
+	else:
+		note = transfer.note
+	_ensure_date_not_future(transferred_on, field_label="划转日")
+
+	if source_account.balance + HOLDING_QUANTITY_EPSILON < source_amount:
+		raise HTTPException(
+			status_code=422,
+			detail=(
+				f"{source_account.name} 余额不足。当前余额 {source_account.balance:g} "
+				f"{source_account.currency}，本次转出 {source_amount:g} {source_account.currency}。"
+			),
+		)
+
+	if "target_amount" in fields_set:
+		target_amount = payload.target_amount
+	elif {"from_account_id", "to_account_id", "source_amount"} & fields_set:
+		target_amount = None
+	else:
+		target_amount = transfer.target_amount
+
+	if target_amount is None:
+		target_amount, _fx_rate = _convert_cash_amount_between_currencies(
+			amount=source_amount,
+			from_currency=source_account.currency,
+			to_currency=target_account.currency,
+		)
+	elif _normalize_currency(source_account.currency) == _normalize_currency(target_account.currency):
+		if abs(target_amount - source_amount) > HOLDING_QUANTITY_EPSILON:
+			raise HTTPException(status_code=422, detail="同币种账户划转时转出和转入金额必须相同。")
+
+	transfer.from_account_id = source_account.id or 0
+	transfer.to_account_id = target_account.id or 0
+	transfer.source_amount = source_amount
+	transfer.target_amount = target_amount
+	transfer.source_currency = _normalize_currency(source_account.currency)
+	transfer.target_currency = _normalize_currency(target_account.currency)
+	transfer.transferred_on = transferred_on
+	transfer.note = note
+	_touch_model(transfer)
+	session.add(transfer)
+	session.flush()
+
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=source_account.id or 0,
+		entry_type="TRANSFER_OUT",
+		amount=-source_amount,
+		currency=source_account.currency,
+		happened_on=transferred_on,
+		note=note or f"划转至 {target_account.name}",
+		cash_transfer_id=transfer.id,
+	)
+	_create_cash_ledger_entry(
+		session,
+		user_id=current_user.username,
+		cash_account_id=target_account.id or 0,
+		entry_type="TRANSFER_IN",
+		amount=target_amount,
+		currency=target_account.currency,
+		happened_on=transferred_on,
+		note=note or f"来自 {source_account.name} 的划转",
+		cash_transfer_id=transfer.id,
+	)
+	_sync_cash_account_balance_from_ledger(session, account=source_account)
+	if target_account.id != source_account.id:
+		_sync_cash_account_balance_from_ledger(session, account=target_account)
+
+	_record_asset_mutation(
+		session,
+		current_user,
+		entity_type="CASH_TRANSFER",
+		entity_id=transfer.id,
+		operation="UPDATE",
+		before_state=transfer_before_state,
+		after_state=_capture_model_state(transfer),
+		reason="TRANSFER_EDIT",
+	)
+	for account_id, before_state in account_before_state_map.items():
+		account = session.get(CashAccount, account_id)
+		if account is None or account.user_id != current_user.username:
+			continue
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_ACCOUNT",
+			entity_id=account.id,
+			operation="UPDATE",
+			before_state=before_state,
+			after_state=_capture_model_state(account),
+			reason=f"TRANSFER_UPDATE#{transfer.id}",
+		)
+
+	asyncio.run(_rebuild_user_portfolio_snapshots(session, current_user.username))
+	response = CashTransferApplyRead(
+		transfer=_to_cash_transfer_read(transfer),
+		from_account=_to_cash_account_read(source_account),
+		to_account=_to_cash_account_read(target_account),
 	)
 	session.commit()
 	session.refresh(transfer)
@@ -7515,6 +7922,7 @@ def create_agent_task(
 	)
 	session.add(task)
 	session.flush()
+	agent_task_context_token = current_agent_task_id_context.set(task.id or 0)
 
 	try:
 		if payload.task_type == "CREATE_BUY_TRANSACTION":
@@ -7556,6 +7964,43 @@ def create_agent_task(
 				session,
 				None,
 			)
+		elif payload.task_type == "UPDATE_CASH_TRANSFER":
+			transfer_id = int(payload.payload.get("transfer_id") or 0)
+			if transfer_id <= 0:
+				raise HTTPException(status_code=422, detail="transfer_id 为必填项。")
+			update_payload = dict(payload.payload)
+			update_payload.pop("transfer_id", None)
+			result = update_cash_transfer(
+				transfer_id,
+				CashTransferUpdate(**update_payload),
+				current_user,
+				session,
+			)
+		elif payload.task_type == "CREATE_CASH_LEDGER_ADJUSTMENT":
+			result = create_cash_ledger_adjustment(
+				CashLedgerAdjustmentCreate(**payload.payload),
+				current_user,
+				session,
+				None,
+			)
+		elif payload.task_type == "UPDATE_CASH_LEDGER_ADJUSTMENT":
+			entry_id = int(payload.payload.get("entry_id") or 0)
+			if entry_id <= 0:
+				raise HTTPException(status_code=422, detail="entry_id 为必填项。")
+			update_payload = dict(payload.payload)
+			update_payload.pop("entry_id", None)
+			result = update_cash_ledger_adjustment(
+				entry_id,
+				CashLedgerAdjustmentUpdate(**update_payload),
+				current_user,
+				session,
+			)
+		elif payload.task_type == "DELETE_CASH_LEDGER_ADJUSTMENT":
+			entry_id = int(payload.payload.get("entry_id") or 0)
+			if entry_id <= 0:
+				raise HTTPException(status_code=422, detail="entry_id 为必填项。")
+			delete_cash_ledger_adjustment(entry_id, current_user, session)
+			result = ActionMessageRead(message="手工账本调整已删除。")
 		else:
 			raise HTTPException(status_code=422, detail="不支持的任务类型。")
 	except Exception as exc:
@@ -7570,6 +8015,9 @@ def create_agent_task(
 		session.add(task)
 		session.commit()
 		raise
+	finally:
+		with suppress(Exception):
+			current_agent_task_id_context.reset(agent_task_context_token)
 
 	task.result_json = json.dumps(result.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
 	task.completed_at = utc_now()

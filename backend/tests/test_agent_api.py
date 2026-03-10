@@ -19,9 +19,18 @@ from app.main import (
 	get_security_quote,
 	issue_agent_token_with_password,
 	list_all_holding_transactions,
+	list_asset_mutation_audits,
 	revoke_agent_token,
 )
-from app.models import AgentAccessToken, AgentTask, CashTransfer, SecurityHoldingTransaction, UserAccount
+from app.models import (
+	AgentAccessToken,
+	AgentTask,
+	AssetMutationAudit,
+	CashLedgerEntry,
+	CashTransfer,
+	SecurityHoldingTransaction,
+	UserAccount,
+)
 from app.schemas import (
 	AgentTaskCreate,
 	AgentTokenIssueCreate,
@@ -624,3 +633,134 @@ def test_create_agent_task_executes_cash_transfer(session: Session) -> None:
 	assert task.result is not None
 	assert task.result["transfer"]["source_amount"] == 120
 	assert len(session.exec(select(AgentTask)).all()) == 1
+
+
+def test_agent_task_update_cash_transfer_links_mutation_audit(session: Session) -> None:
+	current_user = make_user(session)
+	source_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=600,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	target_account = create_account(
+		CashAccountCreate(
+			name="备用金",
+			platform="Cash",
+			currency="CNY",
+			balance=0,
+			account_type="CASH",
+		),
+		current_user,
+		session,
+	)
+	created_transfer = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=source_account.id or 0,
+			to_account_id=target_account.id or 0,
+			source_amount=120,
+			transferred_on=date(2026, 3, 9),
+		),
+		current_user,
+		session,
+	)
+
+	task = create_agent_task(
+		AgentTaskCreate(
+			task_type="UPDATE_CASH_TRANSFER",
+			payload={
+				"transfer_id": created_transfer.transfer.id,
+				"source_amount": 80,
+				"transferred_on": "2026-03-10",
+				"note": "agent corrected transfer",
+			},
+		),
+		current_user,
+		session,
+		"agent-task-transfer-update-001",
+	)
+
+	assert task.status == "DONE"
+	assert task.result is not None
+	assert task.result["transfer"]["source_amount"] == 80
+	mutations = list_asset_mutation_audits(
+		current_user,
+		session,
+		limit=20,
+		agent_task_id=task.id,
+	)
+	assert any(item.entity_type == "CASH_TRANSFER" for item in mutations)
+	assert any(item.entity_type == "CASH_ACCOUNT" for item in mutations)
+	db_mutations = list(
+		session.exec(
+			select(AssetMutationAudit).where(AssetMutationAudit.agent_task_id == task.id),
+		),
+	)
+	assert len(db_mutations) >= 2
+
+
+def test_agent_task_can_create_and_delete_manual_cash_ledger_adjustment(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=100,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+
+	create_task = create_agent_task(
+		AgentTaskCreate(
+			task_type="CREATE_CASH_LEDGER_ADJUSTMENT",
+			payload={
+				"cash_account_id": account.id,
+				"amount": 15,
+				"happened_on": "2026-03-10",
+				"note": "agent manual adjustment",
+			},
+		),
+		current_user,
+		session,
+		"agent-task-ledger-create-001",
+	)
+
+	assert create_task.status == "DONE"
+	assert create_task.result is not None
+	entry_id = int(create_task.result["entry"]["id"])
+	entry = session.get(CashLedgerEntry, entry_id)
+	assert entry is not None
+	assert entry.entry_type == "MANUAL_ADJUSTMENT"
+
+	delete_task = create_agent_task(
+		AgentTaskCreate(
+			task_type="DELETE_CASH_LEDGER_ADJUSTMENT",
+			payload={
+				"entry_id": entry_id,
+			},
+		),
+		current_user,
+		session,
+		"agent-task-ledger-delete-001",
+	)
+
+	assert delete_task.status == "DONE"
+	assert delete_task.result == {"message": "手工账本调整已删除。"}
+	assert session.get(CashLedgerEntry, entry_id) is None
+	mutations = list_asset_mutation_audits(
+		current_user,
+		session,
+		limit=20,
+		agent_task_id=delete_task.id,
+	)
+	assert any(item.entity_type == "CASH_LEDGER_ADJUSTMENT" for item in mutations)

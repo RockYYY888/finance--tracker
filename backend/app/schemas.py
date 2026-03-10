@@ -843,6 +843,26 @@ class CashTransferCreate(BaseModel):
 		return self
 
 
+class CashTransferUpdate(BaseModel):
+	from_account_id: int | None = Field(default=None, ge=1)
+	to_account_id: int | None = Field(default=None, ge=1)
+	source_amount: float | None = Field(default=None, gt=0)
+	target_amount: float | None = Field(default=None, gt=0)
+	transferred_on: date | None = None
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+	@model_validator(mode="after")
+	def validate_accounts(self) -> CashTransferUpdate:
+		if self.from_account_id is not None and self.from_account_id == self.to_account_id:
+			raise ValueError("转出账户和转入账户不能相同。")
+		return self
+
+
 class CashTransferRead(UtcTimestampResponseModel):
 	id: int
 	from_account_id: int
@@ -861,6 +881,48 @@ class CashTransferApplyRead(UtcTimestampResponseModel):
 	transfer: CashTransferRead
 	from_account: CashAccountRead
 	to_account: CashAccountRead
+
+
+class CashLedgerAdjustmentCreate(BaseModel):
+	cash_account_id: int = Field(ge=1)
+	amount: float
+	happened_on: date
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("amount")
+	@classmethod
+	def validate_amount(cls, value: float) -> float:
+		if abs(value) <= 1e-12:
+			raise ValueError("调整金额不能为 0。")
+		return value
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class CashLedgerAdjustmentUpdate(BaseModel):
+	amount: float | None = None
+	happened_on: date | None = None
+	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("amount")
+	@classmethod
+	def validate_amount(cls, value: float | None) -> float | None:
+		if value is not None and abs(value) <= 1e-12:
+			raise ValueError("调整金额不能为 0。")
+		return value
+
+	@field_validator("note", mode="before")
+	@classmethod
+	def normalize_note(cls, value: str | None) -> str | None:
+		return _normalize_optional_text(value)
+
+
+class CashLedgerAdjustmentApplyRead(UtcTimestampResponseModel):
+	entry: CashLedgerEntryRead
+	account: CashAccountRead
 
 
 class AgentTaskCreate(BaseModel):
@@ -1058,6 +1120,7 @@ class DashboardCorrectionRead(UtcTimestampResponseModel):
 
 class AssetMutationAuditRead(UtcTimestampResponseModel):
 	id: int
+	agent_task_id: int | None = None
 	entity_type: str
 	entity_id: int | None = None
 	operation: str

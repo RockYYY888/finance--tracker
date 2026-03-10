@@ -13,8 +13,10 @@ from app.main import (
 	_authenticate_user_account,
 	_create_user_account,
 	_update_user_email,
+	create_cash_ledger_adjustment,
 	create_fixed_asset,
 	create_cash_transfer,
+	delete_cash_ledger_adjustment,
 	_persist_hour_snapshot,
 	_persist_holdings_return_snapshot,
 	_reset_user_password_with_email,
@@ -30,6 +32,8 @@ from app.main import (
 	delete_holding_transaction,
 	list_holding_transactions,
 	update_account,
+	update_cash_ledger_adjustment,
+	update_cash_transfer,
 	update_holding,
 	update_holding_transaction,
 )
@@ -53,7 +57,10 @@ from app.schemas import (
 	AuthRegisterCredentials,
 	CashAccountCreate,
 	CashTransferCreate,
+	CashTransferUpdate,
 	CashAccountUpdate,
+	CashLedgerAdjustmentCreate,
+	CashLedgerAdjustmentUpdate,
 	DashboardResponse,
 	FixedAssetCreate,
 	LiabilityEntryCreate,
@@ -1250,6 +1257,124 @@ def test_create_cash_transfer_records_ledger_and_updates_balances(
 	)
 	assert len(ledger_entries) == 2
 	assert sorted(entry.entry_type for entry in ledger_entries) == ["TRANSFER_IN", "TRANSFER_OUT"]
+
+
+def test_update_cash_transfer_replays_ledger_and_account_balances(session: Session) -> None:
+	current_user = make_user(session)
+	from_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=500,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	to_account = create_account(
+		CashAccountCreate(
+			name="备用金",
+			platform="Cash",
+			currency="CNY",
+			balance=200,
+			account_type="CASH",
+		),
+		current_user,
+		session,
+	)
+	created_transfer = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=from_account.id or 0,
+			to_account_id=to_account.id or 0,
+			source_amount=100,
+			transferred_on=date(2026, 3, 2),
+			note="首次划转",
+		),
+		current_user,
+		session,
+	)
+
+	updated_transfer = update_cash_transfer(
+		created_transfer.transfer.id,
+		CashTransferUpdate(
+			source_amount=40,
+			transferred_on=date(2026, 3, 3),
+			note="修正金额",
+		),
+		current_user,
+		session,
+	)
+
+	assert updated_transfer.transfer.source_amount == 40
+	assert updated_transfer.transfer.target_amount == 40
+	assert updated_transfer.transfer.transferred_on == date(2026, 3, 3)
+	assert updated_transfer.from_account.balance == 460.0
+	assert updated_transfer.to_account.balance == 240.0
+
+	stored_ledger_entries = list(
+		session.exec(
+			select(CashLedgerEntry)
+			.where(CashLedgerEntry.cash_transfer_id == created_transfer.transfer.id)
+			.order_by(CashLedgerEntry.amount.asc()),
+		),
+	)
+	assert len(stored_ledger_entries) == 2
+	assert stored_ledger_entries[0].amount == -40
+	assert stored_ledger_entries[1].amount == 40
+
+
+def test_manual_cash_ledger_adjustment_create_update_delete_reconciles_balance(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=100,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+
+	created_adjustment = create_cash_ledger_adjustment(
+		CashLedgerAdjustmentCreate(
+			cash_account_id=account.id or 0,
+			amount=25,
+			happened_on=date(2026, 3, 4),
+			note="补记入账",
+		),
+		current_user,
+		session,
+	)
+	assert created_adjustment.account.balance == 125.0
+	assert created_adjustment.entry.entry_type == "MANUAL_ADJUSTMENT"
+
+	updated_adjustment = update_cash_ledger_adjustment(
+		created_adjustment.entry.id,
+		CashLedgerAdjustmentUpdate(
+			amount=-10,
+			note="修正差额",
+		),
+		current_user,
+		session,
+	)
+	assert updated_adjustment.entry.amount == -10
+	assert updated_adjustment.account.balance == 90.0
+
+	response = delete_cash_ledger_adjustment(
+		created_adjustment.entry.id,
+		current_user,
+		session,
+	)
+	assert response.status_code == 204
+	refreshed_account = session.get(CashAccount, account.id)
+	assert refreshed_account is not None
+	assert refreshed_account.balance == 100.0
+	assert session.get(CashLedgerEntry, created_adjustment.entry.id) is None
 
 
 def test_build_dashboard_replays_total_series_from_cash_ledger_and_holding_transactions(
