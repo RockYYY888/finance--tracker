@@ -19,7 +19,7 @@ from app.runtime_state import (
 	login_attempt_states,
 )
 from app.services import core_support
-from app.services.snapshot_service import start_snapshot_rebuild_worker, stop_snapshot_rebuild_worker
+from app.services.job_service import start_background_job_worker, stop_background_job_worker
 
 logger = logging.getLogger(__name__)
 settings = core_support.settings
@@ -30,11 +30,11 @@ market_data_client = core_support.market_data_client
 async def lifespan(_: FastAPI):
 	settings.validate_runtime()
 	init_db()
-	start_snapshot_rebuild_worker()
+	start_background_job_worker()
 	try:
 		yield
 	finally:
-		await stop_snapshot_rebuild_worker()
+		await stop_background_job_worker()
 
 
 def create_app() -> FastAPI:

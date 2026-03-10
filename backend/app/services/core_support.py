@@ -22,7 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.analytics import bucket_start_utc, build_return_timeline, build_timeline
 from app.database import engine, get_session, init_db
 from app import runtime_state
-from app.services import snapshot_service
+from app.services import job_service
 from app.models import (
 	ASSET_MUTATION_OPERATIONS,
 	AGENT_TASK_STATUSES,
@@ -1380,6 +1380,7 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 	if rows:
 		session.add_all(rows)
 
+	live_portfolio_states.pop(user_id, None)
 	live_holdings_return_states.pop(user_id, None)
 	_invalidate_dashboard_cache(user_id)
 
@@ -3487,6 +3488,51 @@ def _summarize_holdings_return_state(
 	)
 
 
+def _build_transient_portfolio_snapshot(
+	*,
+	user_id: str,
+	generated_at: datetime,
+	total_value_cny: float,
+	has_assets: bool,
+) -> PortfolioSnapshot | None:
+	if not has_assets:
+		return None
+	return PortfolioSnapshot(
+		user_id=user_id,
+		total_value_cny=total_value_cny,
+		created_at=generated_at,
+	)
+
+
+def _build_transient_holdings_return_snapshots(
+	*,
+	user_id: str,
+	generated_at: datetime,
+	aggregate_return_pct: float | None,
+	holding_points: tuple[LiveHoldingReturnPoint, ...],
+) -> dict[tuple[str, str | None], HoldingPerformanceSnapshot]:
+	snapshots: dict[tuple[str, str | None], HoldingPerformanceSnapshot] = {}
+	if aggregate_return_pct is not None:
+		snapshots[("TOTAL", None)] = HoldingPerformanceSnapshot(
+			user_id=user_id,
+			scope="TOTAL",
+			symbol=None,
+			name="非现金资产",
+			return_pct=aggregate_return_pct,
+			created_at=generated_at,
+		)
+	for point in holding_points:
+		snapshots[("HOLDING", point.symbol)] = HoldingPerformanceSnapshot(
+			user_id=user_id,
+			scope="HOLDING",
+			symbol=point.symbol,
+			name=point.name,
+			return_pct=point.return_pct,
+			created_at=generated_at,
+		)
+	return snapshots
+
+
 def _persist_holdings_return_snapshot(
 	session: Session,
 	user_id: str,
@@ -3749,21 +3795,12 @@ def _load_series_with_live_snapshot(
 	session: Session,
 	user_id: str,
 	since: datetime,
+	*,
+	live_snapshot: PortfolioSnapshot | None = None,
 ) -> list[PortfolioSnapshot]:
 	snapshots = _load_series(session, user_id, since)
-	live_portfolio_state = live_portfolio_states.get(user_id)
-	if (
-		live_portfolio_state is not None
-		and live_portfolio_state.latest_generated_at >= _coerce_utc_datetime(since)
-	):
-		snapshots.append(
-			PortfolioSnapshot(
-				user_id=user_id,
-				total_value_cny=live_portfolio_state.latest_value_cny,
-				created_at=live_portfolio_state.latest_generated_at,
-			),
-		)
-
+	if live_snapshot is not None and live_snapshot.created_at >= _coerce_utc_datetime(since):
+		snapshots.append(live_snapshot)
 	return snapshots
 
 
@@ -3796,53 +3833,22 @@ def _load_holdings_return_series_with_live_snapshot(
 	scope: str,
 	symbol: str | None = None,
 	default_name: str | None = None,
+	*,
+	live_snapshots: dict[tuple[str, str | None], HoldingPerformanceSnapshot] | None = None,
 ) -> list[HoldingPerformanceSnapshot]:
 	snapshots = _load_holdings_return_series(session, user_id, since, scope, symbol)
-	live_holdings_return_state = live_holdings_return_states.get(user_id)
-	if live_holdings_return_state is None:
+	if live_snapshots is None:
 		return snapshots
 
-	if live_holdings_return_state.latest_generated_at < _coerce_utc_datetime(since):
-		return snapshots
-
-	if scope == "TOTAL":
-		if live_holdings_return_state.aggregate_return_pct is None:
-			return snapshots
-		snapshots.append(
-			HoldingPerformanceSnapshot(
-				user_id=user_id,
-				scope="TOTAL",
-				symbol=None,
-				name=default_name or "非现金资产",
-				return_pct=live_holdings_return_state.aggregate_return_pct,
-				created_at=live_holdings_return_state.latest_generated_at,
-			),
-		)
-		return snapshots
-
-	for point in live_holdings_return_state.holding_points:
-		if point.symbol != symbol:
-			continue
-		snapshots.append(
-			HoldingPerformanceSnapshot(
-				user_id=user_id,
-				scope="HOLDING",
-				symbol=point.symbol,
-				name=point.name,
-				return_pct=point.return_pct,
-				created_at=live_holdings_return_state.latest_generated_at,
-			),
-		)
-		break
-
+	live_snapshot = live_snapshots.get((scope, symbol))
+	if live_snapshot is not None and live_snapshot.created_at >= _coerce_utc_datetime(since):
+		snapshots.append(live_snapshot)
 	return snapshots
 
 
 async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResponse:
 	user_id = user.username
 	now = utc_now()
-	_roll_live_portfolio_state_if_needed(session, user_id, now)
-	_roll_live_holdings_return_state_if_needed(session, user_id, now)
 	fx_rate_overrides, usd_cny_rate, hkd_cny_rate, fx_display_warnings = await _load_display_fx_rates()
 
 	accounts = list(
@@ -3909,29 +3915,54 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 	aggregate_holdings_return_pct, holding_return_points = _summarize_holdings_return_state(
 		valued_holdings,
 	)
-	_update_live_portfolio_state(user_id, now, total_value_cny, has_assets)
-	_update_live_holdings_return_state(
-		user_id,
-		now,
-		aggregate_holdings_return_pct,
-		holding_return_points,
+	live_portfolio_snapshot = _build_transient_portfolio_snapshot(
+		user_id=user_id,
+		generated_at=now,
+		total_value_cny=total_value_cny,
+		has_assets=has_assets,
+	)
+	live_holdings_return_snapshots = _build_transient_holdings_return_snapshots(
+		user_id=user_id,
+		generated_at=now,
+		aggregate_return_pct=aggregate_holdings_return_pct,
+		holding_points=holding_return_points,
 	)
 	correction_lookup = _load_dashboard_correction_lookup(session, user_id)
 
 	hour_series_raw = build_timeline(
-		_load_series_with_live_snapshot(session, user_id, now - timedelta(hours=24)),
+		_load_series_with_live_snapshot(
+			session,
+			user_id,
+			now - timedelta(hours=24),
+			live_snapshot=live_portfolio_snapshot,
+		),
 		"hour",
 	)
 	day_series_raw = build_timeline(
-		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=30)),
+		_load_series_with_live_snapshot(
+			session,
+			user_id,
+			now - timedelta(days=30),
+			live_snapshot=live_portfolio_snapshot,
+		),
 		"day",
 	)
 	month_series_raw = build_timeline(
-		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=366)),
+		_load_series_with_live_snapshot(
+			session,
+			user_id,
+			now - timedelta(days=366),
+			live_snapshot=live_portfolio_snapshot,
+		),
 		"month",
 	)
 	year_series_raw = build_timeline(
-		_load_series_with_live_snapshot(session, user_id, now - timedelta(days=366 * 5)),
+		_load_series_with_live_snapshot(
+			session,
+			user_id,
+			now - timedelta(days=366 * 5),
+			live_snapshot=live_portfolio_snapshot,
+		),
 		"year",
 	)
 	hour_series = _apply_dashboard_corrections(
@@ -3966,6 +3997,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			now - timedelta(hours=24),
 			"TOTAL",
 			default_name="非现金资产",
+			live_snapshots=live_holdings_return_snapshots,
 		),
 		"hour",
 	)
@@ -3976,6 +4008,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			now - timedelta(days=30),
 			"TOTAL",
 			default_name="非现金资产",
+			live_snapshots=live_holdings_return_snapshots,
 		),
 		"day",
 	)
@@ -3986,6 +4019,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			now - timedelta(days=366),
 			"TOTAL",
 			default_name="非现金资产",
+			live_snapshots=live_holdings_return_snapshots,
 		),
 		"month",
 	)
@@ -3996,6 +4030,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			now - timedelta(days=366 * 5),
 			"TOTAL",
 			default_name="非现金资产",
+			live_snapshots=live_holdings_return_snapshots,
 		),
 		"year",
 	)
@@ -4036,6 +4071,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 				"HOLDING",
 				symbol=holding.symbol,
 				default_name=holding.name,
+				live_snapshots=live_holdings_return_snapshots,
 			),
 			"hour",
 		)
@@ -4047,6 +4083,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 				"HOLDING",
 				symbol=holding.symbol,
 				default_name=holding.name,
+				live_snapshots=live_holdings_return_snapshots,
 			),
 			"day",
 		)
@@ -4058,6 +4095,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 				"HOLDING",
 				symbol=holding.symbol,
 				default_name=holding.name,
+				live_snapshots=live_holdings_return_snapshots,
 			),
 			"month",
 		)
@@ -4069,6 +4107,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 				"HOLDING",
 				symbol=holding.symbol,
 				default_name=holding.name,
+				live_snapshots=live_holdings_return_snapshots,
 			),
 			"year",
 		)
@@ -4163,9 +4202,6 @@ async def _get_cached_dashboard(
 	user: UserAccount,
 	force_refresh: bool = False,
 ) -> DashboardResponse:
-	if await snapshot_service.process_user_snapshot_rebuild_if_pending(session, user.username):
-		_invalidate_dashboard_cache(user.username)
-
 	cache_entry = dashboard_cache.get(user.username)
 
 	if (
@@ -5907,7 +5943,7 @@ def create_account(
 		before_state=None,
 		after_state=_capture_model_state(account),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
@@ -5967,7 +6003,7 @@ def update_account(
 		before_state=before_state,
 		after_state=_capture_model_state(account),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(account)
 	_invalidate_dashboard_cache(current_user.username)
@@ -6016,7 +6052,7 @@ def delete_account(
 		before_state=before_state,
 		after_state=None,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -6104,7 +6140,7 @@ def create_cash_ledger_adjustment(
 		after_state=_capture_model_state(account),
 		reason=f"LEDGER_ADJUSTMENT_CREATE#{entry.id}",
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	response = CashLedgerAdjustmentApplyRead(
 		entry=_to_cash_ledger_entry_read(entry),
 		account=_to_cash_account_read(account),
@@ -6181,7 +6217,7 @@ def update_cash_ledger_adjustment(
 		after_state=_capture_model_state(account),
 		reason=f"LEDGER_ADJUSTMENT_UPDATE#{entry.id}",
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	response = CashLedgerAdjustmentApplyRead(
 		entry=_to_cash_ledger_entry_read(entry),
 		account=_to_cash_account_read(account),
@@ -6231,7 +6267,7 @@ def delete_cash_ledger_adjustment(
 		after_state=_capture_model_state(account),
 		reason=f"LEDGER_ADJUSTMENT_DELETE#{entry_id}",
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -6373,7 +6409,7 @@ def create_cash_transfer(
 		after_state=_capture_model_state(target_account),
 		reason=f"TRANSFER_IN#{transfer.id}",
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	response = CashTransferApplyRead(
 		transfer=_to_cash_transfer_read(transfer),
 		from_account=_to_cash_account_read(source_account),
@@ -6554,7 +6590,7 @@ def update_cash_transfer(
 			reason=f"TRANSFER_UPDATE#{transfer.id}",
 		)
 
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	response = CashTransferApplyRead(
 		transfer=_to_cash_transfer_read(transfer),
 		from_account=_to_cash_account_read(source_account),
@@ -6623,7 +6659,7 @@ def delete_cash_transfer(
 			after_state=_capture_model_state(target_account),
 			reason=f"TRANSFER_DELETE#{transfer_id}",
 		)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -6692,7 +6728,7 @@ def create_fixed_asset(
 		before_state=None,
 		after_state=_capture_model_state(asset),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -6743,7 +6779,7 @@ def update_fixed_asset(
 		before_state=before_state,
 		after_state=_capture_model_state(asset),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -6784,7 +6820,7 @@ def delete_fixed_asset(
 		before_state=before_state,
 		after_state=None,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -6851,7 +6887,7 @@ def create_liability(
 		before_state=None,
 		after_state=_capture_model_state(entry),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
@@ -6890,7 +6926,7 @@ def update_liability(
 		before_state=before_state,
 		after_state=_capture_model_state(entry),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(entry)
 	_invalidate_dashboard_cache(current_user.username)
@@ -6918,7 +6954,7 @@ def delete_liability(
 		before_state=before_state,
 		after_state=None,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -6987,7 +7023,7 @@ def create_other_asset(
 		before_state=None,
 		after_state=_capture_model_state(asset),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -7038,7 +7074,7 @@ def update_other_asset(
 		before_state=before_state,
 		after_state=_capture_model_state(asset),
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
@@ -7079,7 +7115,7 @@ def delete_other_asset(
 		before_state=before_state,
 		after_state=None,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -7164,7 +7200,7 @@ def create_holding(
 		user_id=current_user.username,
 		trigger_symbol=holding.symbol,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(holding)
 	_invalidate_dashboard_cache(current_user.username)
@@ -7271,7 +7307,7 @@ def delete_holding(
 		user_id=current_user.username,
 		trigger_symbol=holding.symbol,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -7528,7 +7564,7 @@ def create_holding_transaction(
 		user_id=current_user.username,
 		trigger_symbol=normalized_symbol,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(transaction)
 	if holding is not None:
@@ -7556,6 +7592,7 @@ def create_holding_transaction(
 		request_hash=request_hash,
 		response=response,
 	)
+	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 
 	return response
@@ -7741,7 +7778,7 @@ def update_holding_transaction(
 		user_id=current_user.username,
 		trigger_symbol=transaction.symbol,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	session.refresh(transaction)
 	if holding is not None:
@@ -7810,7 +7847,7 @@ def delete_holding_transaction(
 		user_id=current_user.username,
 		trigger_symbol=symbol,
 	)
-	snapshot_service.schedule_user_portfolio_snapshot_rebuild(current_user.username)
+	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)
 	return Response(status_code=204)
@@ -7934,117 +7971,22 @@ def create_agent_task(
 		response_model=AgentTaskRead,
 	)
 	if idempotent_response is not None:
-		return idempotent_response
+		existing_task = session.get(AgentTask, idempotent_response.id)
+		return _to_agent_task_read(existing_task) if existing_task is not None else idempotent_response
 
 	task = AgentTask(
 		user_id=current_user.username,
 		task_type=payload.task_type,
-		status="DONE",
+		status=AGENT_TASK_STATUSES[0],
 		input_json=json.dumps(payload.payload, sort_keys=True, ensure_ascii=False),
 	)
 	session.add(task)
 	session.flush()
-	agent_task_context_token = current_agent_task_id_context.set(task.id or 0)
-
-	try:
-		if payload.task_type == "CREATE_BUY_TRANSACTION":
-			result = create_holding_transaction(
-				SecurityHoldingTransactionCreate(
-					side="BUY",
-					**payload.payload,
-				),
-				current_user,
-				session,
-				None,
-			)
-		elif payload.task_type == "CREATE_SELL_TRANSACTION":
-			result = create_holding_transaction(
-				SecurityHoldingTransactionCreate(
-					side="SELL",
-					**payload.payload,
-				),
-				current_user,
-				session,
-				None,
-			)
-		elif payload.task_type == "UPDATE_HOLDING_TRANSACTION":
-			transaction_id = int(payload.payload.get("transaction_id") or 0)
-			if transaction_id <= 0:
-				raise HTTPException(status_code=422, detail="transaction_id 为必填项。")
-			update_payload = dict(payload.payload)
-			update_payload.pop("transaction_id", None)
-			result = update_holding_transaction(
-				transaction_id,
-				SecurityHoldingTransactionUpdate(**update_payload),
-				current_user,
-				session,
-			)
-		elif payload.task_type == "CREATE_CASH_TRANSFER":
-			result = create_cash_transfer(
-				CashTransferCreate(**payload.payload),
-				current_user,
-				session,
-				None,
-			)
-		elif payload.task_type == "UPDATE_CASH_TRANSFER":
-			transfer_id = int(payload.payload.get("transfer_id") or 0)
-			if transfer_id <= 0:
-				raise HTTPException(status_code=422, detail="transfer_id 为必填项。")
-			update_payload = dict(payload.payload)
-			update_payload.pop("transfer_id", None)
-			result = update_cash_transfer(
-				transfer_id,
-				CashTransferUpdate(**update_payload),
-				current_user,
-				session,
-			)
-		elif payload.task_type == "CREATE_CASH_LEDGER_ADJUSTMENT":
-			result = create_cash_ledger_adjustment(
-				CashLedgerAdjustmentCreate(**payload.payload),
-				current_user,
-				session,
-				None,
-			)
-		elif payload.task_type == "UPDATE_CASH_LEDGER_ADJUSTMENT":
-			entry_id = int(payload.payload.get("entry_id") or 0)
-			if entry_id <= 0:
-				raise HTTPException(status_code=422, detail="entry_id 为必填项。")
-			update_payload = dict(payload.payload)
-			update_payload.pop("entry_id", None)
-			result = update_cash_ledger_adjustment(
-				entry_id,
-				CashLedgerAdjustmentUpdate(**update_payload),
-				current_user,
-				session,
-			)
-		elif payload.task_type == "DELETE_CASH_LEDGER_ADJUSTMENT":
-			entry_id = int(payload.payload.get("entry_id") or 0)
-			if entry_id <= 0:
-				raise HTTPException(status_code=422, detail="entry_id 为必填项。")
-			delete_cash_ledger_adjustment(entry_id, current_user, session)
-			result = ActionMessageRead(message="手工账本调整已删除。")
-		else:
-			raise HTTPException(status_code=422, detail="不支持的任务类型。")
-	except Exception as exc:
-		task.status = "FAILED"
-		task.error_message = (
-			exc.detail
-			if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
-			else str(exc)
-		)
-		task.completed_at = utc_now()
-		_touch_model(task)
-		session.add(task)
-		session.commit()
-		raise
-	finally:
-		with suppress(Exception):
-			current_agent_task_id_context.reset(agent_task_context_token)
-
-	task.result_json = json.dumps(result.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
-	task.completed_at = utc_now()
-	_touch_model(task)
-	session.add(task)
+	job_service.enqueue_agent_task_execution(
+		session,
+		user_id=current_user.username,
+		agent_task_id=task.id or 0,
+	)
 	response = _to_agent_task_read(task)
 	_store_idempotent_response(
 		session,
@@ -8056,7 +7998,7 @@ def create_agent_task(
 	)
 	session.commit()
 	session.refresh(task)
-	return response
+	return _to_agent_task_read(task)
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
@@ -8066,11 +8008,6 @@ async def get_dashboard(
 	refresh: bool = False,
 ) -> DashboardResponse:
 	if refresh:
-		await _process_pending_holding_history_sync_requests(
-			session,
-			limit=1,
-			user_id=current_user.username,
-		)
 		if await _consume_global_force_refresh_slot():
 			market_data_client.clear_runtime_caches()
 		_invalidate_dashboard_cache(current_user.username)

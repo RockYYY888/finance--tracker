@@ -264,6 +264,7 @@ current_agent_task_id_context: ContextVar[int | None] = ContextVar(
 )
 background_refresh_task: asyncio.Task[None] | None = None
 snapshot_rebuild_worker_task: asyncio.Task[None] | None = None
+background_job_worker_task: asyncio.Task[None] | None = None
 
 
 def get_last_global_force_refresh_at() -> datetime | None:
@@ -275,7 +276,8 @@ def set_last_global_force_refresh_at(value: datetime | None) -> None:
 
 
 def clear_snapshot_runtime_state() -> None:
-	global snapshot_rebuild_worker_task
+	global snapshot_rebuild_worker_task, background_job_worker_task
 	snapshot_rebuild_users_in_queue.clear()
 	snapshot_rebuild_worker_task = None
 	snapshot_rebuild_queue.clear()
+	background_job_worker_task = None

@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Iterator
 from datetime import date, datetime, timezone
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import SQLModel, Session, create_engine, select
 from starlette.requests import Request
 
+import app.database as database
 from app import runtime_state
 import app.main as main
 from app.main import (
@@ -27,8 +29,10 @@ from app.models import (
 	AgentAccessToken,
 	AgentTask,
 	AssetMutationAudit,
+	CashAccount,
 	CashLedgerEntry,
 	CashTransfer,
+	OutboxJob,
 	SecurityHoldingTransaction,
 	UserAccount,
 )
@@ -45,6 +49,7 @@ from app.schemas import (
 )
 from app.security import hash_password
 from app.services.market_data import Quote
+from app.services import job_service
 
 
 class StaticMarketDataClient:
@@ -85,6 +90,7 @@ class StaticMarketDataClient:
 
 def _reset_async_runtime_state() -> None:
 	runtime_state.set_last_global_force_refresh_at(None)
+	runtime_state.background_job_worker_task = None
 	runtime_state.snapshot_rebuild_users_in_queue.clear()
 	runtime_state.snapshot_rebuild_worker_task = None
 	while True:
@@ -96,12 +102,15 @@ def _reset_async_runtime_state() -> None:
 
 
 @pytest.fixture
-def session(tmp_path: Path) -> Iterator[Session]:
+def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
 	engine = create_engine(
 		f"sqlite:///{tmp_path / 'agent-api-test.db'}",
 		connect_args={"check_same_thread": False},
 	)
 	SQLModel.metadata.create_all(engine)
+	monkeypatch.setattr(database, "engine", engine)
+	monkeypatch.setattr(job_service, "engine", engine)
+	monkeypatch.setattr(main.core_support, "engine", engine)
 	_reset_async_runtime_state()
 
 	with Session(engine) as db_session:
@@ -153,6 +162,10 @@ def build_request(
 		"session": session_data or {},
 	}
 	return Request(scope)
+
+
+def run_background_jobs(limit: int = 20) -> int:
+	return asyncio.run(job_service.process_all_pending_background_jobs(limit=limit))
 
 
 def test_issue_agent_token_with_password_and_use_bearer_auth(session: Session) -> None:
@@ -646,9 +659,29 @@ def test_create_agent_task_executes_cash_transfer(session: Session) -> None:
 		"agent-task-001",
 	)
 
-	assert task.status == "DONE"
-	assert task.result is not None
-	assert task.result["transfer"]["source_amount"] == 120
+	assert task.status == "PENDING"
+	assert task.result is None
+	jobs = list(
+		session.exec(
+			select(OutboxJob).where(OutboxJob.job_type == "AGENT_TASK_EXECUTION"),
+		).all(),
+	)
+	assert len(jobs) == 1
+
+	assert run_background_jobs() >= 1
+
+	session.expire_all()
+	source_account_row = session.get(CashAccount, source_account.id)
+	target_account_row = session.get(CashAccount, target_account.id)
+	stored_task = session.get(AgentTask, task.id)
+	assert source_account_row is not None
+	assert target_account_row is not None
+	assert source_account_row.balance == 380
+	assert target_account_row.balance == 120
+	assert stored_task is not None
+	assert stored_task.status == "DONE"
+	assert stored_task.result_json is not None
+	assert '"source_amount": 120' in stored_task.result_json
 	assert len(session.exec(select(AgentTask)).all()) == 1
 
 
@@ -702,9 +735,15 @@ def test_agent_task_update_cash_transfer_links_mutation_audit(session: Session) 
 		"agent-task-transfer-update-001",
 	)
 
-	assert task.status == "DONE"
-	assert task.result is not None
-	assert task.result["transfer"]["source_amount"] == 80
+	assert task.status == "PENDING"
+	assert task.result is None
+	assert run_background_jobs() >= 1
+	session.expire_all()
+	stored_task = session.get(AgentTask, task.id)
+	assert stored_task is not None
+	assert stored_task.status == "DONE"
+	assert stored_task.result_json is not None
+	assert '"source_amount": 80' in stored_task.result_json
 	mutations = list_asset_mutation_audits(
 		current_user,
 		session,
@@ -752,9 +791,14 @@ def test_agent_task_can_create_and_delete_manual_cash_ledger_adjustment(
 		"agent-task-ledger-create-001",
 	)
 
-	assert create_task.status == "DONE"
-	assert create_task.result is not None
-	entry_id = int(create_task.result["entry"]["id"])
+	assert create_task.status == "PENDING"
+	assert run_background_jobs() >= 1
+	session.expire_all()
+	stored_create_task = session.get(AgentTask, create_task.id)
+	assert stored_create_task is not None
+	assert stored_create_task.status == "DONE"
+	assert stored_create_task.result_json is not None
+	entry_id = int(json.loads(stored_create_task.result_json)["entry"]["id"])
 	entry = session.get(CashLedgerEntry, entry_id)
 	assert entry is not None
 	assert entry.entry_type == "MANUAL_ADJUSTMENT"
@@ -771,8 +815,14 @@ def test_agent_task_can_create_and_delete_manual_cash_ledger_adjustment(
 		"agent-task-ledger-delete-001",
 	)
 
-	assert delete_task.status == "DONE"
-	assert delete_task.result == {"message": "手工账本调整已删除。"}
+	assert delete_task.status == "PENDING"
+	assert run_background_jobs() >= 1
+	session.expire_all()
+	stored_delete_task = session.get(AgentTask, delete_task.id)
+	assert stored_delete_task is not None
+	assert stored_delete_task.status == "DONE"
+	assert stored_delete_task.result_json is not None
+	assert json.loads(stored_delete_task.result_json) == {"message": "手工账本调整已删除。"}
 	assert session.get(CashLedgerEntry, entry_id) is None
 	mutations = list_asset_mutation_audits(
 		current_user,

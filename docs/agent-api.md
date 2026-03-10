@@ -79,7 +79,7 @@ Use holding routes only for metadata reads or metadata-only edits.
 - `GET /api/agent/context`
   Returns portfolio summary, cash accounts, holdings, recent holding transactions, pending sync count, and warnings
 - `GET /api/dashboard`
-  Returns the full dashboard including timeline series
+  Returns the full dashboard including timeline series from cached or rebuilt projections
 - `GET /api/accounts`
   Lists cash accounts
 - `POST /api/accounts`
@@ -123,7 +123,7 @@ Use holding routes only for metadata reads or metadata-only edits.
 - `GET /api/agent/tasks`
   Lists structured agent tasks
 - `POST /api/agent/tasks`
-  Executes a validated task envelope for buy, sell, transfer, transfer correction, or ledger correction
+  Queues a validated task envelope for buy, sell, transfer, transfer correction, or ledger correction
 - `GET /api/audit-log`
   Lists asset mutation audits, supports `limit` and `agent_task_id`
 - `GET /api/securities/search?q=...`
@@ -148,6 +148,14 @@ Supported now:
 
 If the same key is reused with the same request body, the backend replays the original response.
 If the key is reused with a different body, the backend returns `409`.
+
+## Agent Task Execution Model
+
+- `POST /api/agent/tasks` returns the created task immediately
+- Task status moves through `PENDING` -> `RUNNING` -> `DONE` or `FAILED`
+- Poll `GET /api/agent/tasks` to observe completion and read `result`
+- Agent-triggered writes schedule snapshot rebuild jobs asynchronously
+- `GET /api/dashboard` stays read-only and does not execute pending rebuild jobs inline
 
 ## Minimal Agent Call Pattern
 

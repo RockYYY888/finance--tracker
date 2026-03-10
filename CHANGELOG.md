@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.4 - 2026-03-10
+
+- Moved portfolio snapshot rebuilds and agent task execution onto durable background jobs
+- Made dashboard reads query-only and appended transient live points without request-time writes
+
 ## v0.6.3 - 2026-03-10
 
 - Added transfer editing, manual cash-ledger corrections, and agent-linked audit traces

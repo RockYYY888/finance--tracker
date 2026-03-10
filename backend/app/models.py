@@ -57,7 +57,9 @@ AGENT_TASK_TYPES = (
 	"UPDATE_CASH_LEDGER_ADJUSTMENT",
 	"DELETE_CASH_LEDGER_ADJUSTMENT",
 )
-AGENT_TASK_STATUSES = ("DONE", "FAILED")
+AGENT_TASK_STATUSES = ("PENDING", "RUNNING", "DONE", "FAILED")
+OUTBOX_JOB_TYPES = ("SNAPSHOT_REBUILD", "AGENT_TASK_EXECUTION")
+OUTBOX_JOB_STATUSES = ("PENDING", "RUNNING", "DONE", "FAILED")
 
 
 def utc_now() -> datetime:
@@ -293,13 +295,29 @@ class AgentTask(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
 	task_type: str = Field(index=True, max_length=40)
-	status: str = Field(default="DONE", index=True, max_length=16)
+	status: str = Field(default="PENDING", index=True, max_length=16)
 	input_json: str = Field(max_length=16000)
 	result_json: str | None = Field(default=None, max_length=16000)
 	error_message: str | None = Field(default=None, max_length=1000)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 	completed_at: datetime | None = Field(default=None, index=True)
+
+
+class OutboxJob(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str | None = Field(default=None, index=True, max_length=32)
+	job_type: str = Field(index=True, max_length=48)
+	status: str = Field(default="PENDING", index=True, max_length=16)
+	dedup_key: str | None = Field(default=None, index=True, max_length=160)
+	payload_json: str = Field(max_length=16000)
+	attempt_count: int = Field(default=0, ge=0)
+	last_error: str | None = Field(default=None, max_length=1000)
+	available_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	started_at: datetime | None = Field(default=None, index=True)
+	completed_at: datetime | None = Field(default=None, index=True)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+	updated_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
 class FixedAsset(SQLModel, table=True):
