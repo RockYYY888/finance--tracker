@@ -38,7 +38,7 @@ class StaticMarketDataClient:
 
 
 def _reset_async_runtime_state() -> None:
-	runtime_state.last_global_force_refresh_at = None
+	runtime_state.set_last_global_force_refresh_at(None)
 	runtime_state.snapshot_rebuild_users_in_queue.clear()
 	runtime_state.snapshot_rebuild_worker_task = None
 	while True:
@@ -88,7 +88,7 @@ def test_dashboard_correction_override_and_delete_are_applied_to_hour_series(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	user = make_user(session, "correction_user")
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 
 	now = datetime.now(timezone.utc)
 	older_point_at = now - timedelta(hours=2)

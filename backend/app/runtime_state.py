@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-import threading
+import base64
+from collections.abc import Iterator, MutableMapping, MutableSet
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
+import pickle
+import threading
+from typing import Generic, TypeVar
+
+from fakeredis import FakeRedis
+from redis import Redis
 
 from app.schemas import DashboardResponse
+from app.settings import get_settings
+
+KeyType = TypeVar("KeyType")
+ValueType = TypeVar("ValueType")
+ScalarType = TypeVar("ScalarType")
 
 
 @dataclass(slots=True)
@@ -46,20 +58,224 @@ class LoginAttemptState:
 	last_attempt_at: datetime
 
 
-dashboard_cache: dict[str, DashboardCacheEntry] = {}
-live_portfolio_states: dict[str, LivePortfolioState] = {}
-live_holdings_return_states: dict[str, LiveHoldingsReturnState] = {}
-login_attempt_states: dict[tuple[str, str], LoginAttemptState] = {}
+def _serialize(value: object) -> bytes:
+	return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _deserialize(raw_value: bytes | None) -> object | None:
+	if raw_value is None:
+		return None
+	return pickle.loads(raw_value)
+
+
+def _serialize_key(value: object) -> str:
+	return base64.urlsafe_b64encode(_serialize(value)).decode("ascii")
+
+
+def _clear_prefixed_keys(redis_client: Redis, prefix: str) -> None:
+	keys = list(redis_client.scan_iter(f"{prefix}:*"))
+	if keys:
+		redis_client.delete(*keys)
+
+
+class RedisBackedDict(MutableMapping[KeyType, ValueType], Generic[KeyType, ValueType]):
+	def __init__(self, redis_client: Redis, prefix: str) -> None:
+		self._redis = redis_client
+		self._prefix = prefix
+
+	def _entry_key(self, key: KeyType) -> str:
+		return f"{self._prefix}:{_serialize_key(key)}"
+
+	def __getitem__(self, key: KeyType) -> ValueType:
+		value = self.get(key)
+		if value is None:
+			raise KeyError(key)
+		return value
+
+	def __setitem__(self, key: KeyType, value: ValueType) -> None:
+		self._redis.set(self._entry_key(key), _serialize(value))
+
+	def __delitem__(self, key: KeyType) -> None:
+		if self._redis.delete(self._entry_key(key)) == 0:
+			raise KeyError(key)
+
+	def __iter__(self) -> Iterator[KeyType]:
+		for key, _value in self.items():
+			yield key
+
+	def __len__(self) -> int:
+		return sum(1 for _ in self._redis.scan_iter(f"{self._prefix}:*"))
+
+	def clear(self) -> None:
+		_clear_prefixed_keys(self._redis, self._prefix)
+
+	def get(self, key: KeyType, default: ValueType | None = None) -> ValueType | None:
+		value = _deserialize(self._redis.get(self._entry_key(key)))
+		if value is None:
+			return default
+		return value  # type: ignore[return-value]
+
+	def items(self) -> Iterator[tuple[KeyType, ValueType]]:
+		for redis_key in self._redis.scan_iter(f"{self._prefix}:*"):
+			raw_value = self._redis.get(redis_key)
+			if raw_value is None:
+				continue
+			decoded_key = redis_key.decode("utf-8")
+			key_fragment = decoded_key[len(self._prefix) + 1 :]
+			yield (
+				_deserialize(base64.urlsafe_b64decode(key_fragment.encode("ascii"))),  # type: ignore[arg-type]
+				_deserialize(raw_value),  # type: ignore[arg-type]
+			)
+
+	def pop(self, key: KeyType, default: ValueType | None = None) -> ValueType | None:
+		stored_value = self.get(key)
+		if stored_value is None:
+			return default
+		self._redis.delete(self._entry_key(key))
+		return stored_value
+
+
+class RedisBackedSet(MutableSet[str]):
+	def __init__(self, redis_client: Redis, key: str) -> None:
+		self._redis = redis_client
+		self._key = key
+
+	def add(self, value: str) -> None:
+		self._redis.sadd(self._key, value)
+
+	def discard(self, value: str) -> None:
+		self._redis.srem(self._key, value)
+
+	def __contains__(self, value: object) -> bool:
+		if not isinstance(value, str):
+			return False
+		return bool(self._redis.sismember(self._key, value))
+
+	def __iter__(self) -> Iterator[str]:
+		for member in self._redis.smembers(self._key):
+			yield member.decode("utf-8")
+
+	def __len__(self) -> int:
+		return int(self._redis.scard(self._key))
+
+	def clear(self) -> None:
+		self._redis.delete(self._key)
+
+
+class RedisBackedQueue:
+	def __init__(self, redis_client: Redis, key: str) -> None:
+		self._redis = redis_client
+		self._key = key
+
+	def put_nowait(self, value: str) -> None:
+		self._redis.rpush(self._key, _serialize(value))
+
+	async def get(self) -> str:
+		while True:
+			result = await asyncio.to_thread(self._redis.blpop, self._key, 1)
+			if result is not None:
+				_value_key, payload = result
+				return _deserialize(payload)  # type: ignore[return-value]
+
+	def get_nowait(self) -> str:
+		payload = self._redis.lpop(self._key)
+		if payload is None:
+			raise asyncio.QueueEmpty
+		return _deserialize(payload)  # type: ignore[return-value]
+
+	def qsize(self) -> int:
+		return int(self._redis.llen(self._key))
+
+	def task_done(self) -> None:
+		return None
+
+	def clear(self) -> None:
+		self._redis.delete(self._key)
+
+
+class RedisBackedScalar(Generic[ScalarType]):
+	def __init__(self, redis_client: Redis, key: str) -> None:
+		self._redis = redis_client
+		self._key = key
+
+	def get(self) -> ScalarType | None:
+		return _deserialize(self._redis.get(self._key))  # type: ignore[return-value]
+
+	def set(self, value: ScalarType | None) -> None:
+		if value is None:
+			self._redis.delete(self._key)
+			return
+		self._redis.set(self._key, _serialize(value))
+
+	def clear(self) -> None:
+		self._redis.delete(self._key)
+
+
+settings = get_settings()
+redis_url = settings.redis_url_value()
+redis_client: Redis = (
+	Redis.from_url(redis_url)
+	if redis_url is not None
+	else FakeRedis()
+)
+
+dashboard_cache: MutableMapping[str, DashboardCacheEntry] = RedisBackedDict[str, DashboardCacheEntry](
+	redis_client,
+	"asset-tracker:runtime:dashboard-cache",
+)
+live_portfolio_states: MutableMapping[str, LivePortfolioState] = RedisBackedDict[str, LivePortfolioState](
+	redis_client,
+	"asset-tracker:runtime:live-portfolio",
+)
+live_holdings_return_states: MutableMapping[str, LiveHoldingsReturnState] = RedisBackedDict[
+	str,
+	LiveHoldingsReturnState,
+](
+	redis_client,
+	"asset-tracker:runtime:live-holdings-return",
+)
+login_attempt_states: MutableMapping[tuple[str, str], LoginAttemptState] = RedisBackedDict[
+	tuple[str, str],
+	LoginAttemptState,
+](
+	redis_client,
+	"asset-tracker:runtime:login-attempts",
+)
+snapshot_rebuild_queue = RedisBackedQueue(
+	redis_client,
+	"asset-tracker:runtime:snapshot-rebuild-queue",
+)
+snapshot_rebuild_users_in_queue: MutableSet[str] = RedisBackedSet(
+	redis_client,
+	"asset-tracker:runtime:snapshot-rebuild-users",
+)
+_last_global_force_refresh_at_store = RedisBackedScalar[datetime](
+	redis_client,
+	"asset-tracker:runtime:last-global-force-refresh-at",
+)
+
 dashboard_cache_lock = asyncio.Lock()
 global_force_refresh_lock = asyncio.Lock()
-last_global_force_refresh_at: datetime | None = None
-background_refresh_task: asyncio.Task[None] | None = None
 holding_history_sync_lock = asyncio.Lock()
 login_attempts_lock = threading.Lock()
 current_agent_task_id_context: ContextVar[int | None] = ContextVar(
 	"current_agent_task_id",
 	default=None,
 )
-snapshot_rebuild_queue: asyncio.Queue[str] = asyncio.Queue()
-snapshot_rebuild_users_in_queue: set[str] = set()
+background_refresh_task: asyncio.Task[None] | None = None
 snapshot_rebuild_worker_task: asyncio.Task[None] | None = None
+
+
+def get_last_global_force_refresh_at() -> datetime | None:
+	return _last_global_force_refresh_at_store.get()
+
+
+def set_last_global_force_refresh_at(value: datetime | None) -> None:
+	_last_global_force_refresh_at_store.set(value)
+
+
+def clear_snapshot_runtime_state() -> None:
+	global snapshot_rebuild_worker_task
+	snapshot_rebuild_users_in_queue.clear()
+	snapshot_rebuild_worker_task = None
+	snapshot_rebuild_queue.clear()

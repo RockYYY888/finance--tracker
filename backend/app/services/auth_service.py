@@ -1,4 +1,4 @@
-from app.services.legacy_service import (
+from app.services.core_support import (
 	_authenticate_user_account,
 	_create_user_account,
 	_reset_user_password_with_email,

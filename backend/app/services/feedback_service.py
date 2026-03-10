@@ -1,4 +1,4 @@
-from app.services.legacy_service import (
+from app.services.core_support import (
 	acknowledge_feedback_for_admin,
 	classify_feedback_for_admin,
 	close_feedback_for_admin,

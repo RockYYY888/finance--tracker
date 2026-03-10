@@ -84,7 +84,7 @@ class StaticMarketDataClient:
 
 
 def _reset_async_runtime_state() -> None:
-	runtime_state.last_global_force_refresh_at = None
+	runtime_state.set_last_global_force_refresh_at(None)
 	runtime_state.snapshot_rebuild_users_in_queue.clear()
 	runtime_state.snapshot_rebuild_worker_task = None
 	while True:
@@ -225,7 +225,7 @@ def test_list_all_holding_transactions_supports_symbol_filter(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 
 	create_holding_transaction(
 		SecurityHoldingTransactionCreate(
@@ -275,7 +275,7 @@ def test_list_all_holding_transactions_includes_sell_cash_settlement_metadata(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 
 	create_holding_transaction(
 		SecurityHoldingTransactionCreate(
@@ -338,7 +338,7 @@ def test_get_security_quote_returns_live_quote_for_agent(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 
 	quote = asyncio.run(get_security_quote("aapl", "us", current_user))
 
@@ -354,7 +354,7 @@ def test_get_agent_context_returns_dashboard_summary_and_recent_transactions(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 	create_account(
 		CashAccountCreate(
 			name="Broker Cash",
@@ -444,7 +444,7 @@ def test_get_agent_context_returns_dashboard_summary_and_recent_transactions(
 			warnings=["quote-cache-hit"],
 		)
 
-	monkeypatch.setattr(main.legacy_service, "get_dashboard", fake_get_dashboard)
+	monkeypatch.setattr(main.core_support, "get_dashboard", fake_get_dashboard)
 
 	context = asyncio.run(
 		get_agent_context(
@@ -470,7 +470,7 @@ def test_create_holding_transaction_replays_by_idempotency_key(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 
 	first = create_holding_transaction(
 		SecurityHoldingTransactionCreate(
@@ -512,7 +512,7 @@ def test_list_holding_transactions_includes_buy_funding_metadata(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.core_support, "market_data_client", StaticMarketDataClient())
 	cash_account = create_account(
 		CashAccountCreate(
 			name="主账户",

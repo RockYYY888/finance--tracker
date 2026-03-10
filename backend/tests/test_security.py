@@ -25,6 +25,7 @@ def reset_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 		"ASSET_TRACKER_API_TOKEN",
 		"ASSET_TRACKER_APP_ENV",
 		"ASSET_TRACKER_PUBLIC_ORIGIN",
+		"ASSET_TRACKER_REDIS_URL",
 		"ASSET_TRACKER_SESSION_SECRET",
 	):
 		monkeypatch.delenv(env_name, raising=False)
@@ -71,6 +72,7 @@ def test_settings_generate_process_local_session_secret_in_development() -> None
 def test_settings_lock_down_same_origin_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")
+	monkeypatch.setenv("ASSET_TRACKER_REDIS_URL", "redis://redis:6379/0")
 	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
 	settings = get_settings()
 
@@ -78,6 +80,16 @@ def test_settings_lock_down_same_origin_in_production(monkeypatch: pytest.Monkey
 	assert settings.require_api_token is False
 	assert settings.cors_origins() == ["https://finance.example.com"]
 	assert settings.trusted_hosts() == ["finance.example.com"]
+
+
+def test_settings_require_redis_url_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
+	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
+	settings = get_settings()
+
+	with pytest.raises(ValueError, match="ASSET_TRACKER_REDIS_URL"):
+		settings.validate_runtime()
 
 
 def test_settings_validate_runtime_rejects_incomplete_production_config(

@@ -1,3 +1,3 @@
-from app.services.legacy_service import SessionDependency
+from app.services.core_support import SessionDependency
 
 __all__ = ["SessionDependency"]

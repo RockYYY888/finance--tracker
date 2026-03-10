@@ -53,6 +53,7 @@ class Settings(BaseSettings):
 	public_origin: str | None = None
 	allowed_origins: str | None = None
 	allowed_hosts: str | None = None
+	redis_url: str | None = None
 
 	@property
 	def is_production(self) -> bool:
@@ -88,6 +89,12 @@ class Settings(BaseSettings):
 			self._runtime_session_secret = secrets.token_urlsafe(32)
 
 		return self._runtime_session_secret
+
+	def redis_url_value(self) -> str | None:
+		if self.redis_url is None:
+			return None
+		url = self.redis_url.strip()
+		return url or None
 
 	def email_pepper_value(self) -> str:
 		configured_secret = self._configured_session_secret_value()
@@ -137,6 +144,8 @@ class Settings(BaseSettings):
 
 		if self.is_production and not self._configured_session_secret_value():
 			raise ValueError("Production mode requires ASSET_TRACKER_SESSION_SECRET.")
+		if self.is_production and not self.redis_url_value():
+			raise ValueError("Production mode requires ASSET_TRACKER_REDIS_URL.")
 
 
 @lru_cache

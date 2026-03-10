@@ -16,7 +16,7 @@ from app.services import snapshot_service
 
 
 def _reset_snapshot_runtime_state() -> None:
-	runtime_state.last_global_force_refresh_at = None
+	runtime_state.set_last_global_force_refresh_at(None)
 	runtime_state.snapshot_rebuild_users_in_queue.clear()
 	runtime_state.snapshot_rebuild_worker_task = None
 	while True:
@@ -81,15 +81,15 @@ def test_lifespan_only_initializes_db_and_snapshot_worker(
 	monkeypatch.setattr(main, "init_db", fake_init_db)
 	monkeypatch.setattr(main, "start_snapshot_rebuild_worker", fake_start_snapshot_rebuild_worker)
 	monkeypatch.setattr(main, "stop_snapshot_rebuild_worker", fake_stop_snapshot_rebuild_worker)
-	monkeypatch.setattr(main.legacy_service, "_ensure_legacy_schema", fail_heavy_startup)
-	monkeypatch.setattr(main.legacy_service, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
+	monkeypatch.setattr(main.core_support, "_ensure_legacy_schema", fail_heavy_startup)
+	monkeypatch.setattr(main.core_support, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
 	monkeypatch.setattr(
-		main.legacy_service,
+		main.core_support,
 		"_backfill_holding_transaction_cash_settlements",
 		fail_heavy_startup,
 	)
-	monkeypatch.setattr(main.legacy_service, "_backfill_cash_ledger_entries", fail_heavy_startup)
-	monkeypatch.setattr(main.legacy_service, "_audit_legacy_user_ownership", fail_heavy_startup)
+	monkeypatch.setattr(main.core_support, "_backfill_cash_ledger_entries", fail_heavy_startup)
+	monkeypatch.setattr(main.core_support, "_audit_legacy_user_ownership", fail_heavy_startup)
 
 	async def exercise_lifespan() -> None:
 		async with main.lifespan(main.app):
@@ -133,7 +133,7 @@ def test_create_holding_transaction_only_schedules_snapshot_rebuild(
 		fake_schedule_user_portfolio_snapshot_rebuild,
 	)
 	monkeypatch.setattr(
-		main.legacy_service,
+		main.core_support,
 		"_rebuild_user_portfolio_snapshots",
 		fail_sync_rebuild,
 	)

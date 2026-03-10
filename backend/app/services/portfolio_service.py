@@ -1,4 +1,4 @@
-from app.services.legacy_service import (
+from app.services.core_support import (
 	create_account,
 	create_cash_ledger_adjustment,
 	create_cash_transfer,

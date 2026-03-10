@@ -1,4 +1,4 @@
-from app.services.legacy_service import (
+from app.services.core_support import (
 	create_agent_task,
 	create_agent_token_for_current_session,
 	get_agent_context,

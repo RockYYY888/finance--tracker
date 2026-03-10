@@ -1,4 +1,4 @@
-from app.services.legacy_service import (
+from app.services.core_support import (
 	create_release_note_for_admin,
 	list_release_notes_for_admin,
 	list_release_notes_for_current_user,

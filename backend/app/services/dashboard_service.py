@@ -1,4 +1,4 @@
-from app.services.legacy_service import (
+from app.services.core_support import (
 	_build_dashboard,
 	_get_cached_dashboard,
 	_persist_holdings_return_snapshot,

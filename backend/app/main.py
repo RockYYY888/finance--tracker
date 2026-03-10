@@ -18,16 +18,17 @@ from app.runtime_state import (
 	live_portfolio_states,
 	login_attempt_states,
 )
-from app.services import legacy_service
+from app.services import core_support
 from app.services.snapshot_service import start_snapshot_rebuild_worker, stop_snapshot_rebuild_worker
 
 logger = logging.getLogger(__name__)
-settings = legacy_service.settings
-market_data_client = legacy_service.market_data_client
+settings = core_support.settings
+market_data_client = core_support.market_data_client
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+	settings.validate_runtime()
 	init_db()
 	start_snapshot_rebuild_worker()
 	try:
@@ -85,4 +86,4 @@ app = create_app()
 
 
 def __getattr__(name: str) -> Any:
-	return getattr(legacy_service, name)
+	return getattr(core_support, name)

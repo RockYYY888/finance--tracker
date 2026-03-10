@@ -32,9 +32,9 @@ async def process_user_snapshot_rebuild_if_pending(
 		return False
 
 	runtime_state.snapshot_rebuild_users_in_queue.discard(normalized_user_id)
-	from app.services import legacy_service
+	from app.services import core_support
 
-	await legacy_service._rebuild_user_portfolio_snapshots(session, normalized_user_id)
+	await core_support._rebuild_user_portfolio_snapshots(session, normalized_user_id)
 	return True
 
 
@@ -43,12 +43,12 @@ async def _consume_snapshot_rebuild_queue_item(user_id: str) -> None:
 		return
 
 	runtime_state.snapshot_rebuild_users_in_queue.discard(user_id)
-	from app.services import legacy_service
+	from app.services import core_support
 
 	with Session(engine) as session:
-		await legacy_service._rebuild_user_portfolio_snapshots(session, user_id)
+		await core_support._rebuild_user_portfolio_snapshots(session, user_id)
 		session.commit()
-		legacy_service._invalidate_dashboard_cache(user_id)
+		core_support._invalidate_dashboard_cache(user_id)
 
 
 async def snapshot_rebuild_worker() -> None:
