@@ -14,11 +14,22 @@ docker compose up -d --build
 
 Open `http://127.0.0.1:8080`.
 This starts `backend`, `worker`, `frontend`, `caddy`, and `redis`.
+The local Redis endpoint is also published at `127.0.0.1:6380` for direct host-side testing.
+
+### Local Redis Connectivity Check
+
+```bash
+docker compose up -d redis
+cd backend
+uv run pytest tests/test_runtime_redis.py
+```
+
+The Redis connectivity check exercises the real Redis container instead of a fake fallback.
 
 ### Server Or Proxy Build
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build
 ```
 
 The proxy override file defaults to `http://host.docker.internal:7890`.
@@ -28,5 +39,8 @@ If your local proxy listens on another port such as `10808`, override it explici
 ```bash
 ASSET_TRACKER_HTTP_PROXY=http://host.docker.internal:10808 \
 ASSET_TRACKER_HTTPS_PROXY=http://host.docker.internal:10808 \
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build
 ```
+
+`backend` and `worker` now run Alembic migrations automatically on startup. Schema changes must ship
+as Alembic revisions; `create_all()` is no longer the runtime source of truth.

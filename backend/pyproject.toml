@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Backend for a personal asset tracking dashboard."
 requires-python = ">=3.11"
 dependencies = [
-	"fakeredis>=2.34.1",
+	"alembic>=1.18.4",
 	"fastapi>=0.115.12",
 	"httpx>=0.28.1",
 	"itsdangerous>=2.2.0",
@@ -18,6 +18,9 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+	"integration: exercises real service dependencies such as Redis",
+]
 
 [tool.uv]
 package = false

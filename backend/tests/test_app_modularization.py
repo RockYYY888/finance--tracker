@@ -88,6 +88,12 @@ def test_api_lifespan_only_initializes_db(
 ) -> None:
 	call_order: list[str] = []
 
+	def fake_validate_runtime() -> None:
+		call_order.append("validate_runtime")
+
+	def fake_validate_runtime_redis_connection() -> None:
+		call_order.append("validate_runtime_redis_connection")
+
 	def fake_init_db() -> None:
 		call_order.append("init_db")
 
@@ -95,6 +101,7 @@ def test_api_lifespan_only_initializes_db(
 		raise AssertionError("Legacy startup backfill should not run during app lifespan.")
 
 	monkeypatch.setattr(main, "init_db", fake_init_db)
+	monkeypatch.setattr(main, "validate_runtime_redis_connection", fake_validate_runtime_redis_connection)
 	monkeypatch.setattr(legacy_service, "_ensure_legacy_schema", fail_heavy_startup)
 	monkeypatch.setattr(legacy_service, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
 	monkeypatch.setattr(
@@ -104,6 +111,11 @@ def test_api_lifespan_only_initializes_db(
 	)
 	monkeypatch.setattr(legacy_service, "_backfill_cash_ledger_entries", fail_heavy_startup)
 	monkeypatch.setattr(legacy_service, "_audit_legacy_user_ownership", fail_heavy_startup)
+	monkeypatch.setattr(
+		main,
+		"settings",
+		type("FakeSettings", (), {"validate_runtime": staticmethod(fake_validate_runtime)})(),
+	)
 
 	async def exercise_lifespan() -> None:
 		async with main.lifespan(main.app):
@@ -112,6 +124,8 @@ def test_api_lifespan_only_initializes_db(
 	asyncio.run(exercise_lifespan())
 
 	assert call_order == [
+		"validate_runtime",
+		"validate_runtime_redis_connection",
 		"init_db",
 		"inside_lifespan",
 	]
@@ -127,6 +141,9 @@ def test_worker_lifecycle_initializes_db_and_background_job_worker(
 
 	def fake_validate_runtime() -> None:
 		call_order.append("validate_runtime")
+
+	def fake_validate_runtime_redis_connection() -> None:
+		call_order.append("validate_runtime_redis_connection")
 
 	def fake_start_background_job_worker() -> None:
 		call_order.append("start_background_job_worker")
@@ -146,6 +163,7 @@ def test_worker_lifecycle_initializes_db_and_background_job_worker(
 
 	monkeypatch.setattr(worker, "init_db", fake_init_db)
 	monkeypatch.setattr(worker, "settings", FakeSettings())
+	monkeypatch.setattr(worker, "validate_runtime_redis_connection", fake_validate_runtime_redis_connection)
 	monkeypatch.setattr(worker, "start_background_job_worker", fake_start_background_job_worker)
 	monkeypatch.setattr(worker, "stop_background_job_worker", fake_stop_background_job_worker)
 	monkeypatch.setattr(asyncio, "get_running_loop", lambda: FakeLoop())
@@ -154,6 +172,7 @@ def test_worker_lifecycle_initializes_db_and_background_job_worker(
 
 	assert call_order == [
 		"validate_runtime",
+		"validate_runtime_redis_connection",
 		"init_db",
 		"add_signal_handler",
 		"add_signal_handler",

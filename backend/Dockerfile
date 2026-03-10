@@ -4,10 +4,11 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock alembic.ini ./
 RUN uv sync --frozen
 
 COPY app ./app
+COPY alembic ./alembic
 COPY data ./data
 
 ENV PATH="/app/.venv/bin:${PATH}" \

@@ -17,6 +17,7 @@ from app.runtime_state import (
 	live_holdings_return_states,
 	live_portfolio_states,
 	login_attempt_states,
+	validate_runtime_redis_connection,
 )
 from app.services import core_support, dashboard_service, history_service, legacy_service, service_context
 
@@ -28,6 +29,7 @@ market_data_client = service_context.market_data_client
 @asynccontextmanager
 async def lifespan(_: FastAPI):
 	settings.validate_runtime()
+	validate_runtime_redis_connection()
 	init_db()
 	yield
 

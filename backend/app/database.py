@@ -1,11 +1,20 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+import fcntl
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect
 from sqlmodel import Session, SQLModel, create_engine
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = f"sqlite:///{DATA_DIR / 'asset_tracker.db'}"
+ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
+ALEMBIC_VERSION_TABLE = "alembic_version"
+ALEMBIC_BASELINE_REVISION = "20260310_01"
+MIGRATION_LOCK_PATH = DATA_DIR / ".migration.lock"
 
 engine = create_engine(
 	DATABASE_URL,
@@ -13,9 +22,60 @@ engine = create_engine(
 )
 
 
+def _build_alembic_config() -> Config:
+	config = Config(str(ALEMBIC_CONFIG_PATH))
+	config.set_main_option("script_location", str(ALEMBIC_CONFIG_PATH.parent / "alembic"))
+	config.set_main_option("sqlalchemy.url", DATABASE_URL)
+	return config
+
+
+@contextmanager
+def _migration_lock() -> Iterator[None]:
+	MIGRATION_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+	with MIGRATION_LOCK_PATH.open("a+b") as lock_file:
+		fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+		try:
+			yield
+		finally:
+			fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _has_legacy_schema_without_alembic_version() -> bool:
+	with engine.connect() as connection:
+		table_names = set(inspect(connection).get_table_names())
+
+	return bool(table_names - {ALEMBIC_VERSION_TABLE}) and ALEMBIC_VERSION_TABLE not in table_names
+
+
+def _validate_legacy_schema_matches_baseline() -> None:
+	with engine.connect() as connection:
+		table_names = set(inspect(connection).get_table_names()) - {ALEMBIC_VERSION_TABLE}
+
+	expected_table_names = set(SQLModel.metadata.tables)
+	missing_tables = sorted(expected_table_names - table_names)
+	extra_tables = sorted(table_names - expected_table_names)
+	if not missing_tables and not extra_tables:
+		return
+
+	raise RuntimeError(
+		"Legacy schema bootstrap requires a database that already matches the Alembic baseline. "
+		f"Missing tables: {missing_tables or 'none'}. "
+		f"Extra tables: {extra_tables or 'none'}.",
+	)
+
+
 def init_db() -> None:
-	"""Create database tables on startup."""
-	SQLModel.metadata.create_all(engine)
+	"""Apply schema migrations on startup.
+
+	Existing deployments created before Alembic are stamped at the baseline revision once,
+	then upgraded normally from that point onward.
+	"""
+	with _migration_lock():
+		alembic_config = _build_alembic_config()
+		if _has_legacy_schema_without_alembic_version():
+			_validate_legacy_schema_matches_baseline()
+			command.stamp(alembic_config, ALEMBIC_BASELINE_REVISION)
+		command.upgrade(alembic_config, "head")
 
 
 def get_session() -> Generator[Session, None, None]:

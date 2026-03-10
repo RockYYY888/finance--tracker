@@ -2,13 +2,21 @@ services:
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "127.0.0.1:${ASSET_TRACKER_HOST_REDIS_PORT:-6380}:6379"
     restart: unless-stopped
 
   backend:
     build:
       context: ./backend
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
@@ -26,7 +34,8 @@ services:
       context: ./backend
     command: ["python", "-m", "app.worker"]
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}

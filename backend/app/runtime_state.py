@@ -10,8 +10,8 @@ import pickle
 import threading
 from typing import Generic, TypeVar
 
-from fakeredis import FakeRedis
 from redis import Redis
+from redis.exceptions import RedisError
 
 from app.schemas import DashboardResponse
 from app.settings import get_settings
@@ -212,12 +212,9 @@ class RedisBackedScalar(Generic[ScalarType]):
 
 
 settings = get_settings()
-redis_url = settings.redis_url_value()
-redis_client: Redis = (
-	Redis.from_url(redis_url)
-	if redis_url is not None
-	else FakeRedis()
-)
+DEFAULT_LOCAL_REDIS_URL = "redis://127.0.0.1:6380/0"
+redis_url = settings.redis_url_value() or DEFAULT_LOCAL_REDIS_URL
+redis_client: Redis = Redis.from_url(redis_url)
 
 dashboard_cache: MutableMapping[str, DashboardCacheEntry] = RedisBackedDict[str, DashboardCacheEntry](
 	redis_client,
@@ -265,6 +262,17 @@ current_agent_task_id_context: ContextVar[int | None] = ContextVar(
 background_refresh_task: asyncio.Task[None] | None = None
 snapshot_rebuild_worker_task: asyncio.Task[None] | None = None
 background_job_worker_task: asyncio.Task[None] | None = None
+
+
+def validate_runtime_redis_connection() -> None:
+	"""Fail fast when runtime storage cannot reach the configured Redis endpoint."""
+	try:
+		if redis_client.ping():
+			return
+	except RedisError as exc:
+		raise RuntimeError(f"Unable to connect to Redis at {redis_url}.") from exc
+
+	raise RuntimeError(f"Redis ping returned an unexpected response for {redis_url}.")
 
 
 def get_last_global_force_refresh_at() -> datetime | None:

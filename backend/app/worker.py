@@ -5,6 +5,7 @@ import logging
 import signal
 
 from app.database import init_db
+from app.runtime_state import validate_runtime_redis_connection
 from app.services.job_service import start_background_job_worker, stop_background_job_worker
 from app.services import service_context
 
@@ -14,6 +15,7 @@ settings = service_context.settings
 
 async def run_worker() -> None:
 	settings.validate_runtime()
+	validate_runtime_redis_connection()
 	init_db()
 	stop_event = asyncio.Event()
 	loop = asyncio.get_running_loop()
