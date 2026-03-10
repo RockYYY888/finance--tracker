@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine, select
 
+from app import runtime_state
 import app.main as main
 from app.main import (
 	create_account,
@@ -48,6 +49,16 @@ class StaticMarketDataClient:
 			return 1.0, []
 		return 7.0, []
 
+	async def fetch_hourly_price_series(
+		self,
+		symbol: str,
+		*,
+		market: str | None = None,
+		start_at: datetime,
+		end_at: datetime,
+	) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+		return [], "USD", []
+
 	async def fetch_quote(
 		self,
 		symbol: str,
@@ -68,6 +79,18 @@ class StaticMarketDataClient:
 		return None
 
 
+def _reset_async_runtime_state() -> None:
+	runtime_state.last_global_force_refresh_at = None
+	runtime_state.snapshot_rebuild_users_in_queue.clear()
+	runtime_state.snapshot_rebuild_worker_task = None
+	while True:
+		try:
+			runtime_state.snapshot_rebuild_queue.get_nowait()
+		except asyncio.QueueEmpty:
+			break
+		runtime_state.snapshot_rebuild_queue.task_done()
+
+
 @pytest.fixture
 def session(tmp_path: Path) -> Iterator[Session]:
 	engine = create_engine(
@@ -78,6 +101,7 @@ def session(tmp_path: Path) -> Iterator[Session]:
 	main.dashboard_cache.clear()
 	main.live_portfolio_states.clear()
 	main.live_holdings_return_states.clear()
+	_reset_async_runtime_state()
 
 	with Session(engine) as db_session:
 		yield db_session
@@ -85,6 +109,7 @@ def session(tmp_path: Path) -> Iterator[Session]:
 	main.dashboard_cache.clear()
 	main.live_portfolio_states.clear()
 	main.live_holdings_return_states.clear()
+	_reset_async_runtime_state()
 
 
 def make_user(session: Session, username: str) -> UserAccount:
@@ -106,7 +131,7 @@ def test_cached_dashboard_keeps_each_user_in_a_separate_cache_entry(
 ) -> None:
 	first_user = make_user(session, "first_user")
 	second_user = make_user(session, "second_user")
-	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
 
 	create_account(
 		CashAccountCreate(
@@ -145,7 +170,7 @@ def test_dashboard_only_includes_assets_belonging_to_the_current_user(
 ) -> None:
 	first_user = make_user(session, "alpha_user")
 	second_user = make_user(session, "beta_user")
-	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
 
 	create_account(
 		CashAccountCreate(
@@ -223,7 +248,7 @@ def test_list_endpoints_exclude_records_owned_by_other_users(
 ) -> None:
 	first_user = make_user(session, "owner_user")
 	second_user = make_user(session, "viewer_user")
-	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
 
 	create_account(
 		CashAccountCreate(
@@ -417,7 +442,7 @@ def test_ensure_legacy_schema_adds_user_id_without_assigning_admin(
 			),
 		)
 
-	monkeypatch.setattr(main, "engine", legacy_engine)
+	monkeypatch.setattr(main.legacy_service, "engine", legacy_engine)
 	main._ensure_legacy_schema()
 
 	with Session(legacy_engine) as session:

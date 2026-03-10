@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 from sqlmodel import SQLModel, Session, create_engine, select
 
+from app import runtime_state
 import app.main as main
 from app.analytics import bucket_start_utc
 from app.main import (
@@ -36,6 +37,18 @@ class StaticMarketDataClient:
 		return None
 
 
+def _reset_async_runtime_state() -> None:
+	runtime_state.last_global_force_refresh_at = None
+	runtime_state.snapshot_rebuild_users_in_queue.clear()
+	runtime_state.snapshot_rebuild_worker_task = None
+	while True:
+		try:
+			runtime_state.snapshot_rebuild_queue.get_nowait()
+		except asyncio.QueueEmpty:
+			break
+		runtime_state.snapshot_rebuild_queue.task_done()
+
+
 @pytest.fixture
 def session(tmp_path: Path) -> Iterator[Session]:
 	engine = create_engine(
@@ -46,6 +59,7 @@ def session(tmp_path: Path) -> Iterator[Session]:
 	main.dashboard_cache.clear()
 	main.live_portfolio_states.clear()
 	main.live_holdings_return_states.clear()
+	_reset_async_runtime_state()
 
 	with Session(engine) as db_session:
 		yield db_session
@@ -53,6 +67,7 @@ def session(tmp_path: Path) -> Iterator[Session]:
 	main.dashboard_cache.clear()
 	main.live_portfolio_states.clear()
 	main.live_holdings_return_states.clear()
+	_reset_async_runtime_state()
 
 
 def make_user(session: Session, username: str = "tester") -> UserAccount:
@@ -73,7 +88,7 @@ def test_dashboard_correction_override_and_delete_are_applied_to_hour_series(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	user = make_user(session, "correction_user")
-	monkeypatch.setattr(main, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(main.legacy_service, "market_data_client", StaticMarketDataClient())
 
 	now = datetime.now(timezone.utc)
 	older_point_at = now - timedelta(hours=2)
