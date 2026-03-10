@@ -7,6 +7,7 @@ import {
 	formatPriceAmount,
 	formatQuantity,
 } from "../../lib/assetFormatting";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	CashAccountRecord,
@@ -84,6 +85,7 @@ export function HoldingTransactionHistory({
 		() => transactions.find((transaction) => transaction.id === editingId) ?? null,
 		[editingId, transactions],
 	);
+	useAutoRefreshGuard(editingId !== null, "holding-transaction-editor");
 
 	useEffect(() => {
 		if (editingTransaction == null) {

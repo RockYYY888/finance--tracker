@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { formatTimestamp as formatAssetTimestamp } from "../../lib/assetFormatting";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import type { ReleaseNoteInput, ReleaseNoteRecord } from "../../types/feedback";
 
 export interface AdminReleaseNotesDialogProps {
@@ -48,6 +49,7 @@ export function AdminReleaseNotesDialog({
 	const [releaseContent, setReleaseContent] = useState("");
 	const [releaseSourceFeedbackIds, setReleaseSourceFeedbackIds] = useState("");
 	useBodyScrollLock(open);
+	useAutoRefreshGuard(open, "admin-release-notes-dialog");
 
 	useEffect(() => {
 		if (!open) {

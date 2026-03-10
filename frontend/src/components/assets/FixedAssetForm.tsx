@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
 import { toErrorMessage } from "../../lib/apiClient";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import type {
 	AssetEditorMode,
 	FixedAssetFormDraft,
@@ -70,6 +71,7 @@ export function FixedAssetForm({
 	onDelete,
 	onCancel,
 }: FixedAssetFormProps) {
+	useAutoRefreshGuard(true, "fixed-asset-form");
 	const [draft, setDraft] = useState<FixedAssetFormDraft>(() => toFixedAssetDraft(value));
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [isWorking, setIsWorking] = useState(false);

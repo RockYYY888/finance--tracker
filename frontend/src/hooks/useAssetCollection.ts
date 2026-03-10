@@ -17,7 +17,9 @@ export interface UseAssetCollectionResult<TInput, TRecord extends IdentifiableRe
 	items: TRecord[];
 	errorMessage: string | null;
 	isEditorOpen: boolean;
+	editorMode: "create" | "edit" | null;
 	editingRecord: TRecord | null;
+	editingRecordId: number | null;
 	editorSeedRecord: TRecord | null;
 	editorSessionKey: number;
 	isRefreshing: boolean;
@@ -50,6 +52,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 	const [items, setItems] = useState<TRecord[]>(initialItems);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isEditorOpen, setIsEditorOpen] = useState(false);
+	const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
 	const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
 	const [editorSeedRecord, setEditorSeedRecord] = useState<TRecord | null>(null);
 	const [editorSessionKey, setEditorSessionKey] = useState(0);
@@ -79,6 +82,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 
 	function openCreate(): void {
 		setErrorMessage(null);
+		setEditorMode("create");
 		setEditingRecordId(null);
 		setEditorSeedRecord(null);
 		setEditorSessionKey((currentKey) => currentKey + 1);
@@ -87,6 +91,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 
 	function openEdit(record: TRecord): void {
 		setErrorMessage(null);
+		setEditorMode("edit");
 		setEditingRecordId(record.id);
 		setEditorSeedRecord(record);
 		setEditorSessionKey((currentKey) => currentKey + 1);
@@ -95,6 +100,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 
 	function closeEditor(): void {
 		setErrorMessage(null);
+		setEditorMode(null);
 		setEditingRecordId(null);
 		setEditorSeedRecord(null);
 		setIsEditorOpen(false);
@@ -239,6 +245,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 
 			const wasEditingCurrentRecord = editingRecordId === record.id;
 			if (wasEditingCurrentRecord) {
+				setEditorMode(null);
 				setEditingRecordId(null);
 				setIsEditorOpen(false);
 			}
@@ -250,6 +257,7 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 			} catch (error) {
 				setItems((currentItems) => [record, ...currentItems]);
 				if (wasEditingCurrentRecord) {
+					setEditorMode("edit");
 					setEditingRecordId(record.id);
 					setIsEditorOpen(true);
 				}
@@ -266,7 +274,9 @@ export function useAssetCollection<TInput, TRecord extends IdentifiableRecord>(
 		items,
 		errorMessage,
 		isEditorOpen,
+		editorMode,
 		editingRecord,
+		editingRecordId,
 		editorSeedRecord,
 		editorSessionKey,
 		isRefreshing,

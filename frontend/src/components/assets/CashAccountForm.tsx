@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
 import { toErrorMessage } from "../../lib/apiClient";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import type {
 	AssetEditorMode,
 	CashAccountFormDraft,
@@ -70,6 +71,7 @@ export function CashAccountForm({
 	onDelete,
 	onCancel,
 }: CashAccountFormProps) {
+	useAutoRefreshGuard(true, "cash-account-form");
 	const [draft, setDraft] = useState<CashAccountFormDraft>(() =>
 		toCashAccountDraft(value),
 	);

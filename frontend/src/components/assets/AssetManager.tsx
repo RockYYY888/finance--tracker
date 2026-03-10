@@ -730,14 +730,14 @@ export function AssetManager({
 					<>
 						{cashCollection.isEditorOpen ? (
 							<CashAccountForm
-								mode={cashCollection.editingRecord ? "edit" : "create"}
+								mode={cashCollection.editorMode ?? "create"}
 								resetKey={cashCollection.editorSessionKey}
 								value={
 									cashCollection.editorSeedRecord
 										? toCashDraft(cashCollection.editorSeedRecord)
 										: null
 								}
-								recordId={cashCollection.editingRecord?.id ?? null}
+								recordId={cashCollection.editingRecordId}
 								busy={cashCollection.isSubmitting}
 								errorMessage={cashCollection.errorMessage}
 								onCreate={(payload) => cashCollection.submit(payload)}
@@ -786,9 +786,9 @@ export function AssetManager({
 					<>
 						{holdingCollection.isEditorOpen ? (
 							<HoldingForm
-								mode={holdingCollection.editingRecord ? "edit" : "create"}
+								mode={holdingCollection.editorMode ?? "create"}
 								resetKey={holdingCollection.editorSessionKey}
-								intent={holdingCollection.editingRecord ? "edit" : holdingEditorIntent}
+								intent={holdingCollection.editorMode === "edit" ? "edit" : holdingEditorIntent}
 								value={
 									holdingCollection.editorSeedRecord
 										? toHoldingDraft(holdingCollection.editorSeedRecord)
@@ -796,7 +796,7 @@ export function AssetManager({
 								}
 								existingHoldings={holdingCollection.items}
 								cashAccounts={cashCollection.items}
-								recordId={holdingCollection.editingRecord?.id ?? null}
+								recordId={holdingCollection.editingRecordId}
 								busy={holdingCollection.isSubmitting}
 								errorMessage={holdingCollection.errorMessage}
 								maxStartedOnDate={maxStartedOnDate}
@@ -840,14 +840,14 @@ export function AssetManager({
 					<>
 						{fixedAssetCollection.isEditorOpen ? (
 							<FixedAssetForm
-								mode={fixedAssetCollection.editingRecord ? "edit" : "create"}
+								mode={fixedAssetCollection.editorMode ?? "create"}
 								resetKey={fixedAssetCollection.editorSessionKey}
 								value={
 									fixedAssetCollection.editorSeedRecord
 										? toFixedAssetDraft(fixedAssetCollection.editorSeedRecord)
 										: null
 								}
-								recordId={fixedAssetCollection.editingRecord?.id ?? null}
+								recordId={fixedAssetCollection.editingRecordId}
 								busy={fixedAssetCollection.isSubmitting}
 								errorMessage={fixedAssetCollection.errorMessage}
 								onCreate={(payload) => fixedAssetCollection.submit(payload)}
@@ -872,14 +872,14 @@ export function AssetManager({
 					<>
 						{liabilityCollection.isEditorOpen ? (
 							<LiabilityForm
-								mode={liabilityCollection.editingRecord ? "edit" : "create"}
+								mode={liabilityCollection.editorMode ?? "create"}
 								resetKey={liabilityCollection.editorSessionKey}
 								value={
 									liabilityCollection.editorSeedRecord
 										? toLiabilityDraft(liabilityCollection.editorSeedRecord)
 										: null
 								}
-								recordId={liabilityCollection.editingRecord?.id ?? null}
+								recordId={liabilityCollection.editingRecordId}
 								busy={liabilityCollection.isSubmitting}
 								errorMessage={liabilityCollection.errorMessage}
 								onCreate={(payload) => liabilityCollection.submit(payload)}
@@ -904,14 +904,14 @@ export function AssetManager({
 					<>
 						{otherAssetCollection.isEditorOpen ? (
 							<OtherAssetForm
-								mode={otherAssetCollection.editingRecord ? "edit" : "create"}
+								mode={otherAssetCollection.editorMode ?? "create"}
 								resetKey={otherAssetCollection.editorSessionKey}
 								value={
 									otherAssetCollection.editorSeedRecord
 										? toOtherAssetDraft(otherAssetCollection.editorSeedRecord)
 										: null
 								}
-								recordId={otherAssetCollection.editingRecord?.id ?? null}
+								recordId={otherAssetCollection.editingRecordId}
 								busy={otherAssetCollection.isSubmitting}
 								errorMessage={otherAssetCollection.errorMessage}
 								onCreate={(payload) => otherAssetCollection.submit(payload)}

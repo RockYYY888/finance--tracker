@@ -18,6 +18,7 @@ import {
 	updateCurrentUserEmail,
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
+import { useHasActiveAutoRefreshGuards } from "./lib/autoRefreshGuards";
 import {
 	createReleaseNoteForAdmin,
 	closeFeedbackForAdmin,
@@ -469,6 +470,8 @@ function App() {
 	const dashboardRequestInFlightRef = useRef(false);
 	const pendingDashboardRefreshRef = useRef(false);
 	const pendingForceRefreshRef = useRef(false);
+	const autoRefreshResumeRef = useRef(false);
+	const isAutoRefreshBlocked = useHasActiveAutoRefreshGuards();
 
 	function resetDashboardState(): void {
 		setDashboard(EMPTY_DASHBOARD);
@@ -568,11 +571,18 @@ function App() {
 		if (authStatus !== "authenticated") {
 			return;
 		}
+		if (isAutoRefreshBlocked) {
+			autoRefreshResumeRef.current = true;
+			return;
+		}
 
 		let refreshTimer = 0;
 		const initialDelay = window.setTimeout(() => {
 			void loadDashboard();
 			refreshTimer = window.setInterval(() => {
+				if (document.visibilityState !== "visible") {
+					return;
+				}
 				void loadDashboard();
 			}, 60 * 1000);
 		}, getMillisecondsUntilNextMinute());
@@ -583,10 +593,23 @@ function App() {
 				window.clearInterval(refreshTimer);
 			}
 		};
-	}, [authStatus]);
+	}, [authStatus, isAutoRefreshBlocked]);
 
 	useEffect(() => {
-		if (authStatus !== "authenticated") {
+		if (
+			authStatus !== "authenticated" ||
+			isAutoRefreshBlocked ||
+			!autoRefreshResumeRef.current
+		) {
+			return;
+		}
+
+		autoRefreshResumeRef.current = false;
+		void loadDashboard();
+	}, [authStatus, isAutoRefreshBlocked]);
+
+	useEffect(() => {
+		if (authStatus !== "authenticated" || isAutoRefreshBlocked) {
 			return;
 		}
 
@@ -598,7 +621,7 @@ function App() {
 
 		document.addEventListener("visibilitychange", handleVisibilityChange);
 		return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-	}, [authStatus]);
+	}, [authStatus, isAutoRefreshBlocked]);
 
 	async function hydrateSession(): Promise<void> {
 		setAuthStatus("checking");

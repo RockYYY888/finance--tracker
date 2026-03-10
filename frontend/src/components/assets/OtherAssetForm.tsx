@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
 import { toErrorMessage } from "../../lib/apiClient";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import type {
 	AssetEditorMode,
 	MaybePromise,
@@ -68,6 +69,7 @@ export function OtherAssetForm({
 	onDelete,
 	onCancel,
 }: OtherAssetFormProps) {
+	useAutoRefreshGuard(true, "other-asset-form");
 	const [draft, setDraft] = useState<OtherAssetFormDraft>(() => toOtherAssetDraft(value));
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [isWorking, setIsWorking] = useState(false);

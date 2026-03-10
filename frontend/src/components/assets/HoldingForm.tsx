@@ -8,6 +8,7 @@ import {
 	formatQuantity,
 	formatSecurityMarket,
 } from "../../lib/assetFormatting";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import { toErrorMessage } from "../../lib/apiClient";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type {
@@ -354,6 +355,7 @@ export function HoldingForm({
 	onMergeDuplicate,
 	onCancel,
 }: HoldingFormProps) {
+	useAutoRefreshGuard(true, "holding-form");
 	const resolvedIntent = intent ?? (
 		mode === "edit"
 			? "edit"

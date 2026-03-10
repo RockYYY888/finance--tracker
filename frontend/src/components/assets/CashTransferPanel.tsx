@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
 import { formatDateValue, formatMoneyAmount } from "../../lib/assetFormatting";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	CashAccountRecord,
@@ -107,6 +108,7 @@ export function CashTransferPanel({
 		}
 		return sourceAccount.balance;
 	}, [editingTransfer, sourceAccount]);
+	useAutoRefreshGuard(isFormOpen, "cash-transfer-form");
 
 	useEffect(() => {
 		if (!isFormOpen) {

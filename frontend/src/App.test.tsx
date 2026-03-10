@@ -1,6 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import {
+	__resetAutoRefreshGuardsForTests,
+	__setAutoRefreshGuardForTests,
+} from "./lib/autoRefreshGuards";
 import { EMPTY_DASHBOARD } from "./types/dashboard";
 
 const STORAGE_KEY = "asset-tracker-last-session-user";
@@ -108,9 +112,16 @@ function createDeferredPromise<T>() {
 	};
 }
 
+async function flushMicrotasks(): Promise<void> {
+	await Promise.resolve();
+	await Promise.resolve();
+}
+
 describe("App session restore", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.useRealTimers();
+		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
 		feedbackApiMocks.getFeedbackSummary.mockResolvedValue({
@@ -227,5 +238,36 @@ describe("App session restore", () => {
 		});
 
 		expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+	});
+
+	it("pauses timed dashboard refresh while user input is protected by a refresh guard", async () => {
+		vi.useFakeTimers();
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await act(async () => {
+			await flushMicrotasks();
+		});
+		expect(dashboardApiMocks.getDashboard).toHaveBeenCalledTimes(1);
+
+		act(() => {
+			__setAutoRefreshGuardForTests("test-editing", true);
+		});
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(130000);
+		});
+		expect(dashboardApiMocks.getDashboard).toHaveBeenCalledTimes(1);
+		const callCountBeforeResume = dashboardApiMocks.getDashboard.mock.calls.length;
+
+		act(() => {
+			__setAutoRefreshGuardForTests("test-editing", false);
+		});
+
+		await act(async () => {
+			await flushMicrotasks();
+		});
+		expect(dashboardApiMocks.getDashboard.mock.calls.length).toBeGreaterThan(callCountBeforeResume);
 	});
 });

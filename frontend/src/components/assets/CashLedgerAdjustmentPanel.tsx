@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
 import { formatDateValue, formatMoneyAmount } from "../../lib/assetFormatting";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
 	CashAccountRecord,
@@ -83,6 +84,7 @@ export function CashLedgerAdjustmentPanel({
 		() => accounts.find((account) => String(account.id) === draft.cash_account_id) ?? null,
 		[accounts, draft.cash_account_id],
 	);
+	useAutoRefreshGuard(isFormOpen, "cash-ledger-adjustment-form");
 
 	useEffect(() => {
 		if (!isFormOpen || draft.happened_on) {

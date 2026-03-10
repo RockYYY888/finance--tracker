@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 
 export interface FeedbackDialogProps {
 	open: boolean;
@@ -20,6 +21,7 @@ export function FeedbackDialog({
 	const [message, setMessage] = useState("");
 	const [localError, setLocalError] = useState<string | null>(null);
 	useBodyScrollLock(open);
+	useAutoRefreshGuard(open, "feedback-dialog");
 
 	useEffect(() => {
 		if (!open) {
