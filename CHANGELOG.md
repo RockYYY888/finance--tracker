@@ -1,22 +1,16 @@
 # Changelog
 
-All notable product-facing changes are recorded in this file.
+## v0.6.1 - 2026-03-10
+
+- Switched holdings to transaction-first semantics and added agent-ready trade correction APIs
+- Reconciled sell proceeds on trade edits, trade deletes, and holding deletes
+- Simplified holding buy and sell flows and refined analytics chart baselines
 
 ## v0.6.0 - 2026-03-05
 
-- Chart readability upgrade:
-	- Added dynamic median centerline for trend charts.
-	- Added dynamic y-axis domain based on visible window data.
-	- Added "relative-to-centerline" delta display.
-	- Kept return-chart zero baseline while adding a median reference line.
-- Release-note delivery upgrade:
-	- User inbox now keeps only one release-note notification card.
-	- New release publish updates the same notification and resets unread status.
-	- Release-note content is returned as a cumulative markdown history stream.
+- Improved trend-chart readability and hover summaries
+- Consolidated release-note delivery into a single rolling inbox card
 
 ## v0.5.0 - 2026-03-05
 
-- Added in-app release-note workflow:
-	- Admin can draft, list, and publish versioned release notes.
-	- User inbox can read release notes and mark them as seen.
-	- Feedback summary badge includes unread release-note notifications.
+- Added release-note drafting, publishing, and user inbox delivery
