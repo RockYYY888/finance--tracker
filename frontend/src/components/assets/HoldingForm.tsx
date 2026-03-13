@@ -992,15 +992,15 @@ export function HoldingForm({
 							))}
 						</select>
 						{selectedSellHolding ? (
-							<p className="asset-manager__helper-text">
-								当前可卖 {formatQuantity(selectedSellHolding.quantity)}
-								{selectedSellHolding.price != null && selectedSellHolding.price > 0
-									? `，当前缓存价 ${formatPriceAmount(
-										selectedSellHolding.price,
-										selectedSellHolding.price_currency ?? selectedSellHolding.fallback_currency,
-									)}`
-									: ""}
-							</p>
+								<p className="asset-manager__helper-text">
+									当前可卖 {formatQuantity(selectedSellHolding.quantity)}
+									{selectedSellHolding.price != null && selectedSellHolding.price > 0
+										? `，当前实时卖出参考价 ${formatPriceAmount(
+											selectedSellHolding.price,
+											selectedSellHolding.price_currency ?? selectedSellHolding.fallback_currency,
+										)}`
+										: ""}
+								</p>
 						) : (
 							<p className="asset-manager__helper-text">
 								只能从当前持仓里选择要卖出的标的

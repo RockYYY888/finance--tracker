@@ -345,6 +345,25 @@ describe("HoldingForm sell proceeds handling", () => {
 		expect((screen.getByLabelText(/数量/) as HTMLInputElement).value).toBe("3");
 	});
 
+	it("shows the live sell reference price instead of cache wording for sellable holdings", () => {
+		render(
+			<HoldingForm
+				intent="sell"
+				maxStartedOnDate="2026-03-09"
+				existingHoldings={existingHoldings}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("卖出持仓"), {
+			target: { value: "AAPL::US" },
+		});
+
+		expect(
+			screen.getByText("当前可卖 3，当前实时卖出参考价 188.00 USD"),
+		).not.toBeNull();
+		expect(screen.queryByText(/缓存价/)).toBeNull();
+	});
+
 	it("disables merging into an existing cash account when no cash account exists", () => {
 		render(
 			<HoldingForm
