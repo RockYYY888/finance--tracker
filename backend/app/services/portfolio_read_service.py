@@ -30,23 +30,39 @@ from app.services.common_service import _calculate_return_pct, _normalize_curren
 from app.services.market_data import QuoteLookupError
 
 
-async def _load_display_fx_rates() -> tuple[dict[str, float], float | None, float | None, list[str]]:
+async def _load_display_fx_rates(
+	*,
+	prefer_stale_market_data: bool = False,
+) -> tuple[dict[str, float], float | None, float | None, list[str]]:
 	"""Load top-level display FX rates and reuse them in dashboard valuation."""
 	rates: dict[str, float] = {"CNY": 1.0}
 	warnings: list[str] = []
 	usd_cny_rate: float | None = None
 	hkd_cny_rate: float | None = None
 
-	for currency_code in ("USD", "HKD"):
+	async def load_rate(currency_code: str) -> tuple[str, float | None, list[str]]:
 		try:
-			rate, rate_warnings = await service_context.market_data_client.fetch_fx_rate(
-				currency_code,
-				"CNY",
-			)
+			if prefer_stale_market_data:
+				rate, rate_warnings = await service_context.market_data_client.fetch_fx_rate(
+					currency_code,
+					"CNY",
+					prefer_stale=True,
+				)
+			else:
+				rate, rate_warnings = await service_context.market_data_client.fetch_fx_rate(
+					currency_code,
+					"CNY",
+				)
 		except (QuoteLookupError, ValueError) as exc:
-			warnings.append(f"{currency_code}/CNY 汇率拉取失败: {exc}")
-			continue
+			return currency_code, None, [f"{currency_code}/CNY 汇率拉取失败: {exc}"]
+		return currency_code, rate, rate_warnings
 
+	for currency_code, rate, rate_warnings in await asyncio.gather(
+		*(load_rate(currency_code) for currency_code in ("USD", "HKD")),
+	):
+		if rate is None:
+			warnings.extend(rate_warnings)
+			continue
 		rates[currency_code] = rate
 		warnings.extend(rate_warnings)
 		if currency_code == "USD":
@@ -59,6 +75,8 @@ async def _load_display_fx_rates() -> tuple[dict[str, float], float | None, floa
 async def _value_cash_accounts(
 	accounts: list[CashAccount],
 	fx_rate_overrides: dict[str, float] | None = None,
+	*,
+	prefer_stale_market_data: bool = False,
 ) -> tuple[list[ValuedCashAccount], float, list[str]]:
 	items: list[ValuedCashAccount] = []
 	total = 0.0
@@ -72,10 +90,17 @@ async def _value_cash_accounts(
 				fx_rate = override_rate
 				fx_warnings: list[str] = []
 			else:
-				fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
-					currency_code,
-					"CNY",
-				)
+				if prefer_stale_market_data:
+					fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+						currency_code,
+						"CNY",
+						prefer_stale=True,
+					)
+				else:
+					fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+						currency_code,
+						"CNY",
+					)
 			value_cny = round(account.balance * fx_rate, 2)
 			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:
@@ -107,24 +132,39 @@ async def _value_holding(
 	fx_rate_overrides: dict[str, float] | None = None,
 	*,
 	force_pending: bool = False,
+	prefer_stale_market_data: bool = False,
 ) -> tuple[ValuedHolding, float, list[str]]:
 	warnings: list[str] = []
 
 	try:
-		quote, quote_warnings = await service_context.market_data_client.fetch_quote(
-			holding.symbol,
-			holding.market,
-		)
+		if prefer_stale_market_data:
+			quote, quote_warnings = await service_context.market_data_client.fetch_quote(
+				holding.symbol,
+				holding.market,
+				prefer_stale=True,
+			)
+		else:
+			quote, quote_warnings = await service_context.market_data_client.fetch_quote(
+				holding.symbol,
+				holding.market,
+			)
 		currency_code = _normalize_currency(quote.currency)
 		override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
 		if override_rate is not None:
 			fx_rate = override_rate
 			fx_warnings: list[str] = []
 		else:
-			fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
-				currency_code,
-				"CNY",
-			)
+			if prefer_stale_market_data:
+				fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+					currency_code,
+					"CNY",
+					prefer_stale=True,
+				)
+			else:
+				fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+					currency_code,
+					"CNY",
+				)
 		value_cny = round(holding.quantity * quote.price * fx_rate, 2)
 		price = round(quote.price, 4)
 		price_currency = currency_code
@@ -177,6 +217,7 @@ async def _value_holdings(
 	fx_rate_overrides: dict[str, float] | None = None,
 	*,
 	force_pending: bool = False,
+	prefer_stale_market_data: bool = False,
 ) -> tuple[list[ValuedHolding], float, list[str]]:
 	if not holdings:
 		return [], 0.0, []
@@ -187,6 +228,7 @@ async def _value_holdings(
 				holding,
 				fx_rate_overrides,
 				force_pending=force_pending,
+				prefer_stale_market_data=prefer_stale_market_data,
 			)
 			for holding in holdings
 		),
@@ -230,6 +272,8 @@ def _value_fixed_assets(
 async def _value_liabilities(
 	entries: list[LiabilityEntry],
 	fx_rate_overrides: dict[str, float] | None = None,
+	*,
+	prefer_stale_market_data: bool = False,
 ) -> tuple[list[ValuedLiabilityEntry], float, list[str]]:
 	items: list[ValuedLiabilityEntry] = []
 	total = 0.0
@@ -243,10 +287,17 @@ async def _value_liabilities(
 				fx_rate = override_rate
 				fx_warnings: list[str] = []
 			else:
-				fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
-					currency_code,
-					"CNY",
-				)
+				if prefer_stale_market_data:
+					fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+						currency_code,
+						"CNY",
+						prefer_stale=True,
+					)
+				else:
+					fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+						currency_code,
+						"CNY",
+					)
 			value_cny = round(entry.balance * fx_rate, 2)
 			warnings.extend(fx_warnings)
 		except (QuoteLookupError, ValueError) as exc:

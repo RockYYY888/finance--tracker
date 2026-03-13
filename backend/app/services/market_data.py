@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 import re
 
 import httpx
@@ -20,6 +21,7 @@ EASTMONEY_SEARCH_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
 BITGET_EXCHANGE = "BITGET"
 BITGET_SOURCE_LABEL = "Bitget"
 BITGET_STABLE_QUOTES = {"USDT", "USDC"}
+logger = logging.getLogger(__name__)
 
 
 class QuoteLookupError(RuntimeError):
@@ -928,6 +930,8 @@ class MarketDataClient:
 		self.quote_ttl_seconds = quote_ttl_seconds
 		self.search_ttl_seconds = search_ttl_seconds
 		self.fx_ttl_seconds = fx_ttl_seconds
+		self._quote_refresh_tasks: dict[str, asyncio.Task[None]] = {}
+		self._fx_refresh_tasks: dict[str, asyncio.Task[None]] = {}
 
 	async def _fetch_quote_with_retry(
 		self,
@@ -979,40 +983,34 @@ class MarketDataClient:
 		if clear_search:
 			self.search_cache.expire_all()
 
-	async def fetch_quote(
+	def _resolve_quote_provider_chain(
 		self,
-		symbol: str,
-		market: str | None = None,
-	) -> tuple[Quote, list[str]]:
-		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
-		normalized_market = (market or "").strip().upper() or None
-		normalized_symbol = normalize_symbol_for_market(symbol, normalized_market)
-		resolved_market = normalized_market or infer_security_market(normalized_symbol)
-		cached_quote = self.quote_cache.get(normalized_symbol)
-		if cached_quote is not None:
-			return cached_quote, []
-
-		provider_chain: list[
-			tuple[
-				YahooQuoteProvider | EastMoneyQuoteProvider | TencentQuoteProvider | BitgetQuoteProvider,
-				int,
-			]
-		] = []
+		resolved_market: str | None,
+	) -> list[
+		tuple[
+			YahooQuoteProvider | EastMoneyQuoteProvider | TencentQuoteProvider | BitgetQuoteProvider,
+			int,
+		]
+	]:
 		if resolved_market in {"HK", "CN"}:
-			provider_chain = [
+			return [
 				(self.fallback_quote_provider, 1),
 				(self.backup_quote_provider, 1),
 				(self.quote_provider, 0),
 			]
-		elif resolved_market == "CRYPTO":
-			provider_chain = [(self.crypto_quote_provider, 0)]
-		else:
-			provider_chain = [(self.quote_provider, 0)]
+		if resolved_market == "CRYPTO":
+			return [(self.crypto_quote_provider, 0)]
+		return [(self.quote_provider, 0)]
 
+	async def _fetch_quote_from_providers(
+		self,
+		normalized_symbol: str,
+		resolved_market: str | None,
+	) -> Quote:
 		errors: list[str] = []
-		for provider, retry_attempts in provider_chain:
+		for provider, retry_attempts in self._resolve_quote_provider_chain(resolved_market):
 			try:
-				quote = await self._fetch_quote_with_retry(
+				return await self._fetch_quote_with_retry(
 					provider,
 					normalized_symbol,
 					retry_attempts=retry_attempts,
@@ -1021,18 +1019,180 @@ class MarketDataClient:
 				errors.append(str(exc))
 				continue
 
-			self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
-			return quote, []
-
 		error_message = "; ".join(dict.fromkeys(errors))
 		if not error_message:
 			error_message = f"Quote provider request failed for {normalized_symbol}."
-		stale_quote = self.quote_cache.get_stale(normalized_symbol)
-		if stale_quote is not None:
-			return stale_quote, [
-				f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {error_message}",
-			]
 		raise QuoteLookupError(error_message)
+
+	async def _refresh_quote_cache(
+		self,
+		normalized_symbol: str,
+		resolved_market: str | None,
+	) -> None:
+		quote = await self._fetch_quote_from_providers(normalized_symbol, resolved_market)
+		self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
+
+	def _ensure_quote_refresh(
+		self,
+		normalized_symbol: str,
+		resolved_market: str | None,
+	) -> None:
+		existing_task = self._quote_refresh_tasks.get(normalized_symbol)
+		if existing_task is not None and not existing_task.done():
+			return
+
+		refresh_task = asyncio.create_task(
+			self._refresh_quote_cache(normalized_symbol, resolved_market),
+			name=f"quote-refresh:{normalized_symbol}",
+		)
+
+		def cleanup(task: asyncio.Task[None]) -> None:
+			self._quote_refresh_tasks.pop(normalized_symbol, None)
+			try:
+				task.result()
+			except asyncio.CancelledError:
+				return
+			except QuoteLookupError as exc:
+				logger.debug("Background quote refresh failed for %s: %s", normalized_symbol, exc)
+			except Exception:
+				logger.exception("Background quote refresh crashed for %s", normalized_symbol)
+
+		refresh_task.add_done_callback(cleanup)
+		self._quote_refresh_tasks[normalized_symbol] = refresh_task
+
+	async def _fetch_fx_rate_from_providers(
+		self,
+		from_code: str,
+		to_code: str,
+	) -> float:
+		errors: list[str] = []
+		rate_providers = (
+			(self.fx_provider, 1),
+			(self.fallback_fx_provider, 1),
+		)
+		for provider, retry_attempts in rate_providers:
+			try:
+				return await self._fetch_fx_rate_with_retry(
+					provider,
+					from_code,
+					to_code,
+					retry_attempts=retry_attempts,
+				)
+			except (QuoteLookupError, ValueError) as exc:
+				errors.append(str(exc))
+				continue
+
+		error_message = "; ".join(dict.fromkeys(errors))
+		if not error_message:
+			error_message = f"FX provider request failed for {from_code}/{to_code}."
+		raise QuoteLookupError(error_message)
+
+	async def _refresh_fx_cache(
+		self,
+		from_code: str,
+		to_code: str,
+	) -> None:
+		cache_key = f"{from_code}:{to_code}"
+		rate = await self._fetch_fx_rate_from_providers(from_code, to_code)
+		self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
+
+	def _ensure_fx_refresh(
+		self,
+		from_code: str,
+		to_code: str,
+	) -> None:
+		cache_key = f"{from_code}:{to_code}"
+		existing_task = self._fx_refresh_tasks.get(cache_key)
+		if existing_task is not None and not existing_task.done():
+			return
+
+		refresh_task = asyncio.create_task(
+			self._refresh_fx_cache(from_code, to_code),
+			name=f"fx-refresh:{cache_key}",
+		)
+
+		def cleanup(task: asyncio.Task[None]) -> None:
+			self._fx_refresh_tasks.pop(cache_key, None)
+			try:
+				task.result()
+			except asyncio.CancelledError:
+				return
+			except QuoteLookupError as exc:
+				logger.debug("Background FX refresh failed for %s: %s", cache_key, exc)
+			except Exception:
+				logger.exception("Background FX refresh crashed for %s", cache_key)
+
+		refresh_task.add_done_callback(cleanup)
+		self._fx_refresh_tasks[cache_key] = refresh_task
+
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+		*,
+		prefer_stale: bool = False,
+	) -> tuple[Quote, list[str]]:
+		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
+		normalized_market = (market or "").strip().upper() or None
+		normalized_symbol = normalize_symbol_for_market(symbol, normalized_market)
+		resolved_market = normalized_market or infer_security_market(normalized_symbol)
+		cached_quote = self.quote_cache.get(normalized_symbol)
+		if cached_quote is not None:
+			return cached_quote, []
+		stale_quote = self.quote_cache.get_stale(normalized_symbol)
+		if prefer_stale and stale_quote is not None:
+			self._ensure_quote_refresh(normalized_symbol, resolved_market)
+			return stale_quote, []
+
+		try:
+			quote = await self._fetch_quote_from_providers(normalized_symbol, resolved_market)
+		except QuoteLookupError as exc:
+			error_message = str(exc)
+			stale_quote = self.quote_cache.get_stale(normalized_symbol)
+			if stale_quote is not None:
+				return stale_quote, [
+					f"{normalized_symbol} 行情源不可用，已回退到最近缓存值: {error_message}",
+				]
+			raise
+
+		self.quote_cache.set(normalized_symbol, quote, ttl_seconds=self.quote_ttl_seconds)
+		return quote, []
+
+	async def fetch_fx_rate(
+		self,
+		from_currency: str,
+		to_currency: str,
+		*,
+		prefer_stale: bool = False,
+	) -> tuple[float, list[str]]:
+		"""Fetch an FX rate from the dedicated FX provider and fall back to stale cache."""
+		from_code = from_currency.strip().upper()
+		to_code = to_currency.strip().upper()
+		if from_code == to_code:
+			return 1.0, []
+
+		cache_key = f"{from_code}:{to_code}"
+		cached_rate = self.fx_cache.get(cache_key)
+		if cached_rate is not None:
+			return cached_rate, []
+		stale_rate = self.fx_cache.get_stale(cache_key)
+		if prefer_stale and stale_rate is not None:
+			self._ensure_fx_refresh(from_code, to_code)
+			return stale_rate, []
+
+		try:
+			rate = await self._fetch_fx_rate_from_providers(from_code, to_code)
+		except QuoteLookupError as exc:
+			error_message = str(exc)
+			stale_rate = self.fx_cache.get_stale(cache_key)
+			if stale_rate is not None:
+				return stale_rate, [
+					f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {error_message}",
+				]
+			raise
+
+		self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
+		return rate, []
 
 	async def fetch_hourly_price_series(
 		self,
@@ -1181,45 +1341,21 @@ class MarketDataClient:
 		self.search_cache.set(cache_key, results, ttl_seconds=self.search_ttl_seconds)
 		return results
 
-	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
-		"""Fetch an FX rate from the dedicated FX provider and fall back to stale cache."""
-		from_code = from_currency.strip().upper()
-		to_code = to_currency.strip().upper()
-		if from_code == to_code:
-			return 1.0, []
-
-		cache_key = f"{from_code}:{to_code}"
-		cached_rate = self.fx_cache.get(cache_key)
-		if cached_rate is not None:
-			return cached_rate, []
-
-		errors: list[str] = []
-		rate_providers = (
-			(self.fx_provider, 1),
-			(self.fallback_fx_provider, 1),
-		)
-		for provider, retry_attempts in rate_providers:
-			try:
-				rate = await self._fetch_fx_rate_with_retry(
-					provider,
-					from_code,
-					to_code,
-					retry_attempts=retry_attempts,
-				)
-			except (QuoteLookupError, ValueError) as exc:
-				errors.append(str(exc))
-				continue
-
-			self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
-			return rate, []
-
-		error_message = "; ".join(dict.fromkeys(errors))
-		if not error_message:
-			error_message = f"FX provider request failed for {from_code}/{to_code}."
-
 		stale_rate = self.fx_cache.get_stale(cache_key)
-		if stale_rate is not None:
-			return stale_rate, [
-				f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {error_message}",
-			]
-		raise QuoteLookupError(error_message)
+		if prefer_stale and stale_rate is not None:
+			self._ensure_fx_refresh(from_code, to_code)
+			return stale_rate, []
+
+		try:
+			rate = await self._fetch_fx_rate_from_providers(from_code, to_code)
+		except QuoteLookupError as exc:
+			error_message = str(exc)
+			stale_rate = self.fx_cache.get_stale(cache_key)
+			if stale_rate is not None:
+				return stale_rate, [
+					f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {error_message}",
+				]
+			raise
+
+		self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
+		return rate, []

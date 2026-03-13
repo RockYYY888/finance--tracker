@@ -70,6 +70,42 @@ class SequenceRateProvider:
 		return outcome
 
 
+class DeferredQuoteProvider:
+	def __init__(self, initial_quote: Quote, refreshed_quote: Quote) -> None:
+		self._initial_quote = initial_quote
+		self._refreshed_quote = refreshed_quote
+		self._refresh_gate = asyncio.Event()
+		self.calls = 0
+
+	async def fetch_quote(self, symbol: str) -> Quote:
+		self.calls += 1
+		if self.calls == 1:
+			return self._initial_quote
+		await self._refresh_gate.wait()
+		return self._refreshed_quote
+
+	def release_refresh(self) -> None:
+		self._refresh_gate.set()
+
+
+class DeferredRateProvider:
+	def __init__(self, initial_rate: float, refreshed_rate: float) -> None:
+		self._initial_rate = initial_rate
+		self._refreshed_rate = refreshed_rate
+		self._refresh_gate = asyncio.Event()
+		self.calls = 0
+
+	async def fetch_rate(self, from_currency: str, to_currency: str) -> float:
+		self.calls += 1
+		if self.calls == 1:
+			return self._initial_rate
+		await self._refresh_gate.wait()
+		return self._refreshed_rate
+
+	def release_refresh(self) -> None:
+		self._refresh_gate.set()
+
+
 class SequenceSearchProvider:
 	def __init__(self, outcomes: list[object]) -> None:
 		self._outcomes = outcomes
@@ -196,6 +232,41 @@ def test_fetch_quote_returns_stale_cache_when_provider_fails() -> None:
 	assert fallback_quote.price == 88.8
 	assert warnings == ["AAPL 行情源不可用，已回退到最近缓存值: provider down"]
 	assert provider.calls == 2
+
+
+def test_fetch_quote_prefers_stale_cache_and_refreshes_in_background() -> None:
+	async def scenario() -> None:
+		clock = [0.0]
+		provider = DeferredQuoteProvider(
+			_make_quote(price=88.8),
+			_make_quote(price=99.9),
+		)
+		client = MarketDataClient(
+			quote_provider=provider,
+			quote_cache=TTLCache[Quote](now=lambda: clock[0]),
+			quote_ttl_seconds=30,
+		)
+
+		initial_quote, initial_warnings = await client.fetch_quote("AAPL")
+		assert initial_quote.price == 88.8
+		assert initial_warnings == []
+
+		clock[0] = 31.0
+		stale_quote, stale_warnings = await client.fetch_quote("AAPL", prefer_stale=True)
+		assert stale_quote.price == 88.8
+		assert stale_warnings == []
+
+		await asyncio.sleep(0)
+		assert provider.calls == 2
+
+		provider.release_refresh()
+		await asyncio.sleep(0)
+
+		refreshed_quote, refreshed_warnings = await client.fetch_quote("AAPL")
+		assert refreshed_quote.price == 99.9
+		assert refreshed_warnings == []
+
+	asyncio.run(scenario())
 
 
 def test_fetch_quote_prefers_china_provider_for_hk_symbols() -> None:
@@ -513,6 +584,43 @@ def test_fetch_fx_rate_uses_fallback_provider_when_primary_fails() -> None:
 	assert warnings == []
 	assert primary_fx_provider.calls == 2
 	assert fallback_fx_provider.calls == 1
+
+
+def test_fetch_fx_rate_prefers_stale_cache_and_refreshes_in_background() -> None:
+	async def scenario() -> None:
+		clock = [0.0]
+		provider = DeferredRateProvider(7.2, 7.3)
+		client = MarketDataClient(
+			fx_provider=provider,
+			fallback_fx_provider=SequenceRateProvider([QuoteLookupError("unused")]),
+			fx_cache=TTLCache[float](now=lambda: clock[0]),
+			fx_ttl_seconds=30,
+		)
+
+		initial_rate, initial_warnings = await client.fetch_fx_rate("USD", "CNY")
+		assert initial_rate == 7.2
+		assert initial_warnings == []
+
+		clock[0] = 31.0
+		stale_rate, stale_warnings = await client.fetch_fx_rate(
+			"USD",
+			"CNY",
+			prefer_stale=True,
+		)
+		assert stale_rate == 7.2
+		assert stale_warnings == []
+
+		await asyncio.sleep(0)
+		assert provider.calls == 2
+
+		provider.release_refresh()
+		await asyncio.sleep(0)
+
+		refreshed_rate, refreshed_warnings = await client.fetch_fx_rate("USD", "CNY")
+		assert refreshed_rate == 7.3
+		assert refreshed_warnings == []
+
+	asyncio.run(scenario())
 
 
 class FailingMarketDataClient:

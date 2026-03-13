@@ -147,7 +147,9 @@ def _load_holdings_return_series_with_live_snapshot(
 async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResponse:
 	user_id = user.username
 	now = utc_now()
-	fx_rate_overrides, usd_cny_rate, hkd_cny_rate, fx_display_warnings = await _load_display_fx_rates()
+	fx_rate_overrides, usd_cny_rate, hkd_cny_rate, fx_display_warnings = await _load_display_fx_rates(
+		prefer_stale_market_data=True,
+	)
 
 	accounts = list(
 		session.exec(
@@ -189,16 +191,19 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 	valued_accounts, cash_value_cny, account_warnings = await _value_cash_accounts(
 		accounts,
 		fx_rate_overrides,
+		prefer_stale_market_data=True,
 	)
 	valued_holdings, holdings_value_cny, holding_warnings = await _value_holdings(
 		holdings,
 		fx_rate_overrides,
 		force_pending=history_sync_pending,
+		prefer_stale_market_data=True,
 	)
 	valued_fixed_assets, fixed_assets_value_cny = _value_fixed_assets(fixed_assets)
 	valued_liabilities, liabilities_value_cny, liability_warnings = await _value_liabilities(
 		liabilities,
 		fx_rate_overrides,
+		prefer_stale_market_data=True,
 	)
 	valued_other_assets, other_assets_value_cny = _value_other_assets(other_assets)
 	total_value_cny = round(
