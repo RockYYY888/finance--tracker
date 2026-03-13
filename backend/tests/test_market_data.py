@@ -6,7 +6,7 @@ import pytest
 
 import app.main as main
 from app.models import SecurityHolding
-from app.services.cache import TTLCache
+from app.services.cache import RedisBackedTTLCache, TTLCache
 from app.services.market_data import (
 	BitgetQuoteProvider,
 	EastMoneyQuoteProvider,
@@ -121,6 +121,36 @@ class SequenceSearchProvider:
 		return outcome
 
 
+class FakeRedis:
+	def __init__(self) -> None:
+		self._values: dict[str, bytes] = {}
+
+	def _normalize_key(self, key: str | bytes) -> str:
+		if isinstance(key, bytes):
+			return key.decode("utf-8")
+		return key
+
+	def get(self, key: str | bytes) -> bytes | None:
+		return self._values.get(self._normalize_key(key))
+
+	def set(self, key: str | bytes, value: bytes) -> bool:
+		self._values[self._normalize_key(key)] = value
+		return True
+
+	def delete(self, *keys: str | bytes) -> int:
+		deleted = 0
+		for key in keys:
+			normalized_key = self._normalize_key(key)
+			if normalized_key in self._values:
+				del self._values[normalized_key]
+				deleted += 1
+		return deleted
+
+	def scan_iter(self, pattern: str) -> list[str]:
+		prefix = pattern[:-1] if pattern.endswith("*") else pattern
+		return [key for key in sorted(self._values) if key.startswith(prefix)]
+
+
 def test_build_fx_symbol_uses_yahoo_pair_format() -> None:
 	assert build_fx_symbol("hkd", "cny") == "HKDCNY=X"
 
@@ -189,6 +219,97 @@ def test_fetch_quote_uses_fresh_cache_before_calling_provider() -> None:
 	assert second_warnings == []
 	assert provider.calls == 1
 	assert provider.symbols == ["AAPL"]
+
+
+def test_redis_backed_ttl_cache_keeps_stale_entries_after_expiry() -> None:
+	clock = [0.0]
+	cache = RedisBackedTTLCache[Quote](
+		FakeRedis(),
+		"asset-tracker:test:quotes",
+		now=lambda: clock[0],
+	)
+	cache.set("AAPL", _make_quote(price=123.4), ttl_seconds=30)
+
+	assert cache.get("AAPL") is not None
+
+	clock[0] = 31.0
+
+	assert cache.get("AAPL") is None
+	assert cache.get_stale("AAPL") is not None
+
+
+def test_fetch_quote_uses_redis_backed_cache_after_client_recreation() -> None:
+	clock = [0.0]
+	redis_client = FakeRedis()
+	provider = SequenceQuoteProvider([_make_quote(price=101.5)])
+	client = MarketDataClient(
+		quote_provider=provider,
+		quote_cache=RedisBackedTTLCache[Quote](
+			redis_client,
+			"asset-tracker:test:quotes",
+			now=lambda: clock[0],
+		),
+		quote_ttl_seconds=60,
+	)
+
+	first_quote, first_warnings = asyncio.run(client.fetch_quote("AAPL"))
+
+	recreated_provider = SequenceQuoteProvider([QuoteLookupError("should stay cached")])
+	recreated_client = MarketDataClient(
+		quote_provider=recreated_provider,
+		quote_cache=RedisBackedTTLCache[Quote](
+			redis_client,
+			"asset-tracker:test:quotes",
+			now=lambda: clock[0],
+		),
+		quote_ttl_seconds=60,
+	)
+	second_quote, second_warnings = asyncio.run(recreated_client.fetch_quote("AAPL"))
+
+	assert first_quote.price == 101.5
+	assert second_quote.price == 101.5
+	assert first_warnings == []
+	assert second_warnings == []
+	assert provider.calls == 1
+	assert recreated_provider.calls == 0
+
+
+def test_fetch_fx_rate_uses_redis_backed_cache_after_client_recreation() -> None:
+	clock = [0.0]
+	redis_client = FakeRedis()
+	provider = SequenceRateProvider([7.1234])
+	client = MarketDataClient(
+		fx_provider=provider,
+		fallback_fx_provider=SequenceRateProvider([QuoteLookupError("unused")]),
+		fx_cache=RedisBackedTTLCache[float](
+			redis_client,
+			"asset-tracker:test:fx",
+			now=lambda: clock[0],
+		),
+		fx_ttl_seconds=60,
+	)
+
+	first_rate, first_warnings = asyncio.run(client.fetch_fx_rate("USD", "CNY"))
+
+	recreated_provider = SequenceRateProvider([QuoteLookupError("should stay cached")])
+	recreated_client = MarketDataClient(
+		fx_provider=recreated_provider,
+		fallback_fx_provider=SequenceRateProvider([QuoteLookupError("unused")]),
+		fx_cache=RedisBackedTTLCache[float](
+			redis_client,
+			"asset-tracker:test:fx",
+			now=lambda: clock[0],
+		),
+		fx_ttl_seconds=60,
+	)
+	second_rate, second_warnings = asyncio.run(recreated_client.fetch_fx_rate("USD", "CNY"))
+
+	assert first_rate == 7.1234
+	assert second_rate == 7.1234
+	assert first_warnings == []
+	assert second_warnings == []
+	assert provider.calls == 1
+	assert recreated_provider.calls == 0
 
 
 def test_fetch_quote_refreshes_after_cache_expiry() -> None:
