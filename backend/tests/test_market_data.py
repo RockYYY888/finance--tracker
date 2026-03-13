@@ -23,6 +23,7 @@ from app.services.market_data import (
 	normalize_symbol,
 	parse_eastmoney_search_item,
 )
+from app.services import service_context
 
 
 def _make_quote(
@@ -526,6 +527,33 @@ class FailingMarketDataClient:
 		raise AssertionError("FX lookup should not run when quote lookup fails.")
 
 
+class ConcurrentMarketDataClient:
+	def __init__(self) -> None:
+		self.active_quote_requests = 0
+		self.max_active_quote_requests = 0
+
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+	) -> tuple[Quote, list[str]]:
+		self.active_quote_requests += 1
+		self.max_active_quote_requests = max(
+			self.max_active_quote_requests,
+			self.active_quote_requests,
+		)
+		try:
+			await asyncio.sleep(0.01)
+			return _make_quote(symbol=symbol), []
+		finally:
+			self.active_quote_requests -= 1
+
+	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
+		if from_currency.upper() == to_currency.upper():
+			return 1.0, []
+		return 7.0, []
+
+
 def test_value_holdings_turns_provider_failure_into_warning(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -536,7 +564,7 @@ def test_value_holdings_turns_provider_failure_into_warning(
 		quantity=2,
 		fallback_currency="USD",
 	)
-	monkeypatch.setattr(main, "market_data_client", FailingMarketDataClient())
+	monkeypatch.setattr(service_context, "market_data_client", FailingMarketDataClient())
 
 	items, total, warnings = asyncio.run(main._value_holdings([holding]))
 
@@ -545,3 +573,43 @@ def test_value_holdings_turns_provider_failure_into_warning(
 	assert items[0].fx_to_cny == 0.0
 	assert items[0].price_currency == "USD"
 	assert warnings == ["持仓 AAPL 行情更新中"]
+
+
+def test_value_holdings_fetches_quotes_concurrently(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	client = ConcurrentMarketDataClient()
+	holdings = [
+		SecurityHolding(
+			user_id="tester",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			fallback_currency="USD",
+			market="US",
+		),
+		SecurityHolding(
+			user_id="tester",
+			symbol="MSFT",
+			name="Microsoft",
+			quantity=1,
+			fallback_currency="USD",
+			market="US",
+		),
+		SecurityHolding(
+			user_id="tester",
+			symbol="GOOG",
+			name="Alphabet",
+			quantity=1,
+			fallback_currency="USD",
+			market="US",
+		),
+	]
+	monkeypatch.setattr(service_context, "market_data_client", client)
+
+	items, total, warnings = asyncio.run(main._value_holdings(holdings))
+
+	assert [item.symbol for item in items] == ["AAPL", "MSFT", "GOOG"]
+	assert total == 2100.0
+	assert warnings == []
+	assert client.max_active_quote_requests >= 2

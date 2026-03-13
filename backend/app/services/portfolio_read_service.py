@@ -29,6 +29,7 @@ from app.services import service_context
 from app.services.common_service import _calculate_return_pct, _normalize_currency
 from app.services.market_data import QuoteLookupError
 
+
 async def _load_display_fx_rates() -> tuple[dict[str, float], float | None, float | None, list[str]]:
 	"""Load top-level display FX rates and reuse them in dashboard valuation."""
 	rates: dict[str, float] = {"CNY": 1.0}
@@ -100,78 +101,104 @@ async def _value_cash_accounts(
 
 	return items, round(total, 2), warnings
 
+
+async def _value_holding(
+	holding: SecurityHolding,
+	fx_rate_overrides: dict[str, float] | None = None,
+	*,
+	force_pending: bool = False,
+) -> tuple[ValuedHolding, float, list[str]]:
+	warnings: list[str] = []
+
+	try:
+		quote, quote_warnings = await service_context.market_data_client.fetch_quote(
+			holding.symbol,
+			holding.market,
+		)
+		currency_code = _normalize_currency(quote.currency)
+		override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
+		if override_rate is not None:
+			fx_rate = override_rate
+			fx_warnings: list[str] = []
+		else:
+			fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
+				currency_code,
+				"CNY",
+			)
+		value_cny = round(holding.quantity * quote.price * fx_rate, 2)
+		price = round(quote.price, 4)
+		price_currency = currency_code
+		last_updated = quote.market_time
+		warnings.extend(quote_warnings)
+		warnings.extend(fx_warnings)
+	except (QuoteLookupError, ValueError) as exc:
+		service_context.logger.warning(
+			"Quote lookup still pending for %s: %s",
+			holding.symbol,
+			exc,
+		)
+		value_cny = 0.0
+		price = 0.0
+		price_currency = holding.fallback_currency
+		fx_rate = 0.0
+		last_updated = None
+		warnings.append(f"持仓 {holding.symbol} 行情更新中")
+
+	return (
+		ValuedHolding(
+			id=holding.id or 0,
+			symbol=holding.symbol,
+			name=holding.name,
+			quantity=round(holding.quantity, 4),
+			fallback_currency=holding.fallback_currency,
+			cost_basis_price=round(holding.cost_basis_price, 4)
+			if holding.cost_basis_price is not None
+			else None,
+			market=holding.market,
+			broker=holding.broker,
+			started_on=holding.started_on,
+			note=holding.note,
+			price=price,
+			price_currency=price_currency,
+			fx_to_cny=round(fx_rate, 6),
+			value_cny=value_cny,
+			return_pct=_calculate_return_pct(price, holding.cost_basis_price)
+			if price > 0
+			else None,
+			last_updated=None if force_pending else last_updated,
+		),
+		value_cny,
+		warnings,
+	)
+
+
 async def _value_holdings(
 	holdings: list[SecurityHolding],
 	fx_rate_overrides: dict[str, float] | None = None,
 	*,
 	force_pending: bool = False,
 ) -> tuple[list[ValuedHolding], float, list[str]]:
-	items: list[ValuedHolding] = []
-	total = 0.0
-	warnings: list[str] = []
+	if not holdings:
+		return [], 0.0, []
 
-	for holding in holdings:
-		try:
-			quote, quote_warnings = await service_context.market_data_client.fetch_quote(
-				holding.symbol,
-				holding.market,
+	valued_results = await asyncio.gather(
+		*(
+			_value_holding(
+				holding,
+				fx_rate_overrides,
+				force_pending=force_pending,
 			)
-			currency_code = _normalize_currency(quote.currency)
-			override_rate = fx_rate_overrides.get(currency_code) if fx_rate_overrides else None
-			if override_rate is not None:
-				fx_rate = override_rate
-				fx_warnings: list[str] = []
-			else:
-				fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
-					currency_code,
-					"CNY",
-				)
-			value_cny = round(holding.quantity * quote.price * fx_rate, 2)
-			price = round(quote.price, 4)
-			price_currency = currency_code
-			last_updated = quote.market_time
-			warnings.extend(quote_warnings)
-			warnings.extend(fx_warnings)
-		except (QuoteLookupError, ValueError) as exc:
-			service_context.logger.warning(
-				"Quote lookup still pending for %s: %s",
-				holding.symbol,
-				exc,
-			)
-			value_cny = 0.0
-			price = 0.0
-			price_currency = holding.fallback_currency
-			fx_rate = 0.0
-			last_updated = None
-			warnings.append(f"持仓 {holding.symbol} 行情更新中")
-
-		items.append(
-			ValuedHolding(
-				id=holding.id or 0,
-				symbol=holding.symbol,
-				name=holding.name,
-				quantity=round(holding.quantity, 4),
-				fallback_currency=holding.fallback_currency,
-				cost_basis_price=round(holding.cost_basis_price, 4)
-				if holding.cost_basis_price is not None
-				else None,
-				market=holding.market,
-				broker=holding.broker,
-				started_on=holding.started_on,
-				note=holding.note,
-				price=price,
-				price_currency=price_currency,
-				fx_to_cny=round(fx_rate, 6),
-				value_cny=value_cny,
-				return_pct=_calculate_return_pct(price, holding.cost_basis_price)
-				if price > 0
-				else None,
-				last_updated=None if force_pending else last_updated,
-			),
-		)
-		total += value_cny
-
-	return items, round(total, 2), warnings
+			for holding in holdings
+		),
+	)
+	items = [item for item, _value_cny, _warnings in valued_results]
+	total = round(sum(value_cny for _item, value_cny, _warnings in valued_results), 2)
+	warnings = [
+		warning
+		for _item, _value_cny, holding_warnings in valued_results
+		for warning in holding_warnings
+	]
+	return items, total, warnings
 
 def _value_fixed_assets(
 	assets: list[FixedAsset],
