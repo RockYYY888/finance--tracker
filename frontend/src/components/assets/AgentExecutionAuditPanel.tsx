@@ -204,7 +204,10 @@ export function AgentExecutionAuditPanel({
 						打开 API 文档
 					</a>
 				</div>
-				<div className="asset-manager__summary">
+				<div
+					className="asset-manager__summary agent-workspace__summary"
+					data-testid="agent-workspace-summary"
+				>
 					<div className="asset-manager__summary-card">
 						<span>已注册 Agent</span>
 						<strong>{registrations.length}</strong>

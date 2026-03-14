@@ -52,6 +52,7 @@ from app.schemas import (
 from app.security import hash_password
 from app.services.market_data import Quote
 from app.services import dashboard_service, job_service, legacy_service, service_context
+from app.services.agent_demo_service import seed_agent_workspace_demo
 from app.services.asset_record_service import list_asset_records
 
 
@@ -934,3 +935,44 @@ def test_agent_task_can_create_and_delete_manual_cash_ledger_adjustment(
 		agent_task_id=delete_task.id,
 	)
 	assert any(item.entity_type == "CASH_LEDGER_ADJUSTMENT" for item in mutations)
+
+
+def test_seed_agent_workspace_demo_creates_registrations_tasks_and_records(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+
+	summary = seed_agent_workspace_demo(session, user_id=admin_user.username)
+
+	registrations = list_agent_registrations(admin_user, session, include_all_users=False)
+	tasks = list_asset_mutation_audits(admin_user, session, limit=50)
+	records = list_asset_records(admin_user, session, source="AGENT", limit=120)
+	direct_api_records = [record for record in records if record.agent_task_id is None]
+
+	assert summary.registrations == 2
+	assert summary.active_registrations == 1
+	assert summary.tasks == 3
+	assert summary.direct_api_records == 1
+	assert summary.agent_records == len(records)
+	assert {(item.name, item.status) for item in registrations} == {
+		("history-audit-bot", "INACTIVE"),
+		("rebalancer-bot", "ACTIVE"),
+	}
+	assert any(task.agent_task_id is not None for task in tasks)
+	assert any(record.title == "Agent API 沙盒账户" for record in direct_api_records)
+	assert any(record.agent_task_id is not None for record in records)
+
+
+def test_seed_agent_workspace_demo_is_idempotent(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+
+	first = seed_agent_workspace_demo(session, user_id=admin_user.username)
+	second = seed_agent_workspace_demo(session, user_id=admin_user.username)
+
+	registrations = list_agent_registrations(admin_user, session, include_all_users=False)
+	tasks = list_asset_records(admin_user, session, source="AGENT", limit=120)
+
+	assert first == second
+	assert len(registrations) == 2
+	assert len(session.exec(select(AgentTask)).all()) == 3
+	assert len(tasks) == first.agent_records
