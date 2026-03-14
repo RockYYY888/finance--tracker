@@ -181,7 +181,7 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.tickFormatter("03-08 04:00")).toBe("03-08");
 	});
 
-	it("falls back to the first renderable portfolio trend range and disables sparse ranges", async () => {
+	it("falls back to the first renderable portfolio trend range and hides sparse ranges", async () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="hour"
@@ -201,15 +201,9 @@ describe("analytics charts responsive layout", () => {
 			);
 		});
 
-		expect(
-			(screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled,
-		).toBe(true);
-		expect(
-			(screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled,
-		).toBe(true);
-		expect(
-			(screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled,
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "24H" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "12月" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "年" })).toBeNull();
 	});
 
 	it("switches the portfolio trend card between total value and aggregate return", async () => {
@@ -251,10 +245,10 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.queryByText("最新净值")).toBeNull();
 		expect(screen.getByText("当前收益率")).toBeTruthy();
 		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
-		expect(screen.getByText("+2.00 个百分点")).toBeTruthy();
+		expect(screen.getByText("+2.00%")).toBeTruthy();
 	});
 
-	it("shows return deltas as percentage-point changes instead of exploding relative ratios", async () => {
+	it("shows return deltas as direct percent changes instead of exploding relative ratios", async () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="day"
@@ -284,7 +278,7 @@ describe("analytics charts responsive layout", () => {
 		});
 
 		const summaryPill = screen.getByText("03-01→03-14").parentElement;
-		expect(summaryPill?.textContent).toContain("-7.56 个百分点");
+		expect(summaryPill?.textContent).toContain("-7.56%");
 		expect(summaryPill?.textContent).not.toContain("75600.00%");
 	});
 
@@ -326,7 +320,7 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.tickFormatter("2026-03")).toBe("2026");
 	});
 
-	it("falls back to the first renderable return trend range and disables sparse ranges", async () => {
+	it("falls back to the first renderable return trend range and hides sparse ranges", async () => {
 		render(
 			<ReturnTrendChart
 				defaultRange="hour"
@@ -353,15 +347,9 @@ describe("analytics charts responsive layout", () => {
 			);
 		});
 
-		expect(
-			(screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled,
-		).toBe(true);
-		expect(
-			(screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled,
-		).toBe(true);
-		expect(
-			(screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled,
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "24H" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "12月" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "年" })).toBeNull();
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {
@@ -493,19 +481,21 @@ describe("analytics charts responsive layout", () => {
 
 		await waitFor(() => {
 			expect(
-				getLastRecordedProps(rechartsState.responsiveContainers).height,
-			).toBeLessThan(260);
+				rechartsState.responsiveContainers.some(
+					(props) => typeof props.height === "number" && props.height < 260,
+				),
+			).toBe(true);
 		});
 
-		const responsiveContainerProps = getLastRecordedProps(
-			rechartsState.responsiveContainers,
+		const responsiveContainerProps = rechartsState.responsiveContainers.find(
+			(props) => typeof props.height === "number" && props.height < 260,
 		);
 		const pieProps = getLastRecordedProps(rechartsState.pies) as {
 			innerRadius: number;
 			outerRadius: number;
 		};
 
-		expect(responsiveContainerProps.height).toBe(220);
+		expect(responsiveContainerProps?.height).toBe(244);
 		expect(pieProps.outerRadius).toBeLessThan(102);
 		expect(pieProps.innerRadius).toBeLessThan(72);
 	});
@@ -544,5 +534,6 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.queryByText("非现金资产收益率")).toBeNull();
 		expect(screen.getByText("单只持仓收益率")).toBeTruthy();
 		expect(screen.getByText("资产分布")).toBeTruthy();
+		expect(screen.queryByText("持仓拆解")).toBeNull();
 	});
 });

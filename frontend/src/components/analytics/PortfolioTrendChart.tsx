@@ -26,7 +26,6 @@ import {
 	formatCny,
 	formatPercentMetric,
 	formatPercentage,
-	formatSignedPercentagePointMetric,
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
@@ -243,6 +242,9 @@ export function PortfolioTrendChart({
 	);
 	const activeSeriesByRange =
 		displayMode === "value" ? valueSeriesByRange : returnSeriesByRange;
+	const availableRanges = (Object.keys(RANGE_LABELS) as TimelineRange[]).filter(
+		(item) => activeSeriesByRange[item].length >= 2,
+	);
 	const activeFallbackRange = fallbackRangeByMode[displayMode];
 	const activeRange =
 		activeSeriesByRange[range].length >= 2 || activeFallbackRange === null
@@ -378,7 +380,7 @@ export function PortfolioTrendChart({
 			? "--"
 			: displayMode === "value"
 				? `${getChangeDirection(activeSummaryState.summary.changeValue)}${formatCny(Math.abs(activeSummaryState.summary.changeValue))} / ${formatSignedRatio(activeSummaryState.summary.changeRatio)}`
-				: formatSignedPercentagePointMetric(activeSummaryState.summary.changeValue);
+				: formatPercentMetric(activeSummaryState.summary.changeValue, true);
 	const activeStepMetricLabel =
 		displayMode === "value"
 			? valueStepRateState.selected
@@ -392,7 +394,7 @@ export function PortfolioTrendChart({
 			? "--"
 			: displayMode === "value"
 				? formatPercentMetric(valueStepRateState.value, true)
-				: formatSignedPercentagePointMetric(returnStepDeltaState.value);
+				: formatPercentMetric(returnStepDeltaState.value, true);
 
 	return (
 		<section className="analytics-card">
@@ -403,23 +405,24 @@ export function PortfolioTrendChart({
 					<p className="analytics-card__description">{description}</p>
 				</div>
 				<div className="analytics-card__controls">
-					<div
-						className="analytics-segmented"
-						role="tablist"
-						aria-label="选择趋势周期"
-					>
-						{(Object.keys(RANGE_LABELS) as TimelineRange[]).map((item) => (
-							<button
-								key={item}
-								type="button"
-								className={activeRange === item ? "active" : ""}
-								onClick={() => setRange(item)}
-								disabled={activeSeriesByRange[item].length < 2}
-							>
-								{RANGE_LABELS[item]}
-							</button>
-						))}
-					</div>
+					{availableRanges.length > 0 ? (
+						<div
+							className="analytics-segmented"
+							role="tablist"
+							aria-label="选择趋势周期"
+						>
+							{availableRanges.map((item) => (
+								<button
+									key={item}
+									type="button"
+									className={activeRange === item ? "active" : ""}
+									onClick={() => setRange(item)}
+								>
+									{RANGE_LABELS[item]}
+								</button>
+							))}
+						</div>
+					) : null}
 				</div>
 			</div>
 

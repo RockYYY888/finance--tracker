@@ -181,8 +181,8 @@ describe("timeline hover summaries", () => {
 		});
 
 		expectPillToContain("当前收益率", "15.00%");
-		expectPillToContain("03-01→03-03", "+5.00 个百分点", 0);
-		expectPillToContain("日均变动", "+2.50 个百分点");
+		expectPillToContain("03-01→03-03", "+5.00%", 0);
+		expectPillToContain("日均变动", "+2.50%");
 		expect(screen.queryByText("最新净值")).toBeNull();
 		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
 
@@ -196,8 +196,8 @@ describe("timeline hover summaries", () => {
 		await waitFor(() => {
 			expectPillToContain("所选收益率", "12.00%");
 		});
-		expectPillToContain("03-01→03-02", "+2.00 个百分点", 0);
-		expectPillToContain("至该点日均变动", "+2.00 个百分点");
+		expectPillToContain("03-01→03-02", "+2.00%", 0);
+		expectPillToContain("至该点日均变动", "+2.00%");
 
 		act(() => {
 			onMouseLeave?.();
@@ -232,8 +232,8 @@ describe("timeline hover summaries", () => {
 		);
 
 		expectPillToContain("当前收益率", "15.00%");
-		expectPillToContain("03-01→03-03", "+5.00% / +50.00%");
-		expectPillToContain("日均环比", "+2.25%");
+		expectPillToContain("03-01→03-03", "+5.00%");
+		expectPillToContain("日均变动", "+2.50%");
 
 		const { onMouseMove, onMouseLeave } = getLatestChartHandlers();
 
@@ -247,8 +247,8 @@ describe("timeline hover summaries", () => {
 		await waitFor(() => {
 			expectPillToContain("所选收益率", "12.00%");
 		});
-		expectPillToContain("03-01→03-02", "+2.00% / +20.00%");
-		expectPillToContain("至该点日均环比", "+1.82%");
+		expectPillToContain("03-01→03-02", "+2.00%");
+		expectPillToContain("至该点日均变动", "+2.00%");
 
 		act(() => {
 			onMouseLeave?.();

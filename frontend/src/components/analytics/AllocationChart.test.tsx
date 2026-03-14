@@ -10,6 +10,11 @@ vi.mock("recharts", () => ({
 	),
 	PieChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	Pie: ({ children }: { children?: ReactNode }) => <>{children}</>,
+	BarChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
+	Bar: ({ children }: { children?: ReactNode }) => <>{children}</>,
+	CartesianGrid: () => null,
+	XAxis: () => null,
+	YAxis: () => null,
 	Tooltip: () => null,
 	Cell: () => null,
 }));
@@ -148,9 +153,7 @@ describe("AllocationChart", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: /投资类/ }));
 
-		expect(screen.getByText("腾讯控股")).toBeTruthy();
-		expect(screen.getByText("阿里巴巴")).toBeTruthy();
-		expect(screen.getByText("占投资类 70.00%")).toBeTruthy();
-		expect(screen.getByText("占投资类 30.00%")).toBeTruthy();
+		expect(screen.getByText("点击大类后切换对应柱状图")).toBeTruthy();
+		expect(screen.getAllByText("投资类").length).toBeGreaterThan(1);
 	});
 });

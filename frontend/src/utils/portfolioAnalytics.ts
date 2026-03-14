@@ -110,15 +110,6 @@ export function formatCompactPercentMetric(value: number): string {
 	return `${value.toFixed(2)}%`;
 }
 
-export function formatSignedPercentagePointMetric(value: number): string {
-	if (!Number.isFinite(value)) {
-		return "--";
-	}
-
-	const prefix = value > 0 ? "+" : "";
-	return `${prefix}${value.toFixed(2)} 个百分点`;
-}
-
 export function getChartColors(): string[] {
 	return CHART_COLORS;
 }

@@ -3,7 +3,6 @@ import type {
 	TimelineRange,
 } from "../../types/portfolioAnalytics";
 import { AllocationChart } from "./AllocationChart";
-import { HoldingsBreakdownChart } from "./HoldingsBreakdownChart";
 import { PlatformBreakdownChart } from "./PlatformBreakdownChart";
 import { PortfolioInsights } from "./PortfolioInsights";
 import { PortfolioTrendChart } from "./PortfolioTrendChart";
@@ -66,7 +65,16 @@ export function PortfolioAnalytics({
 						loading={loading}
 						defaultRange={defaultRange}
 					/>
-					<HoldingsBreakdownChart holdings={holdings} />
+					<ReturnTrendChart
+						title="单只持仓收益率"
+						description="查看任一持仓在不同周期的收益率变化。"
+						seriesOptions={createHoldingReturnOptions(holding_return_series)}
+						loading={loading}
+						defaultRange={defaultRange}
+						selectorLabel="持仓"
+						emptyMessage="暂无单只持仓收益率数据。"
+						showCompoundedStepRate
+					/>
 				</div>
 				<div className="portfolio-analytics__column">
 					<AllocationChart
@@ -83,15 +91,6 @@ export function PortfolioAnalytics({
 						fixed_assets={fixed_assets}
 						liabilities={_liabilities}
 						other_assets={other_assets}
-					/>
-					<ReturnTrendChart
-						title="单只持仓收益率"
-						description="查看任一持仓在不同周期的收益率变化。"
-						seriesOptions={createHoldingReturnOptions(holding_return_series)}
-						loading={loading}
-						defaultRange={defaultRange}
-						selectorLabel="持仓"
-						emptyMessage="暂无单只持仓收益率数据。"
 					/>
 				</div>
 			</div>

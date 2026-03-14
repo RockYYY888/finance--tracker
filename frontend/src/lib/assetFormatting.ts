@@ -59,6 +59,16 @@ const otherAssetCategoryLabels: Record<string, string> = {
 	RECEIVABLE: "应收款项",
 	OTHER: "其他",
 };
+const timestampFormatterWithSeconds = new Intl.DateTimeFormat("zh-CN", {
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+	hour: "2-digit",
+	minute: "2-digit",
+	second: "2-digit",
+	hour12: false,
+	timeZone: DISPLAY_TIME_ZONE,
+});
 
 export function formatCnyAmount(value?: number | null): string {
 	const numericValue = Number(value ?? 0);
@@ -116,6 +126,61 @@ export function formatTimestamp(value?: string | null): string {
 		minute: "2-digit",
 		timeZone: DISPLAY_TIME_ZONE,
 	}).format(parsedValue);
+}
+
+function formatTimestampWithMilliseconds(value?: string | null): string | null {
+	if (!value) {
+		return null;
+	}
+
+	const parsedValue = new Date(normalizeUtcTimestampValue(value));
+	if (Number.isNaN(parsedValue.getTime())) {
+		return null;
+	}
+
+	const formattedParts = timestampFormatterWithSeconds.formatToParts(parsedValue);
+	const lookup = new Map(
+		formattedParts
+			.filter((part) => part.type !== "literal")
+			.map((part) => [part.type, part.value]),
+	);
+	const year = lookup.get("year");
+	const month = lookup.get("month");
+	const day = lookup.get("day");
+	const hour = lookup.get("hour");
+	const minute = lookup.get("minute");
+	const second = lookup.get("second");
+
+	if (!year || !month || !day || !hour || !minute || !second) {
+		return null;
+	}
+
+	return `${year}/${month}/${day} ${hour}:${minute}:${second}.${String(parsedValue.getUTCMilliseconds()).padStart(3, "0")}`;
+}
+
+function formatTimeWithMilliseconds(value?: string | null): string | null {
+	const formattedTimestamp = formatTimestampWithMilliseconds(value);
+	if (!formattedTimestamp) {
+		return null;
+	}
+
+	const [, timePart] = formattedTimestamp.split(" ");
+	return timePart ?? null;
+}
+
+export function formatOperationTimestamp(
+	effectiveDate?: string | null,
+	createdAt?: string | null,
+): string {
+	const trimmedEffectiveDate = effectiveDate?.trim() ?? "";
+	const timePart = formatTimeWithMilliseconds(createdAt);
+
+	if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedEffectiveDate)) {
+		const [year, month, day] = trimmedEffectiveDate.split("-");
+		return `${year}/${month}/${day} ${timePart ?? "00:00:00.000"}`;
+	}
+
+	return formatTimestampWithMilliseconds(createdAt) ?? "待更新";
 }
 
 export function formatDateValue(value?: string | null): string {

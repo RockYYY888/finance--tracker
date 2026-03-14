@@ -286,6 +286,29 @@ def test_asset_records_classify_user_system_and_investment_sell_profit(
 	assert investment_records[0].profit_currency == "HKD"
 	assert investment_records[0].profit_rate_pct == pytest.approx(20.0)
 
+	buy_records = list_asset_records(
+		user,
+		session,
+		asset_class="investment",
+		operation_kind="BUY",
+		source="USER",
+	)
+	assert len(buy_records) == 1
+	assert buy_records[0].title == "腾讯控股 (0700.HK)"
+	assert buy_records[0].operation_kind == "BUY"
+	assert buy_records[0].profit_amount is None
+
+	all_investment_records = list_asset_records(
+		user,
+		session,
+		asset_class="investment",
+		source="USER",
+	)
+	assert [record.operation_kind for record in all_investment_records[:2]] == [
+		"SELL",
+		"BUY",
+	]
+
 	system_records = list_asset_records(
 		admin,
 		session,

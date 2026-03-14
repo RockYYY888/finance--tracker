@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import {
+	Bar,
+	BarChart,
+	CartesianGrid,
+	Cell,
+	Pie,
+	PieChart,
+	ResponsiveContainer,
+	Tooltip,
+	XAxis,
+	YAxis,
+} from "recharts";
 
 import type {
 	AllocationBreakdownGroup,
@@ -14,10 +25,13 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildAllocationBreakdownGroups,
+	formatCategoryAxisLabel,
+	formatCompactCny,
 	getAllocationDonutLayout,
 	buildAllocationLegend,
 	formatCny,
 	formatPercentage,
+	getAdaptiveCategoryAxisWidth,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
 import { useChartInteractionLock } from "./useChartInteractionLock";
@@ -71,9 +85,16 @@ export function AllocationChart({
 		(sum, item) => sum + item.value_cny,
 		0,
 	);
-	const { chartContainerRef, chartWidth } = useResponsiveChartFrame();
+	const {
+		chartContainerRef: donutChartContainerRef,
+		chartWidth: donutChartWidth,
+	} = useResponsiveChartFrame();
+	const {
+		chartContainerRef: breakdownChartContainerRef,
+		compactAxisMode,
+	} = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
-	const donutLayout = getAllocationDonutLayout(chartWidth);
+	const donutLayout = getAllocationDonutLayout(donutChartWidth);
 	const breakdownGroups = useMemo(
 		() =>
 			buildAllocationBreakdownGroups(
@@ -99,6 +120,14 @@ export function AllocationChart({
 	const activeBreakdown = useMemo(
 		() => findBreakdownGroup(breakdownGroups, activeLabel),
 		[activeLabel, breakdownGroups],
+	);
+	const breakdownChartHeight = Math.max(
+		180,
+		(activeBreakdown?.items.length ?? 0) * 52,
+	);
+	const breakdownCategoryAxisWidth = getAdaptiveCategoryAxisWidth(
+		activeBreakdown?.items.map((item) => item.label) ?? [],
+		{ compact: compactAxisMode },
 	);
 
 	useEffect(() => {
@@ -130,7 +159,7 @@ export function AllocationChart({
 				<div className="analytics-donut">
 					<div
 						className="analytics-chart analytics-chart--interactive"
-						ref={chartContainerRef}
+						ref={donutChartContainerRef}
 						{...chartInteractionHandlers}
 					>
 						<ResponsiveContainer width="100%" height={donutLayout.height}>
@@ -230,42 +259,83 @@ export function AllocationChart({
 							<div className="analytics-breakdown__header">
 								<div>
 									<strong>{activeBreakdown.label}</strong>
-									<small>点击大类后锁定对应明细</small>
+									<small>点击大类后切换对应柱状图</small>
 								</div>
 								<div className="analytics-breakdown__summary">
 									<span>{formatPercentage(activeBreakdown.percentage)}</span>
 									<strong>{formatCny(activeBreakdown.value_cny)}</strong>
 								</div>
 							</div>
-
-							<div className="analytics-breakdown__items">
-								{activeBreakdown.items.map((entry) => (
-									<div
-										className="analytics-breakdown__item"
-										key={`${activeBreakdown.label}-${entry.label}`}
-									>
-										<div className="analytics-breakdown__label">
-											<span
-												className="analytics-legend__swatch"
-												style={{ backgroundColor: entry.color }}
+							{activeBreakdown.items.length === 0 ? (
+								<div className="analytics-empty-state">
+									当前大类还没有可展示的明细数据。
+								</div>
+							) : (
+								<div
+									className="analytics-chart analytics-chart--interactive"
+									ref={breakdownChartContainerRef}
+									{...chartInteractionHandlers}
+								>
+									<ResponsiveContainer width="100%" height={breakdownChartHeight}>
+										<BarChart
+											data={activeBreakdown.items}
+											layout="vertical"
+											margin={{
+												top: 4,
+												right: compactAxisMode ? 8 : 12,
+												left: compactAxisMode ? 4 : 8,
+												bottom: 0,
+											}}
+										>
+											<CartesianGrid
+												horizontal={false}
+												stroke="rgba(255,255,255,0.08)"
 											/>
-											<div>
-												<strong>{entry.label}</strong>
-												<small>
-													占{activeBreakdown.label}{" "}
-													{formatPercentage(entry.category_percentage)}
-												</small>
-											</div>
-										</div>
-										<div className="analytics-breakdown__value">
-											<strong>{formatCny(entry.value_cny)}</strong>
-											<small>
-												占正向资产 {formatPercentage(entry.overall_percentage)}
-											</small>
-										</div>
-									</div>
-								))}
-							</div>
+											<XAxis
+												type="number"
+												stroke="#d6d4cb"
+												tickLine={false}
+												axisLine={false}
+												tickMargin={8}
+												tickFormatter={formatCompactCny}
+											/>
+											<YAxis
+												type="category"
+												dataKey="label"
+												width={breakdownCategoryAxisWidth}
+												stroke="#d6d4cb"
+												tickLine={false}
+												axisLine={false}
+												tickMargin={6}
+												tickFormatter={(label: string) =>
+													formatCategoryAxisLabel(label, {
+														compact: compactAxisMode,
+													})}
+											/>
+											<Tooltip
+												formatter={(value) => [
+													formatCny(Number(value ?? 0)),
+													"当前金额",
+												]}
+												labelFormatter={(label) =>
+													`${activeBreakdown.label}: ${String(label ?? "")}`
+												}
+												contentStyle={ANALYTICS_TOOLTIP_STYLE}
+												itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
+												labelStyle={ANALYTICS_TOOLTIP_LABEL_STYLE}
+											/>
+											<Bar dataKey="value_cny" radius={[0, 12, 12, 0]}>
+												{activeBreakdown.items.map((entry) => (
+													<Cell
+														key={`${activeBreakdown.label}-${entry.label}`}
+														fill={entry.color}
+													/>
+												))}
+											</Bar>
+										</BarChart>
+									</ResponsiveContainer>
+								</div>
+							)}
 						</div>
 					) : null}
 				</div>

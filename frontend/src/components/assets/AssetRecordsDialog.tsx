@@ -2,11 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import {
-	formatDateValue,
 	formatMoneyAmount,
+	formatOperationTimestamp,
 	formatPercentValue,
 	formatPriceAmount,
-	formatTimestamp,
 } from "../../lib/assetFormatting";
 import {
 	ASSET_CLASS_BADGE_LABELS,
@@ -67,16 +66,6 @@ function resolveAmountLabel(record: AssetRecordRecord): string {
 		return "余额";
 	}
 	return "数值";
-}
-
-function resolveEffectiveDateLabel(record: AssetRecordRecord): string {
-	if (record.asset_class === "investment") {
-		return record.operation_kind === "SELL" ? "卖出日期" : "生效日期";
-	}
-	if (record.asset_class === "cash" && record.operation_kind === "TRANSFER") {
-		return "划转日期";
-	}
-	return "生效日期";
 }
 
 export function AssetRecordsDialog({
@@ -313,12 +302,13 @@ export function AssetRecordsDialog({
 
 									<div className="asset-manager__metric-grid">
 										<div className="asset-manager__metric">
-											<span>{resolveEffectiveDateLabel(record)}</span>
-											<strong>{formatDateValue(record.effective_date)}</strong>
-										</div>
-										<div className="asset-manager__metric">
-											<span>记录时间</span>
-											<strong>{formatTimestamp(record.created_at)}</strong>
+											<span>操作时间</span>
+											<strong>
+												{formatOperationTimestamp(
+													record.effective_date,
+													record.created_at,
+												)}
+											</strong>
 										</div>
 										{formattedAmount ? (
 											<div className="asset-manager__metric">

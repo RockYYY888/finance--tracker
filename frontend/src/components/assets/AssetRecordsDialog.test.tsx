@@ -100,6 +100,8 @@ describe("AssetRecordsDialog", () => {
 		expect(recordCard).not.toBeNull();
 		expect(within(recordCard as HTMLElement).getByText("Agent")).not.toBeNull();
 		expect(within(recordCard as HTMLElement).getByText("收益率 20.00%")).not.toBeNull();
+		expect(within(recordCard as HTMLElement).getByText("操作时间")).not.toBeNull();
+		expect(within(recordCard as HTMLElement).getByText("2026/03/10 21:00:00.000")).not.toBeNull();
 		expect(
 			within(recordCard as HTMLElement)
 				.getByText("80 HKD")

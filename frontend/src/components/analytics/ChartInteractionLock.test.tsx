@@ -175,7 +175,7 @@ describe("analytics chart interaction lock", () => {
 		);
 
 		const interactiveCharts = container.querySelectorAll(".analytics-chart--interactive");
-		expect(interactiveCharts).toHaveLength(5);
+		expect(interactiveCharts).toHaveLength(6);
 
 		fireEvent.touchStart(interactiveCharts[0]!);
 

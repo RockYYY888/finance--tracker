@@ -29,8 +29,7 @@ import {
 	getTimelineChartTicks,
 	formatCompactPercentMetric,
 	formatPercentMetric,
-	formatPercentage,
-	summarizeCompoundedStepRate,
+	summarizeAverageStepDelta,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
@@ -68,11 +67,11 @@ const RANGE_LABELS: Record<TimelineRange, string> = {
 	year: "年",
 };
 
-const COMPOUNDED_STEP_LABELS: Record<TimelineRange, string> = {
-	hour: "小时平均环比",
-	day: "日均环比",
-	month: "月均环比",
-	year: "年均环比",
+const STEP_DELTA_LABELS: Record<TimelineRange, string> = {
+	hour: "小时均变动",
+	day: "日均变动",
+	month: "月均变动",
+	year: "年均变动",
 };
 
 const POSITIVE_RETURN_COLOR = "#009BC1";
@@ -88,11 +87,6 @@ export function buildReturnTrendChartData(
 	thresholdValue = 0,
 ): ReturnTrendChartPoint[] {
 	return buildThresholdSegmentedChartData(series, thresholdValue);
-}
-
-function formatSignedRatio(ratio: number): string {
-	const prefix = ratio > 0 ? "+" : "";
-	return `${prefix}${formatPercentage(ratio)}`;
 }
 
 type TooltipPayloadEntry = {
@@ -189,12 +183,15 @@ export function ReturnTrendChart({
 		() => getFirstRenderableTimelineRange(seriesByRange),
 		[seriesByRange],
 	);
+	const availableRanges = (Object.keys(RANGE_LABELS) as TimelineRange[]).filter(
+		(item) => seriesByRange[item].length >= 2,
+	);
 	const activeRange = seriesByRange[range].length >= 2 || fallbackRange === null
 		? range
 		: fallbackRange;
 	const series = seriesByRange[activeRange];
 	const rangeSummary = summarizeTimeline(series);
-	const rangeCompoundedStepRate = summarizeCompoundedStepRate(series);
+	const rangeStepDelta = summarizeAverageStepDelta(series);
 	const axisLayout = useMemo(
 		() =>
 			calculateDynamicAxisLayout(series, {
@@ -217,8 +214,8 @@ export function ReturnTrendChart({
 		activePoint?.crossingPoint ? "基准线交点" : "最新周期",
 	);
 	const visibleCompoundedStepRate = activePointIndex === null
-		? rangeCompoundedStepRate
-		: summarizeCompoundedStepRate(
+		? rangeStepDelta
+		: summarizeAverageStepDelta(
 			chartData
 				.slice(0, activePointIndex + 1)
 				.filter((point) => !point.crossingPoint),
@@ -259,19 +256,20 @@ export function ReturnTrendChart({
 					<h2 className="analytics-card__title">{title}</h2>
 					<p className="analytics-card__description">{description}</p>
 				</div>
-				<div className="analytics-segmented" role="tablist" aria-label="选择收益率周期">
-					{(Object.keys(RANGE_LABELS) as TimelineRange[]).map((item) => (
-						<button
-							key={item}
-							type="button"
-							className={activeRange === item ? "active" : ""}
-							onClick={() => setRange(item)}
-							disabled={seriesByRange[item].length < 2}
-						>
-							{RANGE_LABELS[item]}
-						</button>
-					))}
-				</div>
+				{availableRanges.length > 0 ? (
+					<div className="analytics-segmented" role="tablist" aria-label="选择收益率周期">
+						{availableRanges.map((item) => (
+							<button
+								key={item}
+								type="button"
+								className={activeRange === item ? "active" : ""}
+								onClick={() => setRange(item)}
+							>
+								{RANGE_LABELS[item]}
+							</button>
+						))}
+					</div>
+				) : null}
 			</div>
 
 			{seriesOptions.length > 1 ? (
@@ -301,18 +299,14 @@ export function ReturnTrendChart({
 				</div>
 				<div className="analytics-pill">
 					<span>{periodLabel}</span>
-					<strong>
-						{visibleSummary.changeRatio === null
-							? `${formatPercentMetric(visibleSummary.changeValue, true)} / --`
-							: `${formatPercentMetric(visibleSummary.changeValue, true)} / ${formatSignedRatio(visibleSummary.changeRatio)}`}
-					</strong>
+					<strong>{formatPercentMetric(visibleSummary.changeValue, true)}</strong>
 				</div>
 				{showCompoundedStepRate ? (
 					<div className="analytics-pill">
 						<span>
 							{activePoint
-								? `至该点${COMPOUNDED_STEP_LABELS[activeRange]}`
-								: COMPOUNDED_STEP_LABELS[activeRange]}
+								? `至该点${STEP_DELTA_LABELS[activeRange]}`
+								: STEP_DELTA_LABELS[activeRange]}
 						</span>
 						<strong>{formatPercentMetric(visibleCompoundedStepRate, true)}</strong>
 					</div>

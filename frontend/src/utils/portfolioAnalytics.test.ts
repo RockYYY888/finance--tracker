@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
 	calculateDynamicAxisLayout,
 	formatCategoryAxisLabel,
-	formatSignedPercentagePointMetric,
 	formatTimelineAxisLabel,
 	getAdaptiveCategoryAxisWidth,
 	getAdaptiveYAxisWidth,
@@ -167,11 +166,6 @@ describe("trend summary helpers", () => {
 				{ label: "03-03", value: 15 },
 			]),
 		).toBe(2.5);
-	});
-
-	it("formats signed percentage point deltas for card metrics", () => {
-		expect(formatSignedPercentagePointMetric(2.5)).toBe("+2.50 个百分点");
-		expect(formatSignedPercentagePointMetric(-7.56)).toBe("-7.56 个百分点");
 	});
 });
 
