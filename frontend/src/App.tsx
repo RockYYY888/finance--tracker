@@ -65,6 +65,11 @@ const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
 const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
 const EMPTY_AGENT_REGISTRATIONS: AgentRegistrationRecord[] = [];
 const EMPTY_AGENT_RECORDS: AssetRecordRecord[] = [];
+const DEFAULT_MOUNTED_WORKSPACES: Record<WorkspaceView, boolean> = {
+	manage: true,
+	insights: false,
+	agent: false,
+};
 const PortfolioAnalytics = lazy(async () => {
 	const module = await import("./components/analytics");
 	return { default: module.PortfolioAnalytics };
@@ -215,6 +220,9 @@ function App() {
 	const [feedbackNoticeMessage, setFeedbackNoticeMessage] = useState<string | null>(null);
 	const [feedbackInboxCount, setFeedbackInboxCount] = useState(0);
 	const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>("manage");
+	const [mountedWorkspaceViews, setMountedWorkspaceViews] = useState<Record<WorkspaceView, boolean>>(
+		DEFAULT_MOUNTED_WORKSPACES,
+	);
 	const [agentRegistrations, setAgentRegistrations] = useState<AgentRegistrationRecord[]>(
 		EMPTY_AGENT_REGISTRATIONS,
 	);
@@ -248,6 +256,9 @@ function App() {
 	const pendingDashboardRefreshRef = useRef(false);
 	const pendingForceRefreshRef = useRef(false);
 	const autoRefreshResumeRef = useRef(false);
+	const hasLoadedAgentAuditRef = useRef(false);
+	const agentAuditRequestInFlightRef = useRef<Promise<void> | null>(null);
+	const latestAgentAuditRequestIdRef = useRef(0);
 	const isAutoRefreshBlocked = useHasActiveAutoRefreshGuards();
 
 	function resetDashboardState(): void {
@@ -276,11 +287,15 @@ function App() {
 		setAssetRecordsDialogVersion(0);
 		setAssetRecordRefreshToken(0);
 		setActiveWorkspaceView("manage");
+		setMountedWorkspaceViews(DEFAULT_MOUNTED_WORKSPACES);
 		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
 		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
+		hasLoadedAgentAuditRef.current = false;
+		agentAuditRequestInFlightRef.current = null;
+		latestAgentAuditRequestIdRef.current += 1;
 		setIsLoadingAdminInbox(false);
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
@@ -315,11 +330,15 @@ function App() {
 		setAssetRecordsDialogVersion(0);
 		setAssetRecordRefreshToken(0);
 		setActiveWorkspaceView("manage");
+		setMountedWorkspaceViews(DEFAULT_MOUNTED_WORKSPACES);
 		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
 		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
+		hasLoadedAgentAuditRef.current = false;
+		agentAuditRequestInFlightRef.current = null;
+		latestAgentAuditRequestIdRef.current += 1;
 		setIsLoadingAdminInbox(false);
 		setAdminInboxErrorMessage(null);
 		setIsAdminInboxOpen(false);
@@ -344,11 +363,23 @@ function App() {
 	}, []);
 
 	useEffect(() => {
+		if (mountedWorkspaceViews[activeWorkspaceView]) {
+			return;
+		}
+
+		setMountedWorkspaceViews((currentViews) => ({
+			...currentViews,
+			[activeWorkspaceView]: true,
+		}));
+	}, [activeWorkspaceView, mountedWorkspaceViews]);
+
+	useEffect(() => {
 		if (authStatus !== "authenticated" || !currentUserId) {
 			return;
 		}
 
 		void loadDashboard({ initial: true });
+		void loadAgentAudit();
 		void refreshFeedbackSummary();
 	}, [authStatus, currentUserId]);
 
@@ -889,14 +920,35 @@ function App() {
 	}
 
 	useEffect(() => {
-		if (!currentUserId || activeWorkspaceView !== "agent") {
+		if (authStatus !== "authenticated" || !currentUserId || activeWorkspaceView !== "agent") {
+			return;
+		}
+		if (hasLoadedAgentAuditRef.current && !agentAuditErrorMessage) {
 			return;
 		}
 
-		let cancelled = false;
+		void loadAgentAudit({ force: Boolean(agentAuditErrorMessage) });
+	}, [activeWorkspaceView, agentAuditErrorMessage, authStatus, currentUserId]);
+
+	async function loadAgentAudit(options: { force?: boolean } = {}): Promise<void> {
+		if (!currentUserId) {
+			return;
+		}
+		if (hasLoadedAgentAuditRef.current && !options.force) {
+			return;
+		}
+		if (agentAuditRequestInFlightRef.current && !options.force) {
+			await agentAuditRequestInFlightRef.current;
+			return;
+		}
+
+		const requestId = latestAgentAuditRequestIdRef.current + 1;
+		latestAgentAuditRequestIdRef.current = requestId;
 		setIsLoadingAgentAudit(true);
 		setAgentAuditErrorMessage(null);
-		void Promise.all([
+
+		let requestPromise: Promise<void> | null = null;
+		requestPromise = Promise.all([
 			defaultAssetApiClient.listAgentRegistrations({
 				includeAllUsers: currentUserId === "admin",
 			}),
@@ -907,31 +959,34 @@ function App() {
 			}),
 		])
 			.then(([registrations, tasks, records]) => {
-				if (cancelled) {
+				if (latestAgentAuditRequestIdRef.current !== requestId) {
 					return;
 				}
 				setAgentRegistrations(registrations);
 				setAgentTasks(tasks);
 				setAgentRecords(records);
+				hasLoadedAgentAuditRef.current = true;
 			})
 			.catch((error) => {
-				if (cancelled) {
+				if (latestAgentAuditRequestIdRef.current !== requestId) {
 					return;
 				}
+				hasLoadedAgentAuditRef.current = false;
 				setAgentAuditErrorMessage(
 					error instanceof Error ? error.message : "加载智能体审计失败。",
 				);
 			})
 			.finally(() => {
-				if (!cancelled) {
+				if (agentAuditRequestInFlightRef.current === requestPromise) {
+					agentAuditRequestInFlightRef.current = null;
+				}
+				if (latestAgentAuditRequestIdRef.current === requestId) {
 					setIsLoadingAgentAudit(false);
 				}
 			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [activeWorkspaceView, currentUserId]);
+		agentAuditRequestInFlightRef.current = requestPromise;
+		await requestPromise;
+	}
 
 	const isRecoveringSession = authStatus === "checking" && currentUserId !== null;
 
@@ -1171,8 +1226,12 @@ function App() {
 				</div>
 			</section>
 
-			{activeWorkspaceView === "insights" ? (
-				<section className="panel section-shell">
+			{mountedWorkspaceViews.insights ? (
+				<section
+					className="panel section-shell"
+					hidden={activeWorkspaceView !== "insights"}
+					aria-hidden={activeWorkspaceView !== "insights"}
+				>
 					<div className="section-head">
 						<div>
 							<p className="eyebrow">ANALYTICS</p>
@@ -1203,8 +1262,13 @@ function App() {
 						/>
 					</Suspense>
 				</section>
-			) : activeWorkspaceView === "agent" ? (
-				<section className="panel section-shell">
+			) : null}
+			{mountedWorkspaceViews.agent ? (
+				<section
+					className="panel section-shell"
+					hidden={activeWorkspaceView !== "agent"}
+					aria-hidden={activeWorkspaceView !== "agent"}
+				>
 					<div className="section-head">
 						<div>
 							<p className="eyebrow">AGENT</p>
@@ -1222,27 +1286,30 @@ function App() {
 						errorMessage={agentAuditErrorMessage}
 					/>
 				</section>
-			) : (
-				<div className="integrated-stack">
-					<AssetManager
-						cashActions={assetManagerController.cashAccounts}
-						cashTransferActions={assetManagerController.cashTransfers}
-						cashLedgerAdjustmentActions={assetManagerController.cashLedgerAdjustments}
-						holdingActions={assetManagerController.holdings}
-						holdingTransactionActions={assetManagerController.holdingTransactions}
-						fixedAssetActions={assetManagerController.fixedAssets}
-						liabilityActions={assetManagerController.liabilities}
-						otherAssetActions={assetManagerController.otherAssets}
-						title="资产管理"
-						description="自动同步。"
-						loadOnMount
-						onRecordsCommitted={() => {
-							requestDashboardRefresh();
-							setAssetRecordRefreshToken((currentValue) => currentValue + 1);
-						}}
-					/>
-				</div>
-			)}
+			) : null}
+			<div
+				className="integrated-stack"
+				hidden={activeWorkspaceView !== "manage"}
+				aria-hidden={activeWorkspaceView !== "manage"}
+			>
+				<AssetManager
+					cashActions={assetManagerController.cashAccounts}
+					cashTransferActions={assetManagerController.cashTransfers}
+					cashLedgerAdjustmentActions={assetManagerController.cashLedgerAdjustments}
+					holdingActions={assetManagerController.holdings}
+					holdingTransactionActions={assetManagerController.holdingTransactions}
+					fixedAssetActions={assetManagerController.fixedAssets}
+					liabilityActions={assetManagerController.liabilities}
+					otherAssetActions={assetManagerController.otherAssets}
+					title="资产管理"
+					description="自动同步。"
+					loadOnMount
+					onRecordsCommitted={() => {
+						requestDashboardRefresh();
+						setAssetRecordRefreshToken((currentValue) => currentValue + 1);
+					}}
+				/>
+			</div>
 
 			<FeedbackDialog
 				open={isFeedbackOpen}

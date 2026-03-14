@@ -22,6 +22,13 @@ const dashboardApiMocks = vi.hoisted(() => ({
 	getDashboard: vi.fn(),
 }));
 
+const assetApiMocks = vi.hoisted(() => ({
+	createAssetManagerController: vi.fn(() => ({})),
+	listAgentRegistrations: vi.fn(),
+	listAgentTasks: vi.fn(),
+	listAssetRecords: vi.fn(),
+}));
+
 const feedbackApiMocks = vi.hoisted(() => ({
 	submitUserFeedback: vi.fn(),
 	getFeedbackSummary: vi.fn(),
@@ -56,6 +63,15 @@ vi.mock("./lib/dashboardApi", () => ({
 	getDashboard: dashboardApiMocks.getDashboard,
 }));
 
+vi.mock("./lib/assetApi", () => ({
+	createAssetManagerController: assetApiMocks.createAssetManagerController,
+	defaultAssetApiClient: {
+		listAgentRegistrations: assetApiMocks.listAgentRegistrations,
+		listAgentTasks: assetApiMocks.listAgentTasks,
+		listAssetRecords: assetApiMocks.listAssetRecords,
+	},
+}));
+
 vi.mock("./components/auth/LoginScreen", () => ({
 	LoginScreen: () => <div data-testid="login-screen">登录页</div>,
 }));
@@ -66,6 +82,12 @@ vi.mock("./components/assets", () => ({
 
 vi.mock("./components/analytics", () => ({
 	PortfolioAnalytics: () => <div data-testid="portfolio-analytics">分析模块</div>,
+}));
+
+vi.mock("./components/assets/AgentExecutionAuditPanel", () => ({
+	AgentExecutionAuditPanel: ({ loading }: { loading?: boolean }) => (
+		<div data-testid="agent-audit-panel">{loading ? "智能体加载中" : "智能体模块"}</div>
+	),
 }));
 
 vi.mock("./components/assets/AssetRecordsDialog", () => ({
@@ -144,6 +166,9 @@ describe("App session restore", () => {
 			inbox_count: 0,
 			mode: "user-pending",
 		});
+		assetApiMocks.listAgentRegistrations.mockResolvedValue([]);
+		assetApiMocks.listAgentTasks.mockResolvedValue([]);
+		assetApiMocks.listAssetRecords.mockResolvedValue([]);
 		feedbackApiMocks.listFeedbackForCurrentUser.mockResolvedValue([]);
 		feedbackApiMocks.markFeedbackSeenForCurrentUser.mockResolvedValue(undefined);
 		feedbackApiMocks.listUserFeedbackForAdmin.mockResolvedValue({
@@ -304,6 +329,70 @@ describe("App session restore", () => {
 				.getAllByRole("tab")
 				.map((tab) => tab.textContent?.trim()),
 		).toEqual(["管理", "洞察", "智能体"]);
+	});
+
+	it("keeps the manage workspace mounted while switching to other tabs", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+
+		expect(screen.getByTestId("asset-manager")).not.toBeNull();
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "洞察" }).click();
+		});
+
+		expect(screen.getByTestId("asset-manager")).not.toBeNull();
+		await waitFor(() => {
+			expect(screen.getByTestId("portfolio-analytics")).not.toBeNull();
+		});
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "管理" }).click();
+		});
+
+		expect(screen.getByTestId("asset-manager")).not.toBeNull();
+	});
+
+	it("prefetches and reuses the agent workspace data across tab switches", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledWith({
+				includeAllUsers: false,
+			});
+		});
+		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
+		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledWith({
+			source: "AGENT",
+			limit: 120,
+		});
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "智能体" }).click();
+		});
+
+		expect(screen.getByTestId("agent-audit-panel")).not.toBeNull();
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "管理" }).click();
+		});
+
+		expect(screen.getByTestId("agent-audit-panel")).not.toBeNull();
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "智能体" }).click();
+		});
+
+		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledTimes(1);
+		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
+		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledTimes(1);
 	});
 
 	it("opens the asset records dialog from the hero actions", async () => {
