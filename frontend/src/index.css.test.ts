@@ -56,4 +56,12 @@ describe("global layout styles", () => {
 			/\.analytics-segmented button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
 		);
 	});
+
+	it("preserves semantic hidden behavior even when layout classes set display styles", () => {
+		const globalStylesheet = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
+
+		expect(globalStylesheet).toMatch(
+			/\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important\s*;/,
+		);
+	});
 });

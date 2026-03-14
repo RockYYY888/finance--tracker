@@ -5,6 +5,10 @@ html {
 	scrollbar-gutter: stable both-edges;
 }
 
+[hidden] {
+	display: none !important;
+}
+
 :root {
 	color-scheme: dark;
 	--bg-deep: #050c17;

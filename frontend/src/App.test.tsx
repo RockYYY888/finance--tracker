@@ -358,6 +358,44 @@ describe("App session restore", () => {
 		expect(screen.getByTestId("asset-manager")).not.toBeNull();
 	});
 
+	it("keeps inactive workspaces mounted but hidden while switching tabs", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+
+		const managePanel = screen.getByTestId("asset-manager").closest(".integrated-stack");
+		expect(managePanel?.hasAttribute("hidden")).toBe(false);
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "智能体" }).click();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("agent-audit-panel")).not.toBeNull();
+		});
+
+		const agentPanel = screen.getByTestId("agent-audit-panel").closest(".section-shell");
+		expect(agentPanel?.hasAttribute("hidden")).toBe(false);
+		expect(managePanel?.hasAttribute("hidden")).toBe(true);
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "洞察" }).click();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("portfolio-analytics")).not.toBeNull();
+		});
+
+		const insightsPanel = screen.getByTestId("portfolio-analytics").closest(".section-shell");
+		expect(insightsPanel?.hasAttribute("hidden")).toBe(false);
+		expect(agentPanel?.hasAttribute("hidden")).toBe(true);
+		expect(managePanel?.hasAttribute("hidden")).toBe(true);
+	});
+
 	it("prefetches and reuses the agent workspace data across tab switches", async () => {
 		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
 
