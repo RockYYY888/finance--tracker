@@ -155,7 +155,7 @@ describe("Cash account button styling", () => {
 		);
 	});
 
-	it("shows readonly account activity inside the cash account editor", () => {
+	it("keeps the cash account editor focused on the form only", () => {
 		render(
 			<CashAccountForm
 				mode="edit"
@@ -173,26 +173,12 @@ describe("Cash account button styling", () => {
 					balance: 1000,
 					account_type: "BANK",
 				}}
-				activityEntries={[
-					{
-						id: 9,
-						cash_account_id: 1,
-						entry_type: "TRANSFER_IN",
-						amount: 200,
-						currency: "CNY",
-						happened_on: "2026-03-10",
-						note: "来自 备用金 的划转",
-						cash_transfer_id: 3,
-					},
-				]}
 				onEdit={vi.fn()}
 				onCancel={vi.fn()}
 			/>,
 		);
 
-		expect(screen.getByRole("heading", { name: "账户变动记录" })).not.toBeNull();
-		expect(screen.getByRole("tab", { name: "全部" })).not.toBeNull();
-		expect(screen.getByText("转入")).not.toBeNull();
-		expect(screen.queryByRole("button", { name: "编辑划转" })).toBeNull();
+		expect(screen.queryByRole("heading", { name: "账户变动记录" })).toBeNull();
+		expect(screen.queryByRole("tab", { name: "全部" })).toBeNull();
 	});
 });

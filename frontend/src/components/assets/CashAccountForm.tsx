@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import "./asset-components.css";
-import { CashAccountActivityList } from "./CashAccountActivityList";
 import { DatePickerField } from "./DatePickerField";
 import {
 	calculateTargetCnyAmount,
@@ -16,7 +15,6 @@ import type {
 	CashAccountFormDraft,
 	CashAccountInput,
 	CashAccountRecord,
-	CashLedgerEntryRecord,
 	MaybePromise,
 } from "../../types/assets";
 import {
@@ -37,9 +35,6 @@ export interface CashAccountFormProps {
 	busy?: boolean;
 	errorMessage?: string | null;
 	activityAccount?: CashAccountRecord | null;
-	activityEntries?: CashLedgerEntryRecord[];
-	activityLoading?: boolean;
-	activityErrorMessage?: string | null;
 	fxRates?: SupportedCurrencyFxRates;
 	onCreate?: (payload: CashAccountInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: CashAccountInput) => MaybePromise<unknown>;
@@ -82,9 +77,6 @@ export function CashAccountForm({
 	busy = false,
 	errorMessage = null,
 	activityAccount = null,
-	activityEntries = [],
-	activityLoading = false,
-	activityErrorMessage = null,
 	fxRates,
 	onCreate,
 	onEdit,
@@ -170,23 +162,22 @@ export function CashAccountForm({
 	}
 
 	return (
-		<>
-			<section className="asset-manager__panel">
-				<div className="asset-manager__panel-head">
-					<div>
-						<p className="asset-manager__eyebrow">CASH FORM</p>
-						<h3>{resolvedTitle}</h3>
-						{subtitle ? <p>{subtitle}</p> : null}
-					</div>
+		<section className="asset-manager__panel">
+			<div className="asset-manager__panel-head">
+				<div>
+					<p className="asset-manager__eyebrow">CASH FORM</p>
+					<h3>{resolvedTitle}</h3>
+					{subtitle ? <p>{subtitle}</p> : null}
 				</div>
+			</div>
 
-				{effectiveError ? (
-					<div className="asset-manager__message asset-manager__message--error">
-						{effectiveError}
-					</div>
-				) : null}
+			{effectiveError ? (
+				<div className="asset-manager__message asset-manager__message--error">
+					{effectiveError}
+				</div>
+			) : null}
 
-				<form className="asset-manager__form" onSubmit={(event) => void handleSubmit(event)}>
+			<form className="asset-manager__form" onSubmit={(event) => void handleSubmit(event)}>
 				<label className="asset-manager__field">
 					<span>账户名称</span>
 					<input
@@ -314,17 +305,7 @@ export function CashAccountForm({
 							</button>
 						) : null}
 					</div>
-				</form>
-			</section>
-
-			{mode === "edit" && activityAccount ? (
-				<CashAccountActivityList
-					account={activityAccount}
-					entries={activityEntries}
-					loading={activityLoading}
-					errorMessage={activityErrorMessage}
-				/>
-			) : null}
-		</>
+			</form>
+		</section>
 	);
 }

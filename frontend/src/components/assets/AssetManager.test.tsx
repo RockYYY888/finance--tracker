@@ -386,7 +386,6 @@ describe("AssetManager refresh stability", () => {
 			},
 		]);
 		const transferCreate = vi.fn().mockResolvedValue(undefined);
-		const ledgerRefreshForAccount = vi.fn().mockResolvedValue([]);
 
 		render(
 			<AssetManager
@@ -413,7 +412,6 @@ describe("AssetManager refresh stability", () => {
 				]}
 				cashActions={{ onRefresh: cashRefresh }}
 				cashTransferActions={{ onCreate: transferCreate }}
-				cashLedgerAdjustmentActions={{ onRefreshForAccount: ledgerRefreshForAccount }}
 				title="资产管理"
 			/>,
 		);
@@ -442,6 +440,5 @@ describe("AssetManager refresh stability", () => {
 		await waitFor(() => {
 			expect(cashRefresh).toHaveBeenCalledTimes(1);
 		});
-		expect(ledgerRefreshForAccount).not.toHaveBeenCalled();
 	});
 });

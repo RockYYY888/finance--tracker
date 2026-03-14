@@ -1295,7 +1295,6 @@ function App() {
 				<AssetManager
 					cashActions={assetManagerController.cashAccounts}
 					cashTransferActions={assetManagerController.cashTransfers}
-					cashLedgerAdjustmentActions={assetManagerController.cashLedgerAdjustments}
 					holdingActions={assetManagerController.holdings}
 					holdingTransactionActions={assetManagerController.holdingTransactions}
 					fixedAssetActions={assetManagerController.fixedAssets}

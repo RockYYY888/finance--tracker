@@ -18,7 +18,6 @@ import type {
 	CashAccountFormDraft,
 	CashAccountInput,
 	CashAccountRecord,
-	CashLedgerEntryRecord,
 	CashTransferInput,
 	FixedAssetFormDraft,
 	FixedAssetInput,
@@ -63,7 +62,6 @@ const SECTION_RESOURCES: Record<AssetSection, AssetResource[]> = {
 };
 
 const EMPTY_CASH_ACCOUNTS: CashAccountRecord[] = [];
-const EMPTY_CASH_LEDGER_ENTRIES: CashLedgerEntryRecord[] = [];
 const EMPTY_HOLDINGS: HoldingRecord[] = [];
 const EMPTY_HOLDING_TRANSACTIONS: HoldingTransactionRecord[] = [];
 const EMPTY_FIXED_ASSETS: FixedAssetRecord[] = [];
@@ -88,7 +86,6 @@ export interface AssetManagerProps {
 	initialOtherAssets?: OtherAssetRecord[];
 	cashActions?: AssetManagerController["cashAccounts"];
 	cashTransferActions?: AssetManagerController["cashTransfers"];
-	cashLedgerAdjustmentActions?: AssetManagerController["cashLedgerAdjustments"];
 	holdingActions?: AssetManagerController["holdings"];
 	holdingTransactionActions?: AssetManagerController["holdingTransactions"];
 	fixedAssetActions?: AssetManagerController["fixedAssets"];
@@ -380,7 +377,6 @@ export function AssetManager({
 	initialOtherAssets,
 	cashActions,
 	cashTransferActions,
-	cashLedgerAdjustmentActions,
 	holdingActions,
 	holdingTransactionActions,
 	fixedAssetActions,
@@ -406,11 +402,6 @@ export function AssetManager({
 		liabilities: initialLiabilities !== undefined,
 		otherAssets: initialOtherAssets !== undefined,
 	}));
-	const [cashActivityEntries, setCashActivityEntries] = useState<CashLedgerEntryRecord[]>(
-		EMPTY_CASH_LEDGER_ENTRIES,
-	);
-	const [cashActivityLoading, setCashActivityLoading] = useState(false);
-	const [cashActivityError, setCashActivityError] = useState<string | null>(null);
 	const [isCashTransferEditorOpen, setIsCashTransferEditorOpen] = useState(false);
 	const [cashTransferError, setCashTransferError] = useState<string | null>(null);
 	const [isSubmittingCashTransfer, setIsSubmittingCashTransfer] = useState(false);
@@ -500,12 +491,10 @@ export function AssetManager({
 
 	function closeCashEditor(): void {
 		cashCollection.closeEditor();
-		setCashActivityError(null);
 	}
 
 	function openCashTransferEditor(): void {
 		cashCollection.closeEditor();
-		setCashActivityError(null);
 		setCashTransferError(null);
 		setIsCashTransferEditorOpen(true);
 	}
@@ -513,12 +502,6 @@ export function AssetManager({
 	function closeCashTransferEditor(): void {
 		setCashTransferError(null);
 		setIsCashTransferEditorOpen(false);
-	}
-
-	function refreshVisibleCashAccountActivity(): void {
-		if (cashCollection.editorMode === "edit" && cashCollection.editingRecordId !== null) {
-			void refreshCashAccountActivity(cashCollection.editingRecordId);
-		}
 	}
 
 	function markResourcesLoaded(...resources: AssetResource[]): void {
@@ -639,35 +622,6 @@ export function AssetManager({
 		}
 	}
 
-	async function refreshCashAccountActivity(accountId: number): Promise<void> {
-		setCashActivityLoading(true);
-		setCashActivityError(null);
-		try {
-			if (cashLedgerAdjustmentActions?.onRefreshForAccount) {
-				setCashActivityEntries(
-					await cashLedgerAdjustmentActions.onRefreshForAccount(accountId),
-				);
-				return;
-			}
-
-			if (cashLedgerAdjustmentActions?.onRefresh) {
-				const items = await cashLedgerAdjustmentActions.onRefresh();
-				setCashActivityEntries(
-					items.filter((entry) => entry.cash_account_id === accountId),
-				);
-				return;
-			}
-
-			setCashActivityEntries(EMPTY_CASH_LEDGER_ENTRIES);
-		} catch (error) {
-			setCashActivityError(
-				error instanceof Error ? error.message : "加载账户记录失败。",
-			);
-		} finally {
-			setCashActivityLoading(false);
-		}
-	}
-
 	async function refreshFixedAssets(): Promise<void> {
 		if (!startResourceRefresh("fixedAssets")) {
 			return;
@@ -784,17 +738,6 @@ export function AssetManager({
 		}
 	}, [activeSection, loadOnMount, loadedResources]);
 
-	useEffect(() => {
-		if (cashCollection.editorMode !== "edit" || cashCollection.editingRecordId === null) {
-			setCashActivityEntries(EMPTY_CASH_LEDGER_ENTRIES);
-			setCashActivityLoading(false);
-			setCashActivityError(null);
-			return;
-		}
-
-		void refreshCashAccountActivity(cashCollection.editingRecordId);
-	}, [cashCollection.editorMode, cashCollection.editingRecordId]);
-
 	async function removeCashRecord(recordId: number): Promise<void> {
 		const record = cashCollection.items.find((item) => item.id === recordId);
 		if (!record) {
@@ -825,7 +768,6 @@ export function AssetManager({
 		try {
 			await cashTransferActions.onCreate(payload);
 			await refreshCashAccounts();
-			refreshVisibleCashAccountActivity();
 			notifyRecordsCommitted("cash");
 			closeCashTransferEditor();
 		} finally {
@@ -865,7 +807,6 @@ export function AssetManager({
 		]);
 		if (touchesCashAccounts) {
 			invalidateResources("cashTransfers", "cashLedger");
-			refreshVisibleCashAccountActivity();
 			notifyRecordsCommitted("cash", "investment");
 			return;
 		}
@@ -886,7 +827,6 @@ export function AssetManager({
 				refreshHoldingTransactions(),
 			]);
 			invalidateResources("cashTransfers", "cashLedger");
-			refreshVisibleCashAccountActivity();
 			notifyRecordsCommitted("cash", "investment");
 		}
 	}
@@ -1016,9 +956,6 @@ export function AssetManager({
 										: null
 								}
 								activityAccount={cashCollection.editingRecord}
-								activityEntries={cashActivityEntries}
-								activityLoading={cashActivityLoading}
-								activityErrorMessage={cashActivityError}
 								fxRates={displayFxRates}
 								recordId={cashCollection.editingRecordId}
 								busy={cashCollection.isSubmitting}
