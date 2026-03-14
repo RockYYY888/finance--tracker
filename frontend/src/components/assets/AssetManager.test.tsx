@@ -77,7 +77,7 @@ describe("AssetManager refresh stability", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+		fireEvent.click(screen.getAllByRole("button", { name: "编辑" })[0]);
 		expect(screen.getByRole("heading", { name: "编辑投资持仓" })).not.toBeNull();
 		expect(screen.queryByRole("heading", { name: "交易记录" })).toBeNull();
 
@@ -130,7 +130,7 @@ describe("AssetManager refresh stability", () => {
 		);
 
 		expect(screen.queryByRole("button", { name: "修正记录" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+		fireEvent.click(screen.getAllByRole("button", { name: "编辑" })[0]);
 		fireEvent.change(screen.getByLabelText("持仓数量（股/支）"), {
 			target: { value: "3" },
 		});
@@ -244,6 +244,123 @@ describe("AssetManager refresh stability", () => {
 		expect(screen.getByRole("button", { name: "账户划转" })).not.toBeNull();
 		expect(screen.queryByRole("heading", { name: "手工账本调整" })).toBeNull();
 		expect(screen.queryByText("还没有账户划转记录。")).toBeNull();
+	});
+
+	it("hides the cash list while a cash editor panel is open", () => {
+		render(
+			<AssetManager
+				defaultSection="cash"
+				initialCashAccounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 100,
+						account_type: "BANK",
+						value_cny: 100,
+					},
+					{
+						id: 2,
+						name: "备用金",
+						platform: "Cash",
+						currency: "CNY",
+						balance: 10,
+						account_type: "CASH",
+						value_cny: 10,
+					},
+				]}
+				title="资产管理"
+			/>,
+		);
+
+		fireEvent.click(screen.getAllByRole("button", { name: "编辑" })[0]);
+		expect(screen.getByRole("heading", { name: "编辑现金账户" })).not.toBeNull();
+		expect(screen.queryByRole("heading", { name: "现金账户" })).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "取消编辑" }));
+		expect(screen.getByRole("heading", { name: "现金账户" })).not.toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "账户划转" }));
+		expect(screen.getByRole("heading", { name: "账户划转" })).not.toBeNull();
+		expect(screen.queryByRole("heading", { name: "现金账户" })).toBeNull();
+	});
+
+	it("hides other asset lists while editing fixed, liability, and other assets", () => {
+		render(
+			<AssetManager
+				defaultSection="fixed"
+				initialFixedAssets={[
+					{
+						id: 1,
+						name: "自住房",
+						category: "REAL_ESTATE",
+						current_value_cny: 500000,
+						purchase_value_cny: 420000,
+						started_on: "2026-03-01",
+						note: "固定资产",
+						value_cny: 500000,
+						return_pct: 19.05,
+					},
+				]}
+				initialLiabilities={[
+					{
+						id: 1,
+						name: "房贷",
+						category: "MORTGAGE",
+						currency: "CNY",
+						balance: 300000,
+						started_on: "2026-03-01",
+						note: "负债",
+						value_cny: 300000,
+						fx_to_cny: 1,
+					},
+				]}
+				initialOtherAssets={[
+					{
+						id: 1,
+						name: "备用应收",
+						category: "RECEIVABLE",
+						current_value_cny: 5000,
+						original_value_cny: 4800,
+						started_on: "2026-03-01",
+						note: "其他资产",
+						value_cny: 5000,
+						return_pct: 4.17,
+					},
+				]}
+				title="资产管理"
+			/>,
+		);
+
+		const sections = [
+			{
+				tabName: /固定资产/,
+				listHeading: "固定资产",
+				editHeading: "编辑固定资产",
+			},
+			{
+				tabName: /负债/,
+				listHeading: "负债",
+				editHeading: "编辑负债",
+			},
+			{
+				tabName: /其他/,
+				listHeading: "其他",
+				editHeading: "编辑其他资产",
+			},
+		] as const;
+
+		for (const section of sections) {
+			fireEvent.click(screen.getByRole("tab", { name: section.tabName }));
+			fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+
+			expect(screen.getByRole("heading", { name: section.editHeading })).not.toBeNull();
+			expect(screen.queryByRole("heading", { name: section.listHeading })).toBeNull();
+
+			fireEvent.click(screen.getByRole("button", { name: "取消编辑" }));
+			expect(screen.getByRole("heading", { name: section.listHeading })).not.toBeNull();
+		}
 	});
 
 	it("submits a cash transfer without waiting for the cash ledger panel refresh path", async () => {

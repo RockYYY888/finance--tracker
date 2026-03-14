@@ -959,6 +959,10 @@ export function AssetManager({
 		{ key: "liability", label: "负债", count: liabilityCollection.items.length },
 		{ key: "other", label: "其他", count: otherAssetCollection.items.length },
 	];
+	const isCashEditorVisible = isCashTransferEditorOpen || cashCollection.isEditorOpen;
+	const isFixedAssetEditorVisible = fixedAssetCollection.isEditorOpen;
+	const isLiabilityEditorVisible = liabilityCollection.isEditorOpen;
+	const isOtherAssetEditorVisible = otherAssetCollection.isEditorOpen;
 
 	return (
 		<section className="asset-manager">
@@ -1020,24 +1024,18 @@ export function AssetManager({
 								onCancel={closeCashEditor}
 							/>
 						) : null}
-						<CashAccountList
-							accounts={cashCollection.items}
-							loading={cashCollection.isRefreshing}
-							busy={cashCollection.isSubmitting}
-							errorMessage={cashCollection.errorMessage}
-							onCreate={
-								cashCollection.isEditorOpen || isCashTransferEditorOpen
-									? undefined
-									: openCashCreateEditor
-							}
-							onTransfer={
-								cashCollection.isEditorOpen || isCashTransferEditorOpen
-									? undefined
-									: openCashTransferEditor
-							}
-							onEdit={(account) => openCashEditEditor(account)}
-							onDelete={(recordId) => removeCashRecord(recordId)}
-						/>
+						{isCashEditorVisible ? null : (
+							<CashAccountList
+								accounts={cashCollection.items}
+								loading={cashCollection.isRefreshing}
+								busy={cashCollection.isSubmitting}
+								errorMessage={cashCollection.errorMessage}
+								onCreate={openCashCreateEditor}
+								onTransfer={openCashTransferEditor}
+								onEdit={(account) => openCashEditEditor(account)}
+								onDelete={(recordId) => removeCashRecord(recordId)}
+							/>
+						)}
 					</>
 				) : null}
 
@@ -1111,15 +1109,17 @@ export function AssetManager({
 								onCancel={fixedAssetCollection.closeEditor}
 							/>
 						) : null}
-						<FixedAssetList
-							assets={fixedAssetCollection.items}
-							loading={fixedAssetCollection.isRefreshing}
-							busy={fixedAssetCollection.isSubmitting}
-							errorMessage={fixedAssetCollection.errorMessage}
-							onCreate={fixedAssetCollection.isEditorOpen ? undefined : fixedAssetCollection.openCreate}
-							onEdit={(asset) => fixedAssetCollection.openEdit(asset)}
-							onDelete={(recordId) => removeFixedAssetRecord(recordId)}
-						/>
+						{isFixedAssetEditorVisible ? null : (
+							<FixedAssetList
+								assets={fixedAssetCollection.items}
+								loading={fixedAssetCollection.isRefreshing}
+								busy={fixedAssetCollection.isSubmitting}
+								errorMessage={fixedAssetCollection.errorMessage}
+								onCreate={fixedAssetCollection.openCreate}
+								onEdit={(asset) => fixedAssetCollection.openEdit(asset)}
+								onDelete={(recordId) => removeFixedAssetRecord(recordId)}
+							/>
+						)}
 					</>
 				) : null}
 
@@ -1143,15 +1143,17 @@ export function AssetManager({
 								onCancel={liabilityCollection.closeEditor}
 							/>
 						) : null}
-						<LiabilityList
-							liabilities={liabilityCollection.items}
-							loading={liabilityCollection.isRefreshing}
-							busy={liabilityCollection.isSubmitting}
-							errorMessage={liabilityCollection.errorMessage}
-							onCreate={liabilityCollection.isEditorOpen ? undefined : liabilityCollection.openCreate}
-							onEdit={(entry) => liabilityCollection.openEdit(entry)}
-							onDelete={(recordId) => removeLiabilityRecord(recordId)}
-						/>
+						{isLiabilityEditorVisible ? null : (
+							<LiabilityList
+								liabilities={liabilityCollection.items}
+								loading={liabilityCollection.isRefreshing}
+								busy={liabilityCollection.isSubmitting}
+								errorMessage={liabilityCollection.errorMessage}
+								onCreate={liabilityCollection.openCreate}
+								onEdit={(entry) => liabilityCollection.openEdit(entry)}
+								onDelete={(recordId) => removeLiabilityRecord(recordId)}
+							/>
+						)}
 					</>
 				) : null}
 
@@ -1175,15 +1177,17 @@ export function AssetManager({
 								onCancel={otherAssetCollection.closeEditor}
 							/>
 						) : null}
-						<OtherAssetList
-							assets={otherAssetCollection.items}
-							loading={otherAssetCollection.isRefreshing}
-							busy={otherAssetCollection.isSubmitting}
-							errorMessage={otherAssetCollection.errorMessage}
-							onCreate={otherAssetCollection.isEditorOpen ? undefined : otherAssetCollection.openCreate}
-							onEdit={(asset) => otherAssetCollection.openEdit(asset)}
-							onDelete={(recordId) => removeOtherAssetRecord(recordId)}
-						/>
+						{isOtherAssetEditorVisible ? null : (
+							<OtherAssetList
+								assets={otherAssetCollection.items}
+								loading={otherAssetCollection.isRefreshing}
+								busy={otherAssetCollection.isSubmitting}
+								errorMessage={otherAssetCollection.errorMessage}
+								onCreate={otherAssetCollection.openCreate}
+								onEdit={(asset) => otherAssetCollection.openEdit(asset)}
+								onDelete={(recordId) => removeOtherAssetRecord(recordId)}
+							/>
+						)}
 					</>
 				) : null}
 			</div>
