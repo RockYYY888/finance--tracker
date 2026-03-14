@@ -293,91 +293,97 @@ export function AssetRecordsDialog({
 					</div>
 				</div>
 
-				{showRefreshingHint ? (
-					<div className="asset-manager__status-note" role="status" aria-live="polite">
-						正在更新记录...
+				<div className="asset-records__body">
+					{showRefreshingHint ? (
+						<div className="asset-manager__status-note" role="status" aria-live="polite">
+							正在更新记录...
+						</div>
+					) : null}
+
+					{errorMessage ? (
+						<div className="asset-manager__message asset-manager__message--error">
+							{errorMessage}
+						</div>
+					) : null}
+
+					<div className="asset-records__scroll-region">
+						{showBlockingLoader ? (
+							<div className="asset-manager__empty-state">正在加载记录...</div>
+						) : records.length === 0 ? (
+							<div className="asset-manager__empty-state">当前筛选下还没有记录。</div>
+						) : (
+							<ul className="asset-manager__list asset-records__list">
+								{records.map((record) => {
+									const formattedAmount = formatRecordAmount(record);
+									const hasProfit =
+										record.profit_amount != null &&
+										record.profit_currency &&
+										record.profit_rate_pct != null;
+									const profitToneClass =
+										(record.profit_amount ?? 0) >= 0
+											? "asset-records__profit-chip--positive"
+											: "asset-records__profit-chip--negative";
+
+									return (
+										<li key={`${record.entity_type}-${record.id}`} className="asset-manager__card">
+											<div className="asset-manager__card-top">
+												<div className="asset-manager__card-title">
+													<div className="asset-manager__badge-row">
+														<span className="asset-manager__badge asset-manager__badge--muted">
+															{ASSET_CLASS_BADGE_LABELS[record.asset_class]}
+														</span>
+														<span className="asset-manager__badge">
+															{OPERATION_BADGE_LABELS[record.operation_kind]}
+														</span>
+														<span className="asset-manager__badge asset-records__source-badge">
+															{SOURCE_BADGE_LABELS[record.source]}
+														</span>
+													</div>
+													<h3>{record.title}</h3>
+													<p className="asset-manager__card-note">{record.summary}</p>
+												</div>
+											</div>
+
+											<div className="asset-manager__metric-grid">
+												<div className="asset-manager__metric">
+													<span>操作时间</span>
+													<strong>
+														{formatOperationTimestamp(
+															record.effective_date,
+															record.created_at,
+														)}
+													</strong>
+												</div>
+												{formattedAmount ? (
+													<div className="asset-manager__metric">
+														<span>{resolveAmountLabel(record)}</span>
+														<strong>{formattedAmount}</strong>
+													</div>
+												) : null}
+												{hasProfit ? (
+													<div
+														className={`asset-manager__metric asset-records__profit-chip ${profitToneClass}`}
+													>
+														<span>已实现盈利</span>
+														<strong>
+															{formatMoneyAmount(
+																record.profit_amount ?? 0,
+																record.profit_currency ?? "CNY",
+															)}
+														</strong>
+														<p className="asset-records__profit-rate">
+															收益率 {formatPercentValue(record.profit_rate_pct)}
+														</p>
+													</div>
+												) : null}
+											</div>
+										</li>
+									);
+								})}
+							</ul>
+						)}
 					</div>
-				) : null}
-
-				{errorMessage ? (
-					<div className="asset-manager__message asset-manager__message--error">
-						{errorMessage}
-					</div>
-				) : null}
-
-				{showBlockingLoader ? (
-					<div className="asset-manager__empty-state">正在加载记录...</div>
-				) : records.length === 0 ? (
-					<div className="asset-manager__empty-state">当前筛选下还没有记录。</div>
-				) : (
-					<ul className="asset-manager__list asset-records__list">
-						{records.map((record) => {
-							const formattedAmount = formatRecordAmount(record);
-							const hasProfit =
-								record.profit_amount != null &&
-								record.profit_currency &&
-								record.profit_rate_pct != null;
-							const profitToneClass =
-								(record.profit_amount ?? 0) >= 0
-									? "asset-records__profit-chip--positive"
-									: "asset-records__profit-chip--negative";
-
-							return (
-								<li key={`${record.entity_type}-${record.id}`} className="asset-manager__card">
-									<div className="asset-manager__card-top">
-										<div className="asset-manager__card-title">
-											<div className="asset-manager__badge-row">
-												<span className="asset-manager__badge asset-manager__badge--muted">
-													{ASSET_CLASS_BADGE_LABELS[record.asset_class]}
-												</span>
-												<span className="asset-manager__badge">
-													{OPERATION_BADGE_LABELS[record.operation_kind]}
-												</span>
-												<span className="asset-manager__badge asset-records__source-badge">
-													{SOURCE_BADGE_LABELS[record.source]}
-												</span>
-											</div>
-											<h3>{record.title}</h3>
-											<p className="asset-manager__card-note">{record.summary}</p>
-										</div>
-									</div>
-
-									<div className="asset-manager__metric-grid">
-										<div className="asset-manager__metric">
-											<span>操作时间</span>
-											<strong>
-												{formatOperationTimestamp(
-													record.effective_date,
-													record.created_at,
-												)}
-											</strong>
-										</div>
-										{formattedAmount ? (
-											<div className="asset-manager__metric">
-												<span>{resolveAmountLabel(record)}</span>
-												<strong>{formattedAmount}</strong>
-											</div>
-										) : null}
-										{hasProfit ? (
-											<div className={`asset-manager__metric asset-records__profit-chip ${profitToneClass}`}>
-												<span>已实现盈利</span>
-												<strong>
-													{formatMoneyAmount(
-														record.profit_amount ?? 0,
-														record.profit_currency ?? "CNY",
-													)}
-												</strong>
-												<p className="asset-records__profit-rate">
-													收益率 {formatPercentValue(record.profit_rate_pct)}
-												</p>
-											</div>
-										) : null}
-									</div>
-								</li>
-							);
-						})}
-					</ul>
-				)}
+				</div>
 			</div>
 		</div>
 	);

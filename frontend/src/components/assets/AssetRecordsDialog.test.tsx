@@ -174,4 +174,29 @@ describe("AssetRecordsDialog", () => {
 			expect(onLoadRecords).toHaveBeenCalledTimes(3);
 		});
 	});
+
+	it("renders records inside a dedicated scroll region while header and filters stay outside", async () => {
+		const onLoadRecords = vi.fn().mockResolvedValue([CASH_RECORD, SELL_RECORD]);
+
+		render(
+			<AssetRecordsDialog
+				open
+				onClose={() => undefined}
+				onLoadRecords={onLoadRecords}
+			/>,
+		);
+
+		const scrollRegion = await waitFor(() => {
+			const nextScrollRegion = document.querySelector(".asset-records__scroll-region");
+			expect(nextScrollRegion).not.toBeNull();
+			return nextScrollRegion as HTMLElement;
+		});
+
+		expect(scrollRegion.querySelector(".asset-records__list")).not.toBeNull();
+		expect(scrollRegion.textContent).toContain("支付宝");
+		expect(scrollRegion.textContent).toContain("腾讯控股 (0700.HK)");
+		expect(scrollRegion.textContent).not.toContain("资产类别");
+		expect(scrollRegion.textContent).not.toContain("操作类型");
+		expect(scrollRegion.textContent).not.toContain("来源");
+	});
 });

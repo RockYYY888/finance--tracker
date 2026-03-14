@@ -49,7 +49,7 @@ type AssetResource =
 type SummarySection = {
 	key: AssetSection;
 	label: string;
-	count: number;
+	count: number | string;
 };
 
 const ACTIVE_SECTION_STORAGE_KEY = "asset-manager-active-section";
@@ -895,12 +895,36 @@ export function AssetManager({
 		return `asset-manager__summary-card asset-manager__summary-card--${section}`;
 	}
 
+	function getSummaryCount(count: number, isLoaded: boolean): number | string {
+		return isLoaded ? count : "—";
+	}
+
 	const summarySections: SummarySection[] = [
-		{ key: "cash", label: "现金", count: cashCollection.items.length },
-		{ key: "investment", label: "投资类", count: holdingCollection.items.length },
-		{ key: "fixed", label: "固定资产", count: fixedAssetCollection.items.length },
-		{ key: "liability", label: "负债", count: liabilityCollection.items.length },
-		{ key: "other", label: "其他", count: otherAssetCollection.items.length },
+		{
+			key: "cash",
+			label: "现金",
+			count: getSummaryCount(cashCollection.items.length, loadedResources.cashAccounts),
+		},
+		{
+			key: "investment",
+			label: "投资类",
+			count: getSummaryCount(holdingCollection.items.length, loadedResources.holdings),
+		},
+		{
+			key: "fixed",
+			label: "固定资产",
+			count: getSummaryCount(fixedAssetCollection.items.length, loadedResources.fixedAssets),
+		},
+		{
+			key: "liability",
+			label: "负债",
+			count: getSummaryCount(liabilityCollection.items.length, loadedResources.liabilities),
+		},
+		{
+			key: "other",
+			label: "其他",
+			count: getSummaryCount(otherAssetCollection.items.length, loadedResources.otherAssets),
+		},
 	];
 	const isCashEditorVisible = isCashTransferEditorOpen || cashCollection.isEditorOpen;
 	const isFixedAssetEditorVisible = fixedAssetCollection.isEditorOpen;

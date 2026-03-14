@@ -8,6 +8,7 @@ import {
 import { EMPTY_DASHBOARD } from "./types/dashboard";
 
 const STORAGE_KEY = "asset-tracker-last-session-user";
+const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 
 const authApiMocks = vi.hoisted(() => ({
 	getAuthSession: vi.fn(),
@@ -161,6 +162,7 @@ describe("App session restore", () => {
 		assetRecordsDialogMocks.lastOpenState = false;
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
+		window.localStorage.clear();
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
 		feedbackApiMocks.getFeedbackSummary.mockResolvedValue({
 			inbox_count: 0,
@@ -264,6 +266,91 @@ describe("App session restore", () => {
 		await waitFor(() => {
 			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
 		});
+	});
+
+	it("restores cached dashboard totals while remembered session recovery is in progress", () => {
+		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
+		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
+		window.sessionStorage.setItem(STORAGE_KEY, "alice");
+		window.sessionStorage.setItem(
+			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
+			JSON.stringify({
+				dashboard: {
+					...EMPTY_DASHBOARD,
+					total_value_cny: 250_763.82,
+					cash_value_cny: 14_255.51,
+					holdings_value_cny: 236_508.31,
+				},
+				lastUpdatedAt: "2026-03-14T13:20:09.000Z",
+			}),
+		);
+
+		render(<App />);
+
+		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
+		expect(screen.getByText("¥25.08万")).not.toBeNull();
+		expect(screen.getByText("¥1.43万")).not.toBeNull();
+		expect(screen.getByText("¥23.65万")).not.toBeNull();
+	});
+
+	it("falls back to persistent dashboard cache when the tab cache is empty", () => {
+		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
+		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
+		window.localStorage.setItem(STORAGE_KEY, "alice");
+		window.localStorage.setItem(
+			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
+			JSON.stringify({
+				dashboard: {
+					...EMPTY_DASHBOARD,
+					total_value_cny: 198_880.12,
+					holdings_value_cny: 168_200.45,
+					cash_value_cny: 30_679.67,
+				},
+				lastUpdatedAt: "2026-03-14T13:45:00.000Z",
+			}),
+		);
+
+		render(<App />);
+
+		expect(screen.getByText("¥19.89万")).not.toBeNull();
+		expect(screen.getByText("¥16.82万")).not.toBeNull();
+		expect(screen.getByText("¥3.07万")).not.toBeNull();
+	});
+
+	it("shows placeholders instead of zero totals while remembered data is still loading", () => {
+		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
+		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
+		window.sessionStorage.setItem(STORAGE_KEY, "alice");
+
+		render(<App />);
+
+		expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(6);
+		expect(screen.queryByText("¥0.00")).toBeNull();
+	});
+
+	it("writes the latest dashboard snapshot back to session storage after refresh", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+		dashboardApiMocks.getDashboard.mockResolvedValue({
+			...EMPTY_DASHBOARD,
+			total_value_cny: 180_000,
+			holdings_value_cny: 120_000,
+			cash_value_cny: 60_000,
+		});
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+
+		const cachedValue = window.sessionStorage.getItem(
+			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
+		);
+		expect(cachedValue).not.toBeNull();
+		expect(cachedValue).toContain("\"holdings_value_cny\":120000");
+		expect(
+			window.localStorage.getItem(`${DASHBOARD_CACHE_KEY_PREFIX}alice`),
+		).toContain("\"holdings_value_cny\":120000");
 	});
 
 	it("falls back to the login screen when session restore fails", async () => {

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetManager } from "./AssetManager";
 import type { HoldingRecord } from "../../types/assets";
@@ -183,6 +183,23 @@ describe("AssetManager refresh stability", () => {
 		await waitFor(() => {
 			expect(holdingRefresh).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("shows a loading placeholder instead of zero for sections that have not loaded yet", () => {
+		const cashRefresh = vi.fn().mockResolvedValue([]);
+
+		render(
+			<AssetManager
+				defaultSection="cash"
+				loadOnMount
+				cashActions={{ onRefresh: cashRefresh }}
+				title="资产管理"
+			/>,
+		);
+
+		const investmentTab = screen.getByRole("tab", { name: /投资类/ });
+		expect(within(investmentTab).getByText("—")).not.toBeNull();
+		expect(within(investmentTab).queryByText("0")).toBeNull();
 	});
 
 	it("does not refetch the active section on unrelated parent rerender", async () => {

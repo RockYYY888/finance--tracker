@@ -62,6 +62,7 @@ type WorkspaceView = "manage" | "agent" | "insights";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
+const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
 const EMPTY_AGENT_REGISTRATIONS: AgentRegistrationRecord[] = [];
 const EMPTY_AGENT_RECORDS: AssetRecordRecord[] = [];
@@ -82,7 +83,9 @@ function readRememberedSessionUserId(): string | null {
 	}
 
 	try {
-		const rememberedUserId = window.sessionStorage.getItem(REMEMBERED_SESSION_USER_KEY);
+		const rememberedUserId =
+			window.sessionStorage.getItem(REMEMBERED_SESSION_USER_KEY) ??
+			window.localStorage.getItem(REMEMBERED_SESSION_USER_KEY);
 		if (!rememberedUserId) {
 			return null;
 		}
@@ -96,6 +99,7 @@ function readRememberedSessionUserId(): string | null {
 function rememberSessionUserId(userId: string): void {
 	try {
 		window.sessionStorage.setItem(REMEMBERED_SESSION_USER_KEY, userId);
+		window.localStorage.setItem(REMEMBERED_SESSION_USER_KEY, userId);
 	} catch {
 		// Ignore storage access issues and fall back to the normal session check.
 	}
@@ -104,9 +108,87 @@ function rememberSessionUserId(userId: string): void {
 function clearRememberedSessionUserId(): void {
 	try {
 		window.sessionStorage.removeItem(REMEMBERED_SESSION_USER_KEY);
+		window.localStorage.removeItem(REMEMBERED_SESSION_USER_KEY);
 	} catch {
 		// Ignore storage access issues and fall back to the normal session check.
 	}
+}
+
+type DashboardCacheSnapshot = {
+	dashboard: DashboardResponse;
+	lastUpdatedAt: string | null;
+};
+
+function getDashboardCacheKey(userId: string): string {
+	return `${DASHBOARD_CACHE_KEY_PREFIX}${userId}`;
+}
+
+function readCachedDashboardSnapshot(userId: string): DashboardCacheSnapshot | null {
+	if (typeof window === "undefined") {
+		return null;
+	}
+
+	try {
+		const rawValue =
+			window.sessionStorage.getItem(getDashboardCacheKey(userId)) ??
+			window.localStorage.getItem(getDashboardCacheKey(userId));
+		if (!rawValue) {
+			return null;
+		}
+
+		const parsedValue = JSON.parse(rawValue) as Partial<DashboardCacheSnapshot> | null;
+		if (
+			!parsedValue ||
+			typeof parsedValue !== "object" ||
+			!parsedValue.dashboard ||
+			typeof parsedValue.dashboard !== "object"
+		) {
+			return null;
+		}
+
+		return {
+			dashboard: parsedValue.dashboard as DashboardResponse,
+			lastUpdatedAt:
+				typeof parsedValue.lastUpdatedAt === "string" ? parsedValue.lastUpdatedAt : null,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function writeCachedDashboardSnapshot(
+	userId: string,
+	dashboard: DashboardResponse,
+	lastUpdatedAt: string | null,
+): void {
+	if (typeof window === "undefined") {
+		return;
+	}
+
+	try {
+		const serializedSnapshot = JSON.stringify({
+			dashboard,
+			lastUpdatedAt,
+		} satisfies DashboardCacheSnapshot);
+		window.sessionStorage.setItem(
+			getDashboardCacheKey(userId),
+			serializedSnapshot,
+		);
+		window.localStorage.setItem(getDashboardCacheKey(userId), serializedSnapshot);
+	} catch {
+		// Ignore storage write failures and continue with in-memory state only.
+	}
+}
+
+function isDashboardSnapshotEmpty(dashboard: DashboardResponse): boolean {
+	return (
+		dashboard.total_value_cny === 0 &&
+		dashboard.cash_value_cny === 0 &&
+		dashboard.holdings_value_cny === 0 &&
+		dashboard.fixed_assets_value_cny === 0 &&
+		dashboard.other_assets_value_cny === 0 &&
+		dashboard.liabilities_value_cny === 0
+	);
 }
 
 function getMillisecondsUntilNextMinute(): number {
@@ -206,11 +288,21 @@ function App() {
 	const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 	const [authNoticeMessage, setAuthNoticeMessage] = useState<string | null>(null);
 	const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
-	const [dashboard, setDashboard] = useState<DashboardResponse>(EMPTY_DASHBOARD);
+	const [dashboard, setDashboard] = useState<DashboardResponse>(() => {
+		const rememberedUserId = readRememberedSessionUserId();
+		return rememberedUserId
+			? readCachedDashboardSnapshot(rememberedUserId)?.dashboard ?? EMPTY_DASHBOARD
+			: EMPTY_DASHBOARD;
+	});
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
 	const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
-	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+	const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(() => {
+		const rememberedUserId = readRememberedSessionUserId();
+		return rememberedUserId
+			? readCachedDashboardSnapshot(rememberedUserId)?.lastUpdatedAt ?? null
+			: null;
+	});
 	const [isAssetRecordsOpen, setIsAssetRecordsOpen] = useState(false);
 	const [assetRecordsDialogVersion, setAssetRecordsDialogVersion] = useState(0);
 	const [assetRecordRefreshToken, setAssetRecordRefreshToken] = useState(0);
@@ -273,6 +365,7 @@ function App() {
 	}
 
 	function markSignedInWithProfile(userId: string, email: string | null): void {
+		const cachedDashboardSnapshot = readCachedDashboardSnapshot(userId);
 		rememberSessionUserId(userId);
 		setCurrentUserId(userId);
 		setCurrentUserEmail(email);
@@ -312,8 +405,9 @@ function App() {
 		setEmailNoticeMessage(null);
 		setEmailDialogErrorMessage(null);
 		setIsEmailDialogOpen(false);
-		setDashboard(EMPTY_DASHBOARD);
-		setIsLoadingDashboard(true);
+		setDashboard(cachedDashboardSnapshot?.dashboard ?? EMPTY_DASHBOARD);
+		setLastUpdatedAt(cachedDashboardSnapshot?.lastUpdatedAt ?? null);
+		setIsLoadingDashboard(cachedDashboardSnapshot === null);
 	}
 
 	function markSignedOut(): void {
@@ -894,8 +988,12 @@ function App() {
 
 		try {
 			const nextDashboard = await getDashboard(Boolean(options.forceRefresh));
+			const nextLastUpdatedAt = new Date().toISOString();
 			setDashboard(nextDashboard);
-			setLastUpdatedAt(new Date().toISOString());
+			setLastUpdatedAt(nextLastUpdatedAt);
+			if (currentUserId) {
+				writeCachedDashboardSnapshot(currentUserId, nextDashboard, nextLastUpdatedAt);
+			}
 		} catch (error) {
 			const nextErrorMessage = error instanceof Error
 				? error.message
@@ -1011,6 +1109,18 @@ function App() {
 		dashboard.liabilities.length > 0 ||
 		dashboard.other_assets.length > 0;
 	const isDashboardBusy = isLoadingDashboard || isRefreshingDashboard;
+	const showDashboardValuePlaceholder =
+		(isRecoveringSession || isLoadingDashboard) &&
+		lastUpdatedAt === null &&
+		isDashboardSnapshotEmpty(dashboard);
+
+	function formatDashboardSummaryValue(value: number): string {
+		return showDashboardValuePlaceholder ? "—" : formatSummaryCny(value);
+	}
+
+	function getDashboardSummaryTitle(value: number): string {
+		return showDashboardValuePlaceholder ? "正在恢复数据" : formatCny(value);
+	}
 
 	function requestDashboardRefresh(): void {
 		void loadDashboard();
@@ -1125,38 +1235,38 @@ function App() {
 				<div className="summary-grid">
 					<div className="stat-card coral">
 						<span>总资产</span>
-						<strong title={formatCny(dashboard.total_value_cny)}>
-							{formatSummaryCny(dashboard.total_value_cny)}
+						<strong title={getDashboardSummaryTitle(dashboard.total_value_cny)}>
+							{formatDashboardSummaryValue(dashboard.total_value_cny)}
 						</strong>
 					</div>
 					<div className="stat-card blue">
 						<span>现金资产</span>
-						<strong title={formatCny(dashboard.cash_value_cny)}>
-							{formatSummaryCny(dashboard.cash_value_cny)}
+						<strong title={getDashboardSummaryTitle(dashboard.cash_value_cny)}>
+							{formatDashboardSummaryValue(dashboard.cash_value_cny)}
 						</strong>
 					</div>
 					<div className="stat-card green">
 						<span>投资类</span>
-						<strong title={formatCny(dashboard.holdings_value_cny)}>
-							{formatSummaryCny(dashboard.holdings_value_cny)}
+						<strong title={getDashboardSummaryTitle(dashboard.holdings_value_cny)}>
+							{formatDashboardSummaryValue(dashboard.holdings_value_cny)}
 						</strong>
 					</div>
 					<div className="stat-card violet">
 						<span>固定资产</span>
-						<strong title={formatCny(dashboard.fixed_assets_value_cny)}>
-							{formatSummaryCny(dashboard.fixed_assets_value_cny)}
+						<strong title={getDashboardSummaryTitle(dashboard.fixed_assets_value_cny)}>
+							{formatDashboardSummaryValue(dashboard.fixed_assets_value_cny)}
 						</strong>
 					</div>
 					<div className="stat-card amber">
 						<span>其他</span>
-						<strong title={formatCny(dashboard.other_assets_value_cny)}>
-							{formatSummaryCny(dashboard.other_assets_value_cny)}
+						<strong title={getDashboardSummaryTitle(dashboard.other_assets_value_cny)}>
+							{formatDashboardSummaryValue(dashboard.other_assets_value_cny)}
 						</strong>
 					</div>
 					<div className="stat-card danger">
 						<span>负债</span>
-						<strong title={formatCny(-dashboard.liabilities_value_cny)}>
-							{formatSummaryCny(-dashboard.liabilities_value_cny)}
+						<strong title={getDashboardSummaryTitle(-dashboard.liabilities_value_cny)}>
+							{formatDashboardSummaryValue(-dashboard.liabilities_value_cny)}
 						</strong>
 					</div>
 				</div>
