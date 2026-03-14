@@ -863,6 +863,8 @@
 }
 
 .asset-records__modal-panel {
+	display: grid;
+	gap: 1rem;
 	width: min(100%, 960px);
 }
 

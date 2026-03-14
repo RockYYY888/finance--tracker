@@ -15,6 +15,7 @@ import {
 	OPERATION_OPTIONS_BY_CLASS,
 	SOURCE_BADGE_LABELS,
 	SOURCE_FILTER_OPTIONS,
+	type AssetRecordOperationFilterValue,
 } from "../../lib/assetRecordMeta";
 import type {
 	AssetRecordAssetClass,
@@ -39,7 +40,7 @@ export interface AssetRecordsDialogProps {
 }
 
 const DEFAULT_ASSET_CLASS: AssetRecordAssetClass = "cash";
-const DEFAULT_OPERATION_KIND: AssetRecordOperationKind = "NEW";
+const DEFAULT_OPERATION_KIND: AssetRecordOperationFilterValue = "ALL";
 const DEFAULT_SOURCE_FILTER: AssetRecordSourceFilter = "ALL";
 
 function formatRecordAmount(record: AssetRecordRecord): string | null {
@@ -87,7 +88,7 @@ export function AssetRecordsDialog({
 	const [selectedAssetClass, setSelectedAssetClass] =
 		useState<AssetRecordAssetClass>(DEFAULT_ASSET_CLASS);
 	const [selectedOperationKind, setSelectedOperationKind] =
-		useState<AssetRecordOperationKind>(DEFAULT_OPERATION_KIND);
+		useState<AssetRecordOperationFilterValue>(DEFAULT_OPERATION_KIND);
 	const [selectedSource, setSelectedSource] =
 		useState<AssetRecordSourceFilter>(DEFAULT_SOURCE_FILTER);
 	const [records, setRecords] = useState<AssetRecordRecord[]>([]);
@@ -157,7 +158,8 @@ export function AssetRecordsDialog({
 		void onLoadRecords({
 			limit: 200,
 			assetClass: selectedAssetClass,
-			operationKind: effectiveOperationKind,
+			operationKind:
+				effectiveOperationKind === "ALL" ? undefined : effectiveOperationKind,
 			source: selectedSource === "ALL" ? undefined : selectedSource,
 		})
 			.then((nextRecords) => {
@@ -184,19 +186,19 @@ export function AssetRecordsDialog({
 	}
 
 	return (
-		<div className="asset-manager__modal" role="dialog" aria-modal="true" aria-labelledby="asset-records-title">
+		<div className="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="asset-records-title">
 			<button
 				type="button"
-				className="asset-manager__modal-backdrop"
+				className="feedback-modal__backdrop"
 				onClick={isLoading ? undefined : onClose}
 				aria-label="关闭记录窗口"
 			/>
-			<div className="asset-manager__modal-panel asset-records__modal-panel">
-				<div className="asset-manager__modal-head asset-records__head">
+			<div className="feedback-modal__panel asset-records__modal-panel">
+				<div className="feedback-modal__head asset-records__head">
 					<div>
 						<p className="eyebrow">ASSET RECORDS</p>
 						<h2 id="asset-records-title">记录</h2>
-						<p>
+						<p className="feedback-modal__copy">
 							这里按资产类别和实际操作分类展示已落库记录 仅供查看与核对 不支持修改。
 						</p>
 					</div>

@@ -28,7 +28,7 @@ describe("AssetRecordsDialog", () => {
 		cleanup();
 	});
 
-	it("loads cash new records by default on open", async () => {
+	it("loads cash records with all filters by default on open", async () => {
 		const onLoadRecords = vi.fn().mockResolvedValue([]);
 
 		render(
@@ -43,13 +43,15 @@ describe("AssetRecordsDialog", () => {
 			expect(onLoadRecords).toHaveBeenCalledWith({
 				limit: 200,
 				assetClass: "cash",
-				operationKind: "NEW",
+				operationKind: undefined,
 				source: undefined,
 			});
 		});
 
 		expect(screen.getByText("记录")).not.toBeNull();
 		expect(screen.getByRole("button", { name: "现金类" })).not.toBeNull();
+		expect(screen.getAllByRole("button", { name: "全部" })).toHaveLength(2);
+		expect(document.querySelector(".feedback-modal")).not.toBeNull();
 	});
 
 	it("supports secondary filters and shows investment profit in project colors", async () => {
@@ -77,7 +79,7 @@ describe("AssetRecordsDialog", () => {
 			expect(onLoadRecords).toHaveBeenLastCalledWith({
 				limit: 200,
 				assetClass: "investment",
-				operationKind: "BUY",
+				operationKind: undefined,
 				source: undefined,
 			});
 		});

@@ -4,6 +4,8 @@ import type {
 	AssetRecordSource,
 } from "../types/assets";
 
+export type AssetRecordOperationFilterValue = AssetRecordOperationKind | "ALL";
+
 export const ASSET_CLASS_OPTIONS: Array<{
 	value: AssetRecordAssetClass;
 	label: string;
@@ -17,9 +19,10 @@ export const ASSET_CLASS_OPTIONS: Array<{
 
 export const OPERATION_OPTIONS_BY_CLASS: Record<
 	AssetRecordAssetClass,
-	Array<{ value: AssetRecordOperationKind; label: string }>
+	Array<{ value: AssetRecordOperationFilterValue; label: string }>
 > = {
 	cash: [
+		{ value: "ALL", label: "全部" },
 		{ value: "NEW", label: "新建" },
 		{ value: "EDIT", label: "编辑" },
 		{ value: "TRANSFER", label: "划转" },
@@ -27,22 +30,26 @@ export const OPERATION_OPTIONS_BY_CLASS: Record<
 		{ value: "DELETE", label: "删除" },
 	],
 	investment: [
+		{ value: "ALL", label: "全部" },
 		{ value: "BUY", label: "买入" },
 		{ value: "SELL", label: "卖出" },
 		{ value: "EDIT", label: "编辑" },
 		{ value: "DELETE", label: "删除" },
 	],
 	fixed: [
+		{ value: "ALL", label: "全部" },
 		{ value: "NEW", label: "新建" },
 		{ value: "EDIT", label: "编辑" },
 		{ value: "DELETE", label: "删除" },
 	],
 	liability: [
+		{ value: "ALL", label: "全部" },
 		{ value: "NEW", label: "新建" },
 		{ value: "EDIT", label: "编辑" },
 		{ value: "DELETE", label: "删除" },
 	],
 	other: [
+		{ value: "ALL", label: "全部" },
 		{ value: "NEW", label: "新建" },
 		{ value: "EDIT", label: "编辑" },
 		{ value: "DELETE", label: "删除" },
@@ -53,7 +60,7 @@ export const SOURCE_FILTER_OPTIONS: Array<{
 	value: AssetRecordSource | "ALL";
 	label: string;
 }> = [
-	{ value: "ALL", label: "全部来源" },
+	{ value: "ALL", label: "全部" },
 	{ value: "USER", label: "用户" },
 	{ value: "SYSTEM", label: "系统" },
 	{ value: "AGENT", label: "Agent" },
