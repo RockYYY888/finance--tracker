@@ -16,16 +16,16 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
+	buildPreparedTimelineSeriesByRange,
 	calculateDynamicAxisLayout,
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
+	getFirstRenderableTimelineRange,
 	getTimelineChartTicks,
 	formatCompactCny,
 	formatCny,
 	formatPercentage,
-	getTimelineSeries,
-	prepareTimelineSeries,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
@@ -96,8 +96,24 @@ export function PortfolioTrendChart({
 }: PortfolioTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
-	const rawSeries = getTimelineSeries(range, hour_series, day_series, month_series, year_series);
-	const series = prepareTimelineSeries(rawSeries);
+	const seriesByRange = useMemo(
+		() =>
+			buildPreparedTimelineSeriesByRange(
+				hour_series,
+				day_series,
+				month_series,
+				year_series,
+			),
+		[day_series, hour_series, month_series, year_series],
+	);
+	const fallbackRange = useMemo(
+		() => getFirstRenderableTimelineRange(seriesByRange),
+		[seriesByRange],
+	);
+	const activeRange = seriesByRange[range].length >= 2 || fallbackRange === null
+		? range
+		: fallbackRange;
+	const series = seriesByRange[activeRange];
 	const rangeSummary = summarizeTimeline(series);
 	const baselineValue = rangeSummary.startValue;
 	const axisLayout = useMemo(
@@ -112,7 +128,7 @@ export function PortfolioTrendChart({
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
-	const hasData = chartData.length > 0;
+	const hasData = series.length >= 2;
 	const visibleSummary = activePointIndex === null
 		? rangeSummary
 		: summarizeTimeline(chartData.slice(0, activePointIndex + 1));
@@ -142,7 +158,13 @@ export function PortfolioTrendChart({
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
-	const chartDataKey = `${range}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+	const chartDataKey = `${activeRange}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+
+	useEffect(() => {
+		if (activeRange !== range) {
+			setRange(activeRange);
+		}
+	}, [activeRange, range]);
 
 	useEffect(() => {
 		setActivePointIndex(null);
@@ -161,8 +183,9 @@ export function PortfolioTrendChart({
 						<button
 							key={item}
 							type="button"
-							className={range === item ? "active" : ""}
+							className={activeRange === item ? "active" : ""}
 							onClick={() => setRange(item)}
+							disabled={seriesByRange[item].length < 2}
 						>
 							{RANGE_LABELS[item]}
 						</button>
@@ -235,7 +258,7 @@ export function PortfolioTrendChart({
 								tickFormatter={(label: string) =>
 									formatTimelineAxisLabel(label, {
 										compact: compactAxisMode,
-										range,
+										range: activeRange,
 									})}
 							/>
 							<YAxis

@@ -213,6 +213,34 @@ export function prepareTimelineSeries(series: TimelinePoint[]): TimelinePoint[] 
 	return trimLeadingDiscontinuityPoints(trimLeadingInactivePoints(chronologicallySorted));
 }
 
+export type PreparedTimelineSeriesByRange = Record<TimelineRange, TimelinePoint[]>;
+
+export function buildPreparedTimelineSeriesByRange(
+	hourSeries: TimelinePoint[],
+	daySeries: TimelinePoint[],
+	monthSeries: TimelinePoint[],
+	yearSeries: TimelinePoint[],
+): PreparedTimelineSeriesByRange {
+	return {
+		hour: prepareTimelineSeries(hourSeries),
+		day: prepareTimelineSeries(daySeries),
+		month: prepareTimelineSeries(monthSeries),
+		year: prepareTimelineSeries(yearSeries),
+	};
+}
+
+export function getFirstRenderableTimelineRange(
+	seriesByRange: PreparedTimelineSeriesByRange,
+): TimelineRange | null {
+	for (const range of ["hour", "day", "month", "year"] satisfies TimelineRange[]) {
+		if (seriesByRange[range].length >= 2) {
+			return range;
+		}
+	}
+
+	return null;
+}
+
 export function getBarChartHeight(itemCount: number): number {
 	return Math.max(260, itemCount * 52);
 }

@@ -20,16 +20,16 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
+	buildPreparedTimelineSeriesByRange,
 	calculateDynamicAxisLayout,
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
+	getFirstRenderableTimelineRange,
 	getTimelineChartTicks,
 	formatCompactPercentMetric,
 	formatPercentMetric,
 	formatPercentage,
-	getTimelineSeries,
-	prepareTimelineSeries,
 	summarizeCompoundedStepRate,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
@@ -157,16 +157,42 @@ export function ReturnTrendChart({
 		return seriesOptions.find((option) => option.key === selectedKey) ?? seriesOptions[0];
 	}, [selectedKey, seriesOptions]);
 
-	const rawSeries = selectedOption
-		? getTimelineSeries(
-			range,
-			selectedOption.hour_series,
-			selectedOption.day_series,
-			selectedOption.month_series,
-			selectedOption.year_series,
-		)
-		: [];
-	const series = prepareTimelineSeries(rawSeries);
+	useEffect(() => {
+		if (seriesOptions.length === 0) {
+			setSelectedKey("");
+			return;
+		}
+		if (seriesOptions.some((option) => option.key === selectedKey)) {
+			return;
+		}
+		setSelectedKey(seriesOptions[0]?.key ?? "");
+	}, [selectedKey, seriesOptions]);
+
+	const seriesByRange = useMemo(
+		() =>
+			selectedOption
+				? buildPreparedTimelineSeriesByRange(
+					selectedOption.hour_series,
+					selectedOption.day_series,
+					selectedOption.month_series,
+					selectedOption.year_series,
+				)
+				: {
+					hour: [],
+					day: [],
+					month: [],
+					year: [],
+				},
+		[selectedOption],
+	);
+	const fallbackRange = useMemo(
+		() => getFirstRenderableTimelineRange(seriesByRange),
+		[seriesByRange],
+	);
+	const activeRange = seriesByRange[range].length >= 2 || fallbackRange === null
+		? range
+		: fallbackRange;
+	const series = seriesByRange[activeRange];
 	const rangeSummary = summarizeTimeline(series);
 	const rangeCompoundedStepRate = summarizeCompoundedStepRate(series);
 	const axisLayout = useMemo(
@@ -181,7 +207,7 @@ export function ReturnTrendChart({
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
-	const hasData = chartData.length > 0;
+	const hasData = series.length >= 2;
 	const visibleSummary = activePointIndex === null
 		? rangeSummary
 		: summarizeTimeline(chartData.slice(0, activePointIndex + 1));
@@ -213,7 +239,13 @@ export function ReturnTrendChart({
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
-	const chartDataKey = `${selectedOption?.key ?? "none"}:${range}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+	const chartDataKey = `${selectedOption?.key ?? "none"}:${activeRange}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+
+	useEffect(() => {
+		if (activeRange !== range) {
+			setRange(activeRange);
+		}
+	}, [activeRange, range]);
 
 	useEffect(() => {
 		setActivePointIndex(null);
@@ -232,8 +264,9 @@ export function ReturnTrendChart({
 						<button
 							key={item}
 							type="button"
-							className={range === item ? "active" : ""}
+							className={activeRange === item ? "active" : ""}
 							onClick={() => setRange(item)}
+							disabled={seriesByRange[item].length < 2}
 						>
 							{RANGE_LABELS[item]}
 						</button>
@@ -277,7 +310,9 @@ export function ReturnTrendChart({
 				{showCompoundedStepRate ? (
 					<div className="analytics-pill">
 						<span>
-							{activePoint ? `至该点${COMPOUNDED_STEP_LABELS[range]}` : COMPOUNDED_STEP_LABELS[range]}
+							{activePoint
+								? `至该点${COMPOUNDED_STEP_LABELS[activeRange]}`
+								: COMPOUNDED_STEP_LABELS[activeRange]}
 						</span>
 						<strong>{formatPercentMetric(visibleCompoundedStepRate, true)}</strong>
 					</div>
@@ -331,7 +366,7 @@ export function ReturnTrendChart({
 								tickFormatter={(label: string) =>
 									formatTimelineAxisLabel(label, {
 										compact: compactAxisMode,
-										range,
+										range: activeRange,
 									})}
 							/>
 							<YAxis

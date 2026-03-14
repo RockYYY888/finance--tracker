@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -172,6 +172,35 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.tickFormatter("03-08 04:00")).toBe("03-08");
 	});
 
+	it("falls back to the first renderable portfolio trend range and disables sparse ranges", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="hour"
+				hour_series={[
+					{ label: "03-14 14:00", value: 100_000 },
+				]}
+				day_series={[
+					{ label: "03-13", value: 98_000 },
+					{ label: "03-14", value: 100_000 },
+				]}
+				month_series={[
+					{ label: "2026-03", value: 100_000 },
+				]}
+				year_series={[
+					{ label: "2026", value: 100_000 },
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "30天" }).className).toContain("active");
+		});
+
+		expect((screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled).toBe(true);
+	});
+
 	it("keeps return trend chart compact and compresses yearly labels in narrow containers", async () => {
 		render(
 			<ReturnTrendChart
@@ -208,6 +237,42 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.ticks).toHaveLength(3);
 		expect(xAxisProps.padding.right).toBeGreaterThan(0);
 		expect(xAxisProps.tickFormatter("2026-03")).toBe("2026");
+	});
+
+	it("falls back to the first renderable return trend range and disables sparse ranges", async () => {
+		render(
+			<ReturnTrendChart
+				defaultRange="hour"
+				title="收益趋势"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"组合",
+						[
+							{ label: "03-14 14:00", value: 1.2 },
+						],
+						[
+							{ label: "03-13", value: 0.6 },
+							{ label: "03-14", value: 1.2 },
+						],
+						[
+							{ label: "2026-03", value: 1.2 },
+						],
+						[
+							{ label: "2026", value: 1.2 },
+						],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "30天" }).className).toContain("active");
+		});
+
+		expect((screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled).toBe(true);
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {

@@ -3,19 +3,22 @@
 	gap: 1.25rem;
 }
 
-.portfolio-analytics__main,
-.portfolio-analytics__returns,
-.portfolio-analytics__secondary {
+.portfolio-analytics__main {
 	display: grid;
 	gap: 1.25rem;
-	grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+	grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+	align-items: start;
 }
 
 .portfolio-analytics__returns {
+	display: grid;
+	gap: 1.25rem;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .portfolio-analytics__secondary {
+	display: grid;
+	gap: 1.25rem;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -103,6 +106,11 @@
 	font: inherit;
 	font-size: 0.88rem;
 	cursor: pointer;
+}
+
+.analytics-segmented button:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
 }
 
 .analytics-segmented button:focus-visible {
