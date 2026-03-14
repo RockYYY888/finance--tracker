@@ -155,6 +155,29 @@ describe("Cash account button styling", () => {
 		);
 	});
 
+	it("keeps cash accounts visible while the list refreshes", () => {
+		render(
+			<CashAccountList
+				loading
+				accounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 1000,
+						account_type: "BANK",
+						value_cny: 1000,
+					},
+				]}
+			/>,
+		);
+
+		expect(screen.getByText("主账户")).not.toBeNull();
+		expect(screen.getByText("正在更新现金账户...")).not.toBeNull();
+		expect(screen.queryByText("正在加载现金账户...")).toBeNull();
+	});
+
 	it("keeps the cash account editor focused on the form only", () => {
 		render(
 			<CashAccountForm

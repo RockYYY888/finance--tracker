@@ -8,6 +8,7 @@ import {
 } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
 import type { CashAccountRecord, MaybePromise } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 export interface CashAccountListProps {
 	accounts: CashAccountRecord[];
@@ -41,6 +42,10 @@ export function CashAccountList({
 
 	const effectiveError = localError ?? errorMessage;
 	const isActionLocked = busy;
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		accounts.length,
+	);
 
 	async function handleDelete(recordId: number): Promise<void> {
 		if (!onDelete) {
@@ -97,7 +102,13 @@ export function CashAccountList({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新现金账户...
+				</div>
+			) : null}
+
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载现金账户...</div>
 			) : accounts.length === 0 ? (
 				<div className="asset-manager__empty-state">{emptyMessage}</div>

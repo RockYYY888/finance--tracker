@@ -54,4 +54,33 @@ describe("HoldingList actions", () => {
 		expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "记一笔" })).toBeNull();
 	});
+
+	it("keeps holdings visible while quotes refresh in the background", () => {
+		render(
+			<HoldingList
+				loading
+				holdings={[
+					{
+						id: 1,
+						side: "BUY",
+						symbol: "AAPL",
+						name: "Apple",
+						quantity: 10,
+						fallback_currency: "USD",
+						market: "US",
+						started_on: "2026-03-05",
+						price: 185,
+						price_currency: "USD",
+						value_cny: 9000,
+						return_pct: 5.2,
+						last_updated: "2026-03-05T08:00:00Z",
+					},
+				]}
+			/>,
+		);
+
+		expect(screen.getByText("Apple")).not.toBeNull();
+		expect(screen.getByText("正在更新投资类持仓...")).not.toBeNull();
+		expect(screen.queryByText("正在加载投资类资产...")).toBeNull();
+	});
 });

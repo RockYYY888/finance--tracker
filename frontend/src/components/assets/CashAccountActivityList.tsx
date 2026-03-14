@@ -8,6 +8,7 @@ import type {
 	CashAccountRecord,
 	CashLedgerEntryRecord,
 } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 type CashActivityFilter = "ALL" | "TRANSFER" | "TRADE" | "BALANCE";
 
@@ -90,6 +91,10 @@ export function CashAccountActivityList({
 				: entries.filter((entry) => getActivityFilter(entry) === activeFilter),
 		[activeFilter, entries],
 	);
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		filteredEntries.length,
+	);
 
 	return (
 		<section className="asset-manager__panel">
@@ -124,7 +129,13 @@ export function CashAccountActivityList({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新账户记录...
+				</div>
+			) : null}
+
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载账户记录...</div>
 			) : filteredEntries.length === 0 ? (
 				<div className="asset-manager__empty-state">当前筛选下还没有记录。</div>

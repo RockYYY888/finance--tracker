@@ -6,6 +6,7 @@ import {
 	formatQuantity,
 } from "../../lib/assetFormatting";
 import type { HoldingTransactionRecord } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 export interface HoldingTransactionHistoryProps {
 	transactions: HoldingTransactionRecord[];
@@ -29,6 +30,11 @@ export function HoldingTransactionHistory({
 	loading = false,
 	errorMessage = null,
 }: HoldingTransactionHistoryProps) {
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		transactions.length,
+	);
+
 	return (
 		<section className="asset-manager__panel">
 			<div className="asset-manager__list-head">
@@ -45,7 +51,13 @@ export function HoldingTransactionHistory({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新交易记录...
+				</div>
+			) : null}
+
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载交易记录...</div>
 			) : transactions.length === 0 ? (
 				<div className="asset-manager__empty-state">还没有投资交易记录。</div>

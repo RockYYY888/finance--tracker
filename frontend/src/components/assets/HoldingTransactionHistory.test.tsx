@@ -45,4 +45,30 @@ describe("HoldingTransactionHistory", () => {
 		expect(screen.getByText("首次买入")).not.toBeNull();
 		expect(screen.getByText("修正持仓")).not.toBeNull();
 	});
+
+	it("keeps transaction cards visible while history refreshes", () => {
+		render(
+			<HoldingTransactionHistory
+				loading
+				transactions={[
+					{
+						id: 1,
+						symbol: "AAPL",
+						name: "Apple",
+						side: "BUY",
+						quantity: 1,
+						price: 180,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-09",
+						note: "首次买入",
+					},
+				]}
+			/>,
+		);
+
+		expect(screen.getByText("首次买入")).not.toBeNull();
+		expect(screen.getByText("正在更新交易记录...")).not.toBeNull();
+		expect(screen.queryByText("正在加载交易记录...")).toBeNull();
+	});
 });

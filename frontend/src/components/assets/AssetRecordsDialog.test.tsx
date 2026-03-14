@@ -4,6 +4,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetRecordsDialog } from "./AssetRecordsDialog";
 import type { AssetRecordRecord } from "../../types/assets";
 
+const CASH_RECORD: AssetRecordRecord = {
+	id: 1,
+	source: "USER",
+	asset_class: "cash",
+	operation_kind: "NEW",
+	entity_type: "CASH_ACCOUNT",
+	entity_id: 1,
+	title: "支付宝",
+	summary: "新增现金账户",
+	effective_date: "2026-03-09",
+	amount: 6896.6,
+	currency: "CNY",
+	created_at: "2026-03-09T13:00:00Z",
+};
+
 const SELL_RECORD: AssetRecordRecord = {
 	id: 9,
 	source: "AGENT",
@@ -22,6 +37,17 @@ const SELL_RECORD: AssetRecordRecord = {
 	profit_rate_pct: 20,
 	created_at: "2026-03-10T13:00:00Z",
 };
+
+function createDeferred<T>(): {
+	promise: Promise<T>;
+	resolve: (value: T) => void;
+} {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((nextResolve) => {
+		resolve = nextResolve;
+	});
+	return { promise, resolve };
+}
 
 describe("AssetRecordsDialog", () => {
 	afterEach(() => {
@@ -107,5 +133,45 @@ describe("AssetRecordsDialog", () => {
 				.getByText("80 HKD")
 				.closest(".asset-records__profit-chip"),
 		).not.toBeNull();
+	});
+
+	it("keeps the previous result visible while filters refresh and reuses cached filters", async () => {
+		const investmentRequest = createDeferred<AssetRecordRecord[]>();
+		const cashRefreshRequest = createDeferred<AssetRecordRecord[]>();
+		const onLoadRecords = vi
+			.fn()
+			.mockResolvedValueOnce([CASH_RECORD])
+			.mockImplementationOnce(() => investmentRequest.promise)
+			.mockImplementationOnce(() => cashRefreshRequest.promise);
+
+		render(
+			<AssetRecordsDialog
+				open
+				onClose={() => undefined}
+				onLoadRecords={onLoadRecords}
+			/>,
+		);
+
+		await screen.findByText("支付宝");
+
+		fireEvent.click(screen.getByRole("button", { name: "投资类" }));
+
+		expect(screen.getByText("支付宝")).not.toBeNull();
+		expect(screen.getByText("正在更新记录...")).not.toBeNull();
+		expect(screen.queryByText("正在加载记录...")).toBeNull();
+
+		investmentRequest.resolve([SELL_RECORD]);
+		await screen.findByText("腾讯控股 (0700.HK)");
+
+		fireEvent.click(screen.getByRole("button", { name: "现金类" }));
+
+		expect(screen.getByText("支付宝")).not.toBeNull();
+		expect(screen.getByText("正在更新记录...")).not.toBeNull();
+		expect(screen.queryByText("正在加载记录...")).toBeNull();
+
+		cashRefreshRequest.resolve([CASH_RECORD]);
+		await waitFor(() => {
+			expect(onLoadRecords).toHaveBeenCalledTimes(3);
+		});
 	});
 });

@@ -8,6 +8,7 @@ import {
 } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
 import type { LiabilityRecord, MaybePromise } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 export interface LiabilityListProps {
 	liabilities: LiabilityRecord[];
@@ -38,6 +39,10 @@ export function LiabilityList({
 	const [deletingId, setDeletingId] = useState<number | null>(null);
 
 	const effectiveError = localError ?? errorMessage;
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		liabilities.length,
+	);
 
 	async function handleDelete(recordId: number): Promise<void> {
 		if (!onDelete) {
@@ -84,7 +89,13 @@ export function LiabilityList({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新负债...
+				</div>
+			) : null}
+
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载负债...</div>
 			) : liabilities.length === 0 ? (
 				<div className="asset-manager__empty-state">{emptyMessage}</div>

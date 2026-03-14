@@ -17,6 +17,7 @@ import type {
 	MaybePromise,
 } from "../../types/assets";
 import { DEFAULT_CASH_LEDGER_ADJUSTMENT_FORM_DRAFT } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 export interface CashLedgerAdjustmentPanelProps {
 	accounts: CashAccountRecord[];
@@ -98,6 +99,10 @@ export function CashLedgerAdjustmentPanel({
 			fxRates,
 		})
 		: null;
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		adjustmentEntries.length,
+	);
 	useAutoRefreshGuard(isFormOpen, "cash-ledger-adjustment-form");
 
 	useEffect(() => {
@@ -232,6 +237,12 @@ export function CashLedgerAdjustmentPanel({
 				</div>
 			) : null}
 
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新手工账本调整...
+				</div>
+			) : null}
+
 			{isFormOpen ? (
 				<div className="asset-manager__form">
 					<div className="asset-manager__field-grid">
@@ -327,7 +338,7 @@ export function CashLedgerAdjustmentPanel({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载手工账本调整...</div>
 			) : adjustmentEntries.length === 0 ? (
 				<div className="asset-manager__empty-state">还没有手工账本调整。</div>

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import {
 	formatMoneyAmount,
 	formatOperationTimestamp,
@@ -22,6 +23,7 @@ import type {
 	AssetRecordRecord,
 	AssetRecordSource,
 } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 import "./asset-components.css";
 
 type AssetRecordSourceFilter = AssetRecordSource | "ALL";
@@ -82,10 +84,18 @@ export function AssetRecordsDialog({
 		useState<AssetRecordSourceFilter>(DEFAULT_SOURCE_FILTER);
 	const [records, setRecords] = useState<AssetRecordRecord[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
+	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const requestSequenceRef = useRef(0);
+	const recordsRef = useRef<AssetRecordRecord[]>([]);
+	const recordsCacheRef = useRef<Map<string, AssetRecordRecord[]>>(new Map());
 
 	useBodyScrollLock(open);
+	useAutoRefreshGuard(open, "asset-records-dialog");
+
+	useEffect(() => {
+		recordsRef.current = records;
+	}, [records]);
 
 	const operationOptions = useMemo(
 		() => OPERATION_OPTIONS_BY_CLASS[selectedAssetClass],
@@ -97,15 +107,25 @@ export function AssetRecordsDialog({
 		? selectedOperationKind
 		: operationOptions[0].value;
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!open) {
 			return;
 		}
 
+		const defaultRequestKey = [
+			DEFAULT_ASSET_CLASS,
+			DEFAULT_OPERATION_KIND,
+			DEFAULT_SOURCE_FILTER,
+		].join(":");
+		const cachedDefaultRecords =
+			recordsCacheRef.current.get(defaultRequestKey) ?? [];
 		setSelectedAssetClass(DEFAULT_ASSET_CLASS);
 		setSelectedOperationKind(DEFAULT_OPERATION_KIND);
 		setSelectedSource(DEFAULT_SOURCE_FILTER);
-		setRecords([]);
+		setRecords(cachedDefaultRecords);
+		recordsRef.current = cachedDefaultRecords;
+		setIsLoading(false);
+		setIsRefreshing(false);
 		setErrorMessage(null);
 	}, [open]);
 
@@ -139,9 +159,20 @@ export function AssetRecordsDialog({
 			return;
 		}
 
+		const requestKey = [
+			selectedAssetClass,
+			effectiveOperationKind,
+			selectedSource,
+		].join(":");
+		const cachedRecords = recordsCacheRef.current.get(requestKey);
 		const requestId = requestSequenceRef.current + 1;
 		requestSequenceRef.current = requestId;
-		setIsLoading(true);
+		if (cachedRecords) {
+			setRecords(cachedRecords);
+		}
+		const hasVisibleRecords = cachedRecords !== undefined || recordsRef.current.length > 0;
+		setIsLoading(!hasVisibleRecords);
+		setIsRefreshing(hasVisibleRecords);
 		setErrorMessage(null);
 
 		void onLoadRecords({
@@ -155,6 +186,7 @@ export function AssetRecordsDialog({
 				if (requestSequenceRef.current !== requestId) {
 					return;
 				}
+				recordsCacheRef.current.set(requestKey, nextRecords);
 				setRecords(nextRecords);
 			})
 			.catch((error: unknown) => {
@@ -166,9 +198,13 @@ export function AssetRecordsDialog({
 			.finally(() => {
 				if (requestSequenceRef.current === requestId) {
 					setIsLoading(false);
+					setIsRefreshing(false);
 				}
 			});
 	}, [effectiveOperationKind, open, onLoadRecords, refreshToken, selectedAssetClass, selectedSource]);
+
+	const { showBlockingLoader } = getCollectionLoadingState(isLoading, records.length);
+	const showRefreshingHint = isRefreshing;
 
 	if (!open) {
 		return null;
@@ -179,7 +215,7 @@ export function AssetRecordsDialog({
 			<button
 				type="button"
 				className="feedback-modal__backdrop"
-				onClick={isLoading ? undefined : onClose}
+				onClick={showBlockingLoader ? undefined : onClose}
 				aria-label="关闭记录窗口"
 			/>
 			<div className="feedback-modal__panel asset-records__modal-panel">
@@ -195,7 +231,7 @@ export function AssetRecordsDialog({
 						type="button"
 						className="hero-note hero-note--action"
 						onClick={onClose}
-						disabled={isLoading}
+						disabled={showBlockingLoader}
 					>
 						关闭
 					</button>
@@ -257,13 +293,19 @@ export function AssetRecordsDialog({
 					</div>
 				</div>
 
+				{showRefreshingHint ? (
+					<div className="asset-manager__status-note" role="status" aria-live="polite">
+						正在更新记录...
+					</div>
+				) : null}
+
 				{errorMessage ? (
 					<div className="asset-manager__message asset-manager__message--error">
 						{errorMessage}
 					</div>
 				) : null}
 
-				{isLoading ? (
+				{showBlockingLoader ? (
 					<div className="asset-manager__empty-state">正在加载记录...</div>
 				) : records.length === 0 ? (
 					<div className="asset-manager__empty-state">当前筛选下还没有记录。</div>

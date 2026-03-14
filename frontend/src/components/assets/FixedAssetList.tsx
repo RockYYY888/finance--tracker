@@ -8,6 +8,7 @@ import {
 } from "../../lib/assetFormatting";
 import { toErrorMessage } from "../../lib/apiClient";
 import type { FixedAssetRecord, MaybePromise } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 export interface FixedAssetListProps {
 	assets: FixedAssetRecord[];
@@ -38,6 +39,10 @@ export function FixedAssetList({
 	const [deletingId, setDeletingId] = useState<number | null>(null);
 
 	const effectiveError = localError ?? errorMessage;
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		assets.length,
+	);
 
 	async function handleDelete(recordId: number): Promise<void> {
 		if (!onDelete) {
@@ -84,7 +89,13 @@ export function FixedAssetList({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新固定资产...
+				</div>
+			) : null}
+
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载固定资产...</div>
 			) : assets.length === 0 ? (
 				<div className="asset-manager__empty-state">{emptyMessage}</div>

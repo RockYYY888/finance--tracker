@@ -74,4 +74,37 @@ describe("CashLedgerAdjustmentPanel", () => {
 		expect((screen.getByLabelText("目标币种") as HTMLInputElement).value).toBe("CNY");
 		expect((screen.getByLabelText("目标币种变动金额（CNY）") as HTMLInputElement).value).toBe("¥8.80");
 	});
+
+	it("keeps adjustment entries visible while the ledger refreshes", () => {
+		render(
+			<CashLedgerAdjustmentPanel
+				loading
+				accounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 100,
+						account_type: "BANK",
+					},
+				]}
+				entries={[
+					{
+						id: 9,
+						cash_account_id: 1,
+						entry_type: "MANUAL_ADJUSTMENT",
+						amount: 32,
+						currency: "CNY",
+						happened_on: "2026-03-10",
+						note: "补录差额",
+					},
+				]}
+			/>,
+		);
+
+		expect(screen.getByText("补录差额")).not.toBeNull();
+		expect(screen.getByText("正在更新手工账本调整...")).not.toBeNull();
+		expect(screen.queryByText("正在加载手工账本调整...")).toBeNull();
+	});
 });

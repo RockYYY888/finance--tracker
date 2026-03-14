@@ -9,6 +9,7 @@ import {
 	formatTimestamp,
 } from "../../lib/assetFormatting";
 import type { HoldingRecord } from "../../types/assets";
+import { getCollectionLoadingState } from "./loadingState";
 
 function shouldShowHoldingSource(source?: string | null): boolean {
 	return Boolean(source && source !== "代码推断" && source !== "本地映射");
@@ -40,6 +41,10 @@ export function HoldingList({
 	onEdit,
 }: HoldingListProps) {
 	const isActionLocked = busy;
+	const { showBlockingLoader, showRefreshingHint } = getCollectionLoadingState(
+		loading,
+		holdings.length,
+	);
 
 	function isHoldingQuotePending(holding: HoldingRecord): boolean {
 		return !holding.last_updated || (holding.price ?? 0) <= 0;
@@ -83,7 +88,13 @@ export function HoldingList({
 				</div>
 			) : null}
 
-			{loading ? (
+			{showRefreshingHint ? (
+				<div className="asset-manager__status-note" role="status" aria-live="polite">
+					正在更新投资类持仓...
+				</div>
+			) : null}
+
+			{showBlockingLoader ? (
 				<div className="asset-manager__empty-state">正在加载投资类资产...</div>
 			) : holdings.length === 0 ? (
 				<div className="asset-manager__empty-state">{emptyMessage}</div>
