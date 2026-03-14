@@ -3,23 +3,17 @@
 	gap: 1.25rem;
 }
 
-.portfolio-analytics__main {
+.portfolio-analytics__columns {
 	display: grid;
 	gap: 1.25rem;
 	grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
 	align-items: start;
 }
 
-.portfolio-analytics__returns {
+.portfolio-analytics__column {
 	display: grid;
 	gap: 1.25rem;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.portfolio-analytics__secondary {
-	display: grid;
-	gap: 1.25rem;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	align-content: start;
 }
 
 .analytics-card {
@@ -30,8 +24,16 @@
 	border: 1px solid var(--line-soft);
 	border-radius: 28px;
 	background:
-		radial-gradient(circle at top right, rgba(99, 232, 255, 0.12), transparent 36%),
-		radial-gradient(circle at bottom left, rgba(122, 140, 255, 0.1), transparent 42%),
+		radial-gradient(
+			circle at top right,
+			rgba(99, 232, 255, 0.12),
+			transparent 36%
+		),
+		radial-gradient(
+			circle at bottom left,
+			rgba(122, 140, 255, 0.1),
+			transparent 42%
+		),
 		linear-gradient(155deg, rgba(10, 20, 38, 0.94), rgba(7, 14, 26, 0.98));
 	box-shadow: 0 20px 48px rgba(0, 0, 0, 0.22);
 	min-width: 0;
@@ -42,6 +44,14 @@
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.analytics-card__controls {
+	display: flex;
+	align-items: flex-start;
+	justify-content: flex-end;
+	gap: 0.6rem;
 	flex-wrap: wrap;
 }
 
@@ -119,7 +129,11 @@
 }
 
 .analytics-segmented button.active {
-	background: linear-gradient(135deg, rgba(99, 232, 255, 0.16), rgba(122, 140, 255, 0.18));
+	background: linear-gradient(
+		135deg,
+		rgba(99, 232, 255, 0.16),
+		rgba(122, 140, 255, 0.18)
+	);
 	color: var(--text-main);
 }
 
@@ -429,9 +443,7 @@
 }
 
 @media (max-width: 980px) {
-	.portfolio-analytics__main,
-	.portfolio-analytics__returns,
-	.portfolio-analytics__secondary {
+	.portfolio-analytics__columns {
 		grid-template-columns: 1fr;
 	}
 
@@ -448,6 +460,11 @@
 
 	.analytics-card__header {
 		align-items: stretch;
+	}
+
+	.analytics-card__controls {
+		width: 100%;
+		justify-content: stretch;
 	}
 
 	.analytics-card__description {

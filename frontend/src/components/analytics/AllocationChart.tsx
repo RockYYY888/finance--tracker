@@ -49,7 +49,11 @@ function findBreakdownGroup(
 		return breakdownGroups[0] ?? null;
 	}
 
-	return breakdownGroups.find((group) => group.label === label) ?? breakdownGroups[0] ?? null;
+	return (
+		breakdownGroups.find((group) => group.label === label) ??
+		breakdownGroups[0] ??
+		null
+	);
 }
 
 export function AllocationChart({
@@ -59,11 +63,14 @@ export function AllocationChart({
 	holdings = [],
 	fixed_assets = [],
 	other_assets = [],
-	title = "正向资产分布",
+	title = "资产分布",
 	description = "按当前正向资产结构汇总，不包括负债。",
 }: AllocationChartProps) {
 	const legendItems = buildAllocationLegend(allocation, total_value_cny);
-	const positiveAssetTotal = legendItems.reduce((sum, item) => sum + item.value_cny, 0);
+	const positiveAssetTotal = legendItems.reduce(
+		(sum, item) => sum + item.value_cny,
+		0,
+	);
 	const { chartContainerRef, chartWidth } = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
 	const donutLayout = getAllocationDonutLayout(chartWidth);
@@ -77,9 +84,18 @@ export function AllocationChart({
 				fixed_assets,
 				other_assets,
 			),
-		[allocation, cash_accounts, fixed_assets, holdings, other_assets, total_value_cny],
+		[
+			allocation,
+			cash_accounts,
+			fixed_assets,
+			holdings,
+			other_assets,
+			total_value_cny,
+		],
 	);
-	const [activeLabel, setActiveLabel] = useState<string | null>(legendItems[0]?.label ?? null);
+	const [activeLabel, setActiveLabel] = useState<string | null>(
+		legendItems[0]?.label ?? null,
+	);
 	const activeBreakdown = useMemo(
 		() => findBreakdownGroup(breakdownGroups, activeLabel),
 		[activeLabel, breakdownGroups],
@@ -90,7 +106,10 @@ export function AllocationChart({
 			if (legendItems.length === 0) {
 				return null;
 			}
-			if (currentLabel && legendItems.some((item) => item.label === currentLabel)) {
+			if (
+				currentLabel &&
+				legendItems.some((item) => item.label === currentLabel)
+			) {
 				return currentLabel;
 			}
 			return legendItems[0]?.label ?? null;
@@ -123,7 +142,7 @@ export function AllocationChart({
 									innerRadius={donutLayout.innerRadius}
 									outerRadius={donutLayout.outerRadius}
 									paddingAngle={4}
-									onMouseEnter={(_, index) => {
+									onClick={(_, index) => {
 										const item = legendItems[index];
 										if (item) {
 											setActiveLabel(item.label);
@@ -131,10 +150,7 @@ export function AllocationChart({
 									}}
 								>
 									{legendItems.map((item) => (
-										<Cell
-											key={`${item.label}-${item.value_cny}`}
-											fill={item.color}
-										/>
+										<Cell key={`${item.label}-${item.value_cny}`} fill={item.color} />
 									))}
 								</Pie>
 								<Tooltip
@@ -192,9 +208,6 @@ export function AllocationChart({
 										: "analytics-legend__item analytics-legend__item--interactive"
 								}
 								key={item.label}
-								onMouseEnter={() => setActiveLabel(item.label)}
-								onFocus={() => setActiveLabel(item.label)}
-								onTouchStart={() => setActiveLabel(item.label)}
 								onClick={() => setActiveLabel(item.label)}
 							>
 								<span
@@ -205,7 +218,9 @@ export function AllocationChart({
 									<span>{item.label}</span>
 									<small>{formatPercentage(item.percentage)}</small>
 								</div>
-								<div className="analytics-legend__value">{formatCny(item.value_cny)}</div>
+								<div className="analytics-legend__value">
+									{formatCny(item.value_cny)}
+								</div>
 							</button>
 						))}
 					</div>
@@ -215,7 +230,7 @@ export function AllocationChart({
 							<div className="analytics-breakdown__header">
 								<div>
 									<strong>{activeBreakdown.label}</strong>
-									<small>悬停或点按大类可切换对应明细</small>
+									<small>点击大类后锁定对应明细</small>
 								</div>
 								<div className="analytics-breakdown__summary">
 									<span>{formatPercentage(activeBreakdown.percentage)}</span>
@@ -244,7 +259,9 @@ export function AllocationChart({
 										</div>
 										<div className="analytics-breakdown__value">
 											<strong>{formatCny(entry.value_cny)}</strong>
-											<small>占正向资产 {formatPercentage(entry.overall_percentage)}</small>
+											<small>
+												占正向资产 {formatPercentage(entry.overall_percentage)}
+											</small>
 										</div>
 									</div>
 								))}

@@ -5,11 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AllocationChart } from "./AllocationChart";
 import { HoldingsBreakdownChart } from "./HoldingsBreakdownChart";
 import { PlatformBreakdownChart } from "./PlatformBreakdownChart";
+import { PortfolioAnalytics } from "./PortfolioAnalytics";
 import { PortfolioTrendChart } from "./PortfolioTrendChart";
-import { ReturnTrendChart, createAggregateReturnOption } from "./ReturnTrendChart";
+import {
+	ReturnTrendChart,
+	createAggregateReturnOption,
+} from "./ReturnTrendChart";
 
 const rechartsState = vi.hoisted(() => ({
-	responsiveContainers: [] as Array<{ width?: string | number; height?: string | number }>,
+	responsiveContainers: [] as Array<{
+		width?: string | number;
+		height?: string | number;
+	}>,
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
@@ -120,19 +127,21 @@ describe("analytics charts responsive layout", () => {
 		currentChartWidth = 220;
 
 		vi.stubGlobal("ResizeObserver", MockResizeObserver);
-		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-			width: currentChartWidth,
-			height: 260,
-			top: 0,
-			left: 0,
-			bottom: 260,
-			right: currentChartWidth,
-			x: 0,
-			y: 0,
-			toJSON() {
-				return {};
-			},
-		}));
+		vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(() => ({
+				width: currentChartWidth,
+				height: 260,
+				top: 0,
+				left: 0,
+				bottom: 260,
+				right: currentChartWidth,
+				x: 0,
+				y: 0,
+				toJSON() {
+					return {};
+				},
+			}));
 	});
 
 	afterEach(() => {
@@ -176,29 +185,69 @@ describe("analytics charts responsive layout", () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="hour"
-				hour_series={[
-					{ label: "03-14 14:00", value: 100_000 },
-				]}
+				hour_series={[{ label: "03-14 14:00", value: 100_000 }]}
 				day_series={[
 					{ label: "03-13", value: 98_000 },
 					{ label: "03-14", value: 100_000 },
 				]}
-				month_series={[
-					{ label: "2026-03", value: 100_000 },
-				]}
-				year_series={[
-					{ label: "2026", value: 100_000 },
-				]}
+				month_series={[{ label: "2026-03", value: 100_000 }]}
+				year_series={[{ label: "2026", value: 100_000 }]}
 			/>,
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "30天" }).className).toContain("active");
+			expect(screen.getByRole("button", { name: "30天" }).className).toContain(
+				"active",
+			);
 		});
 
-		expect((screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled,
+		).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled,
+		).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled,
+		).toBe(true);
+	});
+
+	it("switches the portfolio trend card between total value and aggregate return", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{ label: "03-01", value: 100_000 },
+					{ label: "03-02", value: 108_000 },
+					{ label: "03-03", value: 112_000 },
+				]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[]}
+				holdings_return_day_series={[
+					{ label: "03-01", value: 8 },
+					{ label: "03-02", value: 10 },
+					{ label: "03-03", value: 12 },
+				]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+			/>,
+		);
+
+		expect(screen.getByRole("button", { name: "总额" }).className).toContain(
+			"active",
+		);
+
+		screen.getByRole("button", { name: "收益率" }).click();
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "收益率" }).className).toContain(
+				"active",
+			);
+		});
+
+		expect(screen.getByText("基准线上方区域")).toBeTruthy();
 	});
 
 	it("keeps return trend chart compact and compresses yearly labels in narrow containers", async () => {
@@ -248,31 +297,33 @@ describe("analytics charts responsive layout", () => {
 				seriesOptions={[
 					createAggregateReturnOption(
 						"组合",
-						[
-							{ label: "03-14 14:00", value: 1.2 },
-						],
+						[{ label: "03-14 14:00", value: 1.2 }],
 						[
 							{ label: "03-13", value: 0.6 },
 							{ label: "03-14", value: 1.2 },
 						],
-						[
-							{ label: "2026-03", value: 1.2 },
-						],
-						[
-							{ label: "2026", value: 1.2 },
-						],
+						[{ label: "2026-03", value: 1.2 }],
+						[{ label: "2026", value: 1.2 }],
 					),
 				]}
 			/>,
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "30天" }).className).toContain("active");
+			expect(screen.getByRole("button", { name: "30天" }).className).toContain(
+				"active",
+			);
 		});
 
-		expect((screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "24H" }) as HTMLButtonElement).disabled,
+		).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "12月" }) as HTMLButtonElement).disabled,
+		).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "年" }) as HTMLButtonElement).disabled,
+		).toBe(true);
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {
@@ -403,10 +454,14 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(getLastRecordedProps(rechartsState.responsiveContainers).height).toBeLessThan(260);
+			expect(
+				getLastRecordedProps(rechartsState.responsiveContainers).height,
+			).toBeLessThan(260);
 		});
 
-		const responsiveContainerProps = getLastRecordedProps(rechartsState.responsiveContainers);
+		const responsiveContainerProps = getLastRecordedProps(
+			rechartsState.responsiveContainers,
+		);
 		const pieProps = getLastRecordedProps(rechartsState.pies) as {
 			innerRadius: number;
 			outerRadius: number;
@@ -415,5 +470,41 @@ describe("analytics charts responsive layout", () => {
 		expect(responsiveContainerProps.height).toBe(220);
 		expect(pieProps.outerRadius).toBeLessThan(102);
 		expect(pieProps.innerRadius).toBeLessThan(72);
+	});
+
+	it("renders analytics without the duplicate aggregate return card", () => {
+		render(
+			<PortfolioAnalytics
+				total_value_cny={120_000}
+				cash_accounts={[]}
+				holdings={[]}
+				fixed_assets={[]}
+				liabilities={[]}
+				other_assets={[]}
+				allocation={[
+					{ label: "现金", value: 20_000 },
+					{ label: "投资类", value: 100_000 },
+				]}
+				hour_series={[]}
+				day_series={[
+					{ label: "03-01", value: 100_000 },
+					{ label: "03-02", value: 120_000 },
+				]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[]}
+				holdings_return_day_series={[
+					{ label: "03-01", value: 8 },
+					{ label: "03-02", value: 12 },
+				]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+				holding_return_series={[]}
+			/>,
+		);
+
+		expect(screen.queryByText("非现金资产收益率")).toBeNull();
+		expect(screen.getByText("单只持仓收益率")).toBeTruthy();
+		expect(screen.getByText("资产分布")).toBeTruthy();
 	});
 });

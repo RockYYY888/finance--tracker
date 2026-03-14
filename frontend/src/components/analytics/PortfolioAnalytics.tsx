@@ -8,7 +8,6 @@ import { PlatformBreakdownChart } from "./PlatformBreakdownChart";
 import { PortfolioInsights } from "./PortfolioInsights";
 import { PortfolioTrendChart } from "./PortfolioTrendChart";
 import {
-	createAggregateReturnOption,
 	createHoldingReturnOptions,
 	ReturnTrendChart,
 } from "./ReturnTrendChart";
@@ -53,15 +52,23 @@ export function PortfolioAnalytics({
 				holdings={holdings}
 			/>
 
-				<div className="portfolio-analytics__main">
-				<PortfolioTrendChart
-					hour_series={hour_series}
-					day_series={day_series}
-					month_series={month_series}
-					year_series={year_series}
-					loading={loading}
-					defaultRange={defaultRange}
-				/>
+			<div className="portfolio-analytics__columns">
+				<div className="portfolio-analytics__column">
+					<PortfolioTrendChart
+						hour_series={hour_series}
+						day_series={day_series}
+						month_series={month_series}
+						year_series={year_series}
+						holdings_return_hour_series={holdings_return_hour_series}
+						holdings_return_day_series={holdings_return_day_series}
+						holdings_return_month_series={holdings_return_month_series}
+						holdings_return_year_series={holdings_return_year_series}
+						loading={loading}
+						defaultRange={defaultRange}
+					/>
+					<HoldingsBreakdownChart holdings={holdings} />
+				</div>
+				<div className="portfolio-analytics__column">
 					<AllocationChart
 						total_value_cny={total_value_cny}
 						allocation={allocation}
@@ -70,26 +77,12 @@ export function PortfolioAnalytics({
 						fixed_assets={fixed_assets}
 						other_assets={other_assets}
 					/>
-				</div>
-
-				<div className="portfolio-analytics__returns">
-					<ReturnTrendChart
-						title="非现金资产收益率"
-						description="按当前有成本价的持仓汇总收益率。"
-						seriesOptions={[
-							createAggregateReturnOption(
-								"非现金资产",
-								holdings_return_hour_series,
-								holdings_return_day_series,
-								holdings_return_month_series,
-								holdings_return_year_series,
-							),
-						]}
-						loading={loading}
-						defaultRange={defaultRange}
-						selectorLabel="范围"
-						emptyMessage="暂无整体收益率数据。"
-						showCompoundedStepRate
+					<PlatformBreakdownChart
+						cash_accounts={cash_accounts}
+						holdings={holdings}
+						fixed_assets={fixed_assets}
+						liabilities={_liabilities}
+						other_assets={other_assets}
 					/>
 					<ReturnTrendChart
 						title="单只持仓收益率"
@@ -101,16 +94,6 @@ export function PortfolioAnalytics({
 						emptyMessage="暂无单只持仓收益率数据。"
 					/>
 				</div>
-
-				<div className="portfolio-analytics__secondary">
-				<HoldingsBreakdownChart holdings={holdings} />
-				<PlatformBreakdownChart
-					cash_accounts={cash_accounts}
-					holdings={holdings}
-					fixed_assets={fixed_assets}
-					liabilities={_liabilities}
-					other_assets={other_assets}
-				/>
 			</div>
 		</section>
 	);

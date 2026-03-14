@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AllocationChart } from "./AllocationChart";
 
 vi.mock("recharts", () => ({
-	ResponsiveContainer: ({ children }: { children?: ReactNode }) => <>{children}</>,
+	ResponsiveContainer: ({ children }: { children?: ReactNode }) => (
+		<>{children}</>
+	),
 	PieChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	Pie: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	Tooltip: () => null,
@@ -51,22 +53,24 @@ class MockResizeObserver {
 describe("AllocationChart", () => {
 	beforeEach(() => {
 		vi.stubGlobal("ResizeObserver", MockResizeObserver);
-		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-			width: 320,
-			height: 240,
-			top: 0,
-			left: 0,
-			bottom: 240,
-			right: 320,
-			x: 0,
-			y: 0,
-			toJSON() {
-				return {};
-			},
-		}));
+		vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(() => ({
+				width: 320,
+				height: 240,
+				top: 0,
+				left: 0,
+				bottom: 240,
+				right: 320,
+				x: 0,
+				y: 0,
+				toJSON() {
+					return {};
+				},
+			}));
 	});
 
-	it("shows category item breakdown percentages when hovering a top-level legend item", () => {
+	it("locks the category breakdown on click instead of hover", () => {
 		render(
 			<AllocationChart
 				total_value_cny={640_000}
@@ -138,6 +142,11 @@ describe("AllocationChart", () => {
 		);
 
 		fireEvent.mouseEnter(screen.getByRole("button", { name: /投资类/ }));
+
+		expect(screen.queryByText("腾讯控股")).toBeNull();
+		expect(screen.queryByText("阿里巴巴")).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: /投资类/ }));
 
 		expect(screen.getByText("腾讯控股")).toBeTruthy();
 		expect(screen.getByText("阿里巴巴")).toBeTruthy();
