@@ -79,7 +79,13 @@ from app.services import dashboard_service, history_service, service_context
 
 
 class StaticMarketDataClient:
-	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
+	async def fetch_fx_rate(
+		self,
+		from_currency: str,
+		to_currency: str,
+		*,
+		prefer_stale: bool = False,
+	) -> tuple[float, list[str]]:
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
@@ -98,6 +104,8 @@ class StaticMarketDataClient:
 		self,
 		symbol: str,
 		market: str | None = None,
+		*,
+		prefer_stale: bool = False,
 	) -> tuple[Quote, list[str]]:
 		return (
 			Quote(
@@ -125,6 +133,8 @@ class WarningMarketDataClient(StaticMarketDataClient):
 		self,
 		symbol: str,
 		market: str | None = None,
+		*,
+		prefer_stale: bool = False,
 	) -> tuple[Quote, list[str]]:
 		quote, _warnings = await super().fetch_quote(symbol, market)
 		return quote, [self.FALLBACK_WARNING, self.DELAY_WARNING]
@@ -1325,6 +1335,125 @@ def test_create_cash_transfer_records_ledger_and_updates_balances(
 	assert sorted(entry.entry_type for entry in ledger_entries) == ["TRANSFER_IN", "TRANSFER_OUT"]
 
 
+def test_create_cash_transfer_converts_supported_source_currency_into_cny_target(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
+	from_account = create_account(
+		CashAccountCreate(
+			name="美元账户",
+			platform="Bank",
+			currency="usd",
+			balance=100,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	to_account = create_account(
+		CashAccountCreate(
+			name="人民币账户",
+			platform="Cash",
+			currency="cny",
+			balance=20,
+			account_type="cash",
+		),
+		current_user,
+		session,
+	)
+
+	applied_transfer = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=from_account.id or 0,
+			to_account_id=to_account.id or 0,
+			source_amount=10,
+			transferred_on=date(2026, 3, 2),
+		),
+		current_user,
+		session,
+	)
+
+	assert applied_transfer.transfer.source_currency == "USD"
+	assert applied_transfer.transfer.target_currency == "CNY"
+	assert applied_transfer.transfer.target_amount == 70
+	assert applied_transfer.from_account.balance == 90
+	assert applied_transfer.to_account.balance == 90
+
+
+def test_create_cash_transfer_rejects_non_cny_target_or_manual_target_override(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
+	from_account = create_account(
+		CashAccountCreate(
+			name="港币账户",
+			platform="Bank",
+			currency="hkd",
+			balance=100,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	usd_target = create_account(
+		CashAccountCreate(
+			name="美元账户",
+			platform="Cash",
+			currency="usd",
+			balance=10,
+			account_type="cash",
+		),
+		current_user,
+		session,
+	)
+	cny_target = create_account(
+		CashAccountCreate(
+			name="人民币账户",
+			platform="Cash",
+			currency="cny",
+			balance=0,
+			account_type="cash",
+		),
+		current_user,
+		session,
+	)
+
+	with pytest.raises(HTTPException) as non_cny_error:
+		create_cash_transfer(
+			CashTransferCreate(
+				from_account_id=from_account.id or 0,
+				to_account_id=usd_target.id or 0,
+				source_amount=5,
+				transferred_on=date(2026, 3, 2),
+			),
+			current_user,
+			session,
+		)
+
+	assert non_cny_error.value.status_code == 422
+	assert non_cny_error.value.detail == "转入账户必须是 CNY 现金账户。"
+
+	with pytest.raises(HTTPException) as mismatch_error:
+		create_cash_transfer(
+			CashTransferCreate(
+				from_account_id=from_account.id or 0,
+				to_account_id=cny_target.id or 0,
+				source_amount=5,
+				target_amount=1,
+				transferred_on=date(2026, 3, 2),
+			),
+			current_user,
+			session,
+		)
+
+	assert mismatch_error.value.status_code == 422
+	assert "目标币种金额必须按当前汇率自动换算为 CNY" in mismatch_error.value.detail
+
+
 def test_update_cash_transfer_replays_ledger_and_account_balances(session: Session) -> None:
 	current_user = make_user(session)
 	from_account = create_account(
@@ -1836,12 +1965,33 @@ def test_create_new_asset_categories_persists_records(session: Session) -> None:
 	assert session.exec(select(OtherAsset)).one().user_id == current_user.username
 
 
-def test_liability_schema_restricts_currency_to_cny_or_usd() -> None:
-	with pytest.raises(ValidationError, match="currency must be one of: CNY, USD."):
+def test_asset_currency_schemas_restrict_supported_currencies() -> None:
+	with pytest.raises(ValidationError, match="currency must be one of: CNY, USD, HKD."):
+		CashAccountCreate(
+			name="JPY Account",
+			platform="Bank",
+			currency="jpy",
+			balance=100,
+			account_type="bank",
+		)
+
+	with pytest.raises(ValidationError, match="fallback_currency must be one of: CNY, USD, HKD."):
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="eur",
+			market="US",
+			traded_on=date(2026, 3, 1),
+		)
+
+	with pytest.raises(ValidationError, match="currency must be one of: CNY, USD, HKD."):
 		LiabilityEntryCreate(
 			name="Mortgage",
 			category="mortgage",
-			currency="hkd",
+			currency="jpy",
 			balance=500_000,
 		)
 

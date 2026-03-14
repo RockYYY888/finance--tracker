@@ -1304,6 +1304,11 @@ function App() {
 					title="资产管理"
 					description="自动同步。"
 					loadOnMount
+					displayFxRates={{
+						CNY: 1,
+						USD: dashboard.usd_cny_rate,
+						HKD: dashboard.hkd_cny_rate,
+					}}
 					onRecordsCommitted={() => {
 						requestDashboardRefresh();
 						setAssetRecordRefreshToken((currentValue) => currentValue + 1);

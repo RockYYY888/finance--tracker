@@ -11,6 +11,7 @@ import { LiabilityForm } from "./LiabilityForm";
 import { LiabilityList } from "./LiabilityList";
 import { OtherAssetForm } from "./OtherAssetForm";
 import { OtherAssetList } from "./OtherAssetList";
+import type { SupportedCurrencyFxRates } from "../../lib/assetCurrency";
 import { useAssetCollection } from "../../hooks/useAssetCollection";
 import type {
 	AssetManagerController,
@@ -98,6 +99,7 @@ export interface AssetManagerProps {
 	description?: string;
 	loadOnMount?: boolean;
 	maxStartedOnDate?: string;
+	displayFxRates?: SupportedCurrencyFxRates;
 	onRecordsCommitted?: (sections: AssetSection[]) => void;
 }
 
@@ -389,6 +391,7 @@ export function AssetManager({
 	description,
 	loadOnMount = false,
 	maxStartedOnDate,
+	displayFxRates,
 	onRecordsCommitted,
 }: AssetManagerProps) {
 	const [activeSection, setActiveSection] = useState<AssetSection>(() =>
@@ -998,6 +1001,7 @@ export function AssetManager({
 								busy={isSubmittingCashTransfer}
 								errorMessage={cashTransferError}
 								maxStartedOnDate={maxStartedOnDate}
+								fxRates={displayFxRates}
 								onCreate={(payload) => submitCashTransferRecord(payload)}
 								onCancel={closeCashTransferEditor}
 							/>
@@ -1015,6 +1019,7 @@ export function AssetManager({
 								activityEntries={cashActivityEntries}
 								activityLoading={cashActivityLoading}
 								activityErrorMessage={cashActivityError}
+								fxRates={displayFxRates}
 								recordId={cashCollection.editingRecordId}
 								busy={cashCollection.isSubmitting}
 								errorMessage={cashCollection.errorMessage}
@@ -1057,6 +1062,7 @@ export function AssetManager({
 								busy={holdingCollection.isSubmitting}
 								errorMessage={holdingCollection.errorMessage}
 								maxStartedOnDate={maxStartedOnDate}
+								fxRates={displayFxRates}
 								onCreate={(payload) => submitHoldingRecord(payload)}
 								onEdit={(_recordId, payload) => submitHoldingRecord(payload)}
 								onDelete={(recordId) => removeHoldingRecord(recordId)}
@@ -1137,6 +1143,8 @@ export function AssetManager({
 								recordId={liabilityCollection.editingRecordId}
 								busy={liabilityCollection.isSubmitting}
 								errorMessage={liabilityCollection.errorMessage}
+								fxRates={displayFxRates}
+								fxToCny={liabilityCollection.editingRecord?.fx_to_cny ?? null}
 								onCreate={(payload) => submitLiabilityRecord(payload)}
 								onEdit={(_recordId, payload) => submitLiabilityRecord(payload)}
 								onDelete={(recordId) => removeLiabilityRecord(recordId)}

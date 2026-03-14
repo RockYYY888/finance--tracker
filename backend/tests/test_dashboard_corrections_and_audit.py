@@ -25,7 +25,13 @@ from app.schemas import FixedAssetCreate, SecurityHoldingTransactionCreate
 
 
 class StaticMarketDataClient:
-	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
+	async def fetch_fx_rate(
+		self,
+		from_currency: str,
+		to_currency: str,
+		*,
+		prefer_stale: bool = False,
+	) -> tuple[float, list[str]]:
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
@@ -34,6 +40,8 @@ class StaticMarketDataClient:
 		self,
 		symbol: str,
 		market: str | None = None,
+		*,
+		prefer_stale: bool = False,
 	) -> tuple[object, list[str]]:
 		raise AssertionError("Quote fetching is not expected in this test.")
 

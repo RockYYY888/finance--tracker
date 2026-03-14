@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HoldingForm } from "./HoldingForm";
+import type { HoldingRecord } from "../../types/assets";
 
 afterEach(() => {
 	cleanup();
@@ -57,8 +58,32 @@ describe("HoldingForm create defaults", () => {
 		render(<HoldingForm maxStartedOnDate="2026-03-09" />);
 
 		expect((screen.getByLabelText("市场") as HTMLSelectElement).value).toBe("");
-		expect((screen.getByLabelText("计价币种") as HTMLInputElement).value).toBe("");
+		expect((screen.getByLabelText("当前币种") as HTMLSelectElement).value).toBe("");
 		expect((screen.getByLabelText("数量") as HTMLInputElement).value).toBe("");
+	});
+
+	it("shows readonly target cny amount based on quantity price and current currency", () => {
+		render(
+			<HoldingForm
+				maxStartedOnDate="2026-03-09"
+				fxRates={{ USD: 7 }}
+				value={{
+					side: "BUY",
+					fallback_currency: "USD",
+					market: "US",
+				}}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText(/数量/), {
+			target: { value: "2" },
+		});
+		fireEvent.change(screen.getByLabelText("当前币种买入价"), {
+			target: { value: "10" },
+		});
+
+		expect((screen.getByLabelText("目标币种") as HTMLInputElement).value).toBe("CNY");
+		expect((screen.getByLabelText("目标币种金额（CNY）") as HTMLInputElement).value).toBe("¥140.00");
 	});
 });
 
@@ -159,7 +184,7 @@ describe("HoldingForm edit intent", () => {
 			),
 		).not.toBeNull();
 		expect(screen.getByLabelText("持仓数量（股/支）")).not.toBeNull();
-		expect(screen.getByLabelText("持仓价（计价币种）")).not.toBeNull();
+		expect(screen.getByLabelText("当前币种持仓价")).not.toBeNull();
 		expect(screen.getByLabelText("买入日期")).not.toBeNull();
 		expect(screen.queryByLabelText("账户 / 来源")).toBeNull();
 		expect(screen.queryByLabelText("备注")).toBeNull();
@@ -193,7 +218,7 @@ describe("HoldingForm edit intent", () => {
 		fireEvent.change(screen.getByLabelText("持仓数量（股/支）"), {
 			target: { value: "3" },
 		});
-		fireEvent.change(screen.getByLabelText("持仓价（计价币种）"), {
+		fireEvent.change(screen.getByLabelText("当前币种持仓价"), {
 			target: { value: "182" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "买入日期" }));
@@ -214,7 +239,7 @@ describe("HoldingForm edit intent", () => {
 });
 
 describe("HoldingForm sell proceeds handling", () => {
-	const existingHoldings = [
+	const existingHoldings: HoldingRecord[] = [
 		{
 			id: 1,
 			side: "BUY" as const,
@@ -381,7 +406,7 @@ describe("HoldingForm sell proceeds handling", () => {
 		expect(
 			screen.getByText("当前没有现金账户 如需并入现有账户 请先新增现金账户"),
 		).not.toBeNull();
-		expect((screen.getByLabelText("卖出价（计价币种）") as HTMLInputElement).value).toBe("188");
+		expect((screen.getByLabelText("当前币种卖出价") as HTMLInputElement).value).toBe("188");
 	});
 
 	it("falls back to auto create cash when stale sell proceeds selection has no cash account", async () => {

@@ -1,6 +1,16 @@
 export type MaybePromise<T> = T | Promise<T>;
 
 export type AssetEditorMode = "create" | "edit";
+export type SupportedCurrency = "CNY" | "USD" | "HKD";
+
+export const SUPPORTED_CURRENCY_OPTIONS: Array<{
+	value: SupportedCurrency;
+	label: string;
+}> = [
+	{ value: "CNY", label: "人民币 (CNY)" },
+	{ value: "USD", label: "美元 (USD)" },
+	{ value: "HKD", label: "港币 (HKD)" },
+];
 
 export type CashAccountType = "ALIPAY" | "WECHAT" | "BANK" | "CASH" | "OTHER";
 
@@ -79,7 +89,7 @@ export type LiabilityCategory =
 	| "PERSONAL_LOAN"
 	| "OTHER";
 
-export type LiabilityCurrency = "CNY" | "USD";
+export type LiabilityCurrency = SupportedCurrency;
 
 export const LIABILITY_CATEGORY_OPTIONS: Array<{
 	value: LiabilityCategory;
@@ -96,13 +106,7 @@ export function getLiabilityCategoryLabel(value: LiabilityCategory): string {
 	return LIABILITY_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? "其他";
 }
 
-export const LIABILITY_CURRENCY_OPTIONS: Array<{
-	value: LiabilityCurrency;
-	label: string;
-}> = [
-	{ value: "CNY", label: "人民币 (CNY)" },
-	{ value: "USD", label: "美元 (USD)" },
-];
+export const LIABILITY_CURRENCY_OPTIONS = SUPPORTED_CURRENCY_OPTIONS;
 
 export type OtherAssetCategory = "RECEIVABLE" | "OTHER";
 
@@ -121,7 +125,7 @@ export function getOtherAssetCategoryLabel(value: OtherAssetCategory): string {
 export interface CashAccountInput {
 	name: string;
 	platform: string;
-	currency: string;
+	currency: SupportedCurrency;
 	balance: number;
 	account_type: CashAccountType;
 	started_on?: string;
@@ -130,7 +134,7 @@ export interface CashAccountInput {
 
 export interface CashAccountFormDraft {
 	name: string;
-	currency: string;
+	currency: SupportedCurrency;
 	balance: string;
 	account_type: CashAccountType;
 	started_on: string;
@@ -164,8 +168,8 @@ export interface CashTransferFormDraft {
 export interface CashTransferRecord extends CashTransferInput {
 	id: number;
 	target_amount: number;
-	source_currency: string;
-	target_currency: string;
+	source_currency: SupportedCurrency;
+	target_currency: SupportedCurrency;
 }
 
 export type CashLedgerEntryType =
@@ -195,7 +199,7 @@ export interface CashLedgerEntryRecord {
 	cash_account_id: number;
 	entry_type: CashLedgerEntryType;
 	amount: number;
-	currency: string;
+	currency: SupportedCurrency;
 	happened_on: string;
 	note?: string;
 	holding_transaction_id?: number | null;
@@ -321,7 +325,7 @@ export interface HoldingInput {
 	symbol: string;
 	name: string;
 	quantity: number;
-	fallback_currency: string;
+	fallback_currency: SupportedCurrency;
 	cost_basis_price?: number;
 	market: SecurityMarket;
 	broker?: string;
@@ -340,7 +344,7 @@ export interface HoldingFormDraft {
 	symbol: string;
 	name: string;
 	quantity: string;
-	fallback_currency: string;
+	fallback_currency: SupportedCurrency | "";
 	cost_basis_price: string;
 	market: SecurityMarket | "";
 	broker: string;
@@ -368,7 +372,7 @@ export interface HoldingTransactionRecord {
 	side: "BUY" | "SELL" | "ADJUST";
 	quantity: number;
 	price?: number | null;
-	fallback_currency: string;
+	fallback_currency: SupportedCurrency;
 	market: SecurityMarket;
 	broker?: string;
 	traded_on: string;
@@ -384,7 +388,7 @@ export interface HoldingTransactionRecord {
 export interface HoldingTransactionUpdateInput {
 	quantity?: number;
 	price?: number;
-	fallback_currency?: string;
+	fallback_currency?: SupportedCurrency;
 	broker?: string;
 	traded_on?: string;
 	note?: string;
@@ -497,7 +501,7 @@ export interface SecuritySearchResult {
 	symbol: string;
 	name: string;
 	market: SecurityMarket;
-	currency: string;
+	currency: SupportedCurrency;
 	exchange?: string | null;
 	source?: string | null;
 }

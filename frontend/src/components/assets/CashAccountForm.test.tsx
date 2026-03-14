@@ -23,7 +23,7 @@ describe("CashAccountForm reset behavior", () => {
 		fireEvent.change(screen.getByLabelText("账户名称"), {
 			target: { value: "旅行备用金" },
 		});
-		fireEvent.change(screen.getByLabelText("余额"), {
+		fireEvent.change(screen.getByLabelText("当前币种余额"), {
 			target: { value: "2560" },
 		});
 
@@ -39,7 +39,7 @@ describe("CashAccountForm reset behavior", () => {
 		);
 
 		expect((screen.getByLabelText("账户名称") as HTMLInputElement).value).toBe("旅行备用金");
-		expect((screen.getByLabelText("余额") as HTMLInputElement).value).toBe("2560");
+		expect((screen.getByLabelText("当前币种余额") as HTMLInputElement).value).toBe("2560");
 	});
 
 	it("resets draft only when a new editor session starts", () => {
@@ -70,7 +70,23 @@ describe("CashAccountForm reset behavior", () => {
 		);
 
 		expect((screen.getByLabelText("账户名称") as HTMLInputElement).value).toBe("新账户");
-		expect((screen.getByLabelText("币种") as HTMLInputElement).value).toBe("USD");
+		expect((screen.getByLabelText("当前币种") as HTMLSelectElement).value).toBe("USD");
+	});
+
+	it("shows readonly target cny valuation from the selected currency", () => {
+		render(
+			<CashAccountForm
+				value={{
+					name: "美元账户",
+					currency: "USD",
+					balance: "10",
+				}}
+				fxRates={{ USD: 7 }}
+			/>,
+		);
+
+		expect((screen.getByLabelText("目标币种") as HTMLInputElement).value).toBe("CNY");
+		expect((screen.getByLabelText("目标币种估值（CNY）") as HTMLInputElement).value).toBe("¥70.00");
 	});
 });
 

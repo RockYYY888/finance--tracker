@@ -35,11 +35,11 @@ describe("CashTransferPanel", () => {
 		fireEvent.change(screen.getByLabelText("转出账户"), {
 			target: { value: "1" },
 		});
-		fireEvent.change(screen.getByLabelText("划转金额"), {
+		fireEvent.change(screen.getByLabelText("当前币种转出金额"), {
 			target: { value: "150" },
 		});
 
-		expect((screen.getByLabelText("划转金额") as HTMLInputElement).value).toBe("100");
+		expect((screen.getByLabelText("当前币种转出金额") as HTMLInputElement).value).toBe("100");
 	});
 
 	it("keeps transfer draft when accounts refresh upstream", () => {
@@ -70,10 +70,10 @@ describe("CashTransferPanel", () => {
 		fireEvent.change(screen.getByLabelText("转出账户"), {
 			target: { value: "1" },
 		});
-		fireEvent.change(screen.getByLabelText("转入账户"), {
+		fireEvent.change(screen.getByLabelText("转入账户（CNY）"), {
 			target: { value: "2" },
 		});
-		fireEvent.change(screen.getByLabelText("划转金额"), {
+		fireEvent.change(screen.getByLabelText("当前币种转出金额"), {
 			target: { value: "25" },
 		});
 		fireEvent.change(screen.getByLabelText("备注"), {
@@ -104,7 +104,7 @@ describe("CashTransferPanel", () => {
 			/>,
 		);
 
-		expect((screen.getByLabelText("划转金额") as HTMLInputElement).value).toBe("25");
+		expect((screen.getByLabelText("当前币种转出金额") as HTMLInputElement).value).toBe("25");
 		expect((screen.getByLabelText("备注") as HTMLTextAreaElement).value).toBe(
 			"收盘后调仓",
 		);
@@ -143,10 +143,10 @@ describe("CashTransferPanel", () => {
 		fireEvent.change(screen.getByLabelText("转出账户"), {
 			target: { value: "1" },
 		});
-		fireEvent.change(screen.getByLabelText("转入账户"), {
+		fireEvent.change(screen.getByLabelText("转入账户（CNY）"), {
 			target: { value: "2" },
 		});
-		fireEvent.change(screen.getByLabelText("划转金额"), {
+		fireEvent.change(screen.getByLabelText("当前币种转出金额"), {
 			target: { value: "30" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "确认划转" }));
@@ -160,5 +160,42 @@ describe("CashTransferPanel", () => {
 				}),
 			);
 		});
+	});
+
+	it("shows readonly cny target amount for non-cny transfers", () => {
+		render(
+			<CashTransferPanel
+				accounts={[
+					{
+						id: 1,
+						name: "美元账户",
+						platform: "Bank",
+						currency: "USD",
+						balance: 100,
+						account_type: "BANK",
+					},
+					{
+						id: 2,
+						name: "人民币账户",
+						platform: "Cash",
+						currency: "CNY",
+						balance: 0,
+						account_type: "CASH",
+					},
+				]}
+				fxRates={{ USD: 7 }}
+				onCreate={vi.fn()}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("转出账户"), {
+			target: { value: "1" },
+		});
+		fireEvent.change(screen.getByLabelText("当前币种转出金额"), {
+			target: { value: "12" },
+		});
+
+		expect((screen.getByLabelText("目标币种") as HTMLInputElement).value).toBe("CNY");
+		expect((screen.getByLabelText("目标币种到账金额（CNY）") as HTMLInputElement).value).toBe("¥84.00");
 	});
 });

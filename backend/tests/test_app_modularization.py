@@ -18,12 +18,24 @@ from app.services import dashboard_service, history_service, job_service, legacy
 
 
 class StaticDashboardMarketDataClient:
-	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
+	async def fetch_fx_rate(
+		self,
+		from_currency: str,
+		to_currency: str,
+		*,
+		prefer_stale: bool = False,
+	) -> tuple[float, list[str]]:
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
 
-	async def fetch_quote(self, symbol: str, market: str | None = None):
+	async def fetch_quote(
+		self,
+		symbol: str,
+		market: str | None = None,
+		*,
+		prefer_stale: bool = False,
+	):
 		raise AssertionError("Quote lookup should not run for an empty dashboard test.")
 
 	async def fetch_hourly_price_series(self, *args, **kwargs):

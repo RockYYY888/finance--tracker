@@ -3,6 +3,13 @@ import type { FormEvent } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
 import {
+	calculateTargetCnyAmount,
+	normalizeSupportedCurrency,
+	TARGET_DISPLAY_CURRENCY,
+	type SupportedCurrencyFxRates,
+} from "../../lib/assetCurrency";
+import {
+	formatCnyAmount,
 	formatMoneyAmount,
 	formatPriceAmount,
 	formatQuantity,
@@ -26,6 +33,7 @@ import {
 	DEFAULT_HOLDING_FORM_DRAFT,
 	SELL_PROCEEDS_HANDLING_OPTIONS,
 	SECURITY_MARKET_OPTIONS,
+	SUPPORTED_CURRENCY_OPTIONS,
 } from "../../types/assets";
 
 export interface HoldingFormProps {
@@ -42,6 +50,7 @@ export interface HoldingFormProps {
 	busy?: boolean;
 	errorMessage?: string | null;
 	maxStartedOnDate?: string;
+	fxRates?: SupportedCurrencyFxRates;
 	onCreate?: (payload: HoldingInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: HoldingInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
@@ -86,7 +95,7 @@ function toHoldingInput(draft: HoldingFormDraft): HoldingInput {
 		symbol: draft.symbol.trim().toUpperCase(),
 		name: draft.name.trim(),
 		quantity: Number(draft.quantity),
-		fallback_currency: draft.fallback_currency.trim().toUpperCase(),
+		fallback_currency: normalizeSupportedCurrency(draft.fallback_currency, "CNY"),
 		cost_basis_price: draft.cost_basis_price.trim()
 			? Number(draft.cost_basis_price)
 			: undefined,
@@ -347,6 +356,7 @@ export function HoldingForm({
 	busy = false,
 	errorMessage = null,
 	maxStartedOnDate,
+	fxRates,
 	onCreate,
 	onEdit,
 	onDelete,
@@ -518,10 +528,10 @@ export function HoldingForm({
 	const shouldMergeIntoExistingCash =
 		isSellTransaction && draft.sell_proceeds_handling === "ADD_TO_EXISTING_CASH";
 	const priceLabel = isEditIntent
-		? "持仓价（计价币种）"
+		? "当前币种持仓价"
 		: isSellTransaction
-			? "卖出价（计价币种）"
-			: "买入价（计价币种）";
+			? "当前币种卖出价"
+			: "当前币种买入价";
 	const pricePlaceholder = isEditIntent
 		? "请输入修正后的持仓价"
 		: isSellTransaction
@@ -555,6 +565,17 @@ export function HoldingForm({
 			: draft.sell_proceeds_handling;
 	const shouldShowSearchInput = !isSellTransaction && !isEditIntent;
 	const shouldShowIdentityFields = !isSellTransaction && !isEditIntent;
+	const parsedQuantity = draft.quantity.trim() ? Number(draft.quantity) : null;
+	const parsedPrice = draft.cost_basis_price.trim() ? Number(draft.cost_basis_price) : null;
+	const effectivePriceForCnyPreview = parsedPrice ??
+		(isSellTransaction && selectedSellHolding?.price != null ? selectedSellHolding.price : null);
+	const targetAmountCny = draft.fallback_currency
+		? calculateTargetCnyAmount(
+			(parsedQuantity ?? NaN) * (effectivePriceForCnyPreview ?? NaN),
+			normalizeSupportedCurrency(draft.fallback_currency, "CNY"),
+			{ fxRates },
+		)
+		: null;
 
 	useEffect(() => {
 		if (!isSellTransaction) {
@@ -697,7 +718,10 @@ export function HoldingForm({
 			symbol: result.symbol,
 			name: result.name,
 			market: result.market,
-			fallback_currency: result.currency || currentDraft.fallback_currency,
+			fallback_currency: normalizeSupportedCurrency(
+				result.currency,
+				currentDraft.fallback_currency || "CNY",
+			),
 			quantity: "",
 			cost_basis_price: "",
 			broker: shouldPrefillBroker(result.source)
@@ -1045,7 +1069,7 @@ export function HoldingForm({
 					</div>
 				) : null}
 
-				<div className="asset-manager__field-grid asset-manager__field-grid--triple">
+				<div className="asset-manager__field-grid">
 					{isSellTransaction || isEditIntent ? (
 						<label className="asset-manager__field">
 							<span>市场</span>
@@ -1097,9 +1121,12 @@ export function HoldingForm({
 						/>
 					</label>
 
+				</div>
+
+				<div className="asset-manager__field-grid">
 					{isSellTransaction || isEditIntent ? (
 						<label className="asset-manager__field">
-							<span>计价币种</span>
+							<span>当前币种</span>
 							<input
 								required
 								value={draft.fallback_currency}
@@ -1109,30 +1136,55 @@ export function HoldingForm({
 						</label>
 					) : (
 						<label className="asset-manager__field">
-							<span>计价币种</span>
-							<input
+							<span>当前币种</span>
+							<select
 								required
 								value={draft.fallback_currency}
 								onChange={(event) =>
-									updateDraft("fallback_currency", event.target.value)
+									updateDraft(
+										"fallback_currency",
+										event.target.value as HoldingFormDraft["fallback_currency"],
+									)
 								}
-								placeholder="选择后自动填入"
-							/>
+							>
+								<option value="">请选择当前币种</option>
+								{SUPPORTED_CURRENCY_OPTIONS.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
 						</label>
 					)}
+
+					<label className="asset-manager__field">
+						<span>目标币种</span>
+						<input value={TARGET_DISPLAY_CURRENCY} readOnly />
+					</label>
 				</div>
 
-				<label className="asset-manager__field">
-					<span>{priceLabel}</span>
-					<input
-						type="number"
-						min="0.0001"
-						step="0.0001"
-						value={draft.cost_basis_price}
-						onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
-						placeholder={pricePlaceholder}
-					/>
-				</label>
+				<div className="asset-manager__field-grid">
+					<label className="asset-manager__field">
+						<span>{priceLabel}</span>
+						<input
+							type="number"
+							min="0.0001"
+							step="0.0001"
+							value={draft.cost_basis_price}
+							onChange={(event) => updateDraft("cost_basis_price", event.target.value)}
+							placeholder={pricePlaceholder}
+						/>
+					</label>
+
+					<label className="asset-manager__field">
+						<span>目标币种金额（CNY）</span>
+						<input
+							value={targetAmountCny != null ? formatCnyAmount(targetAmountCny) : ""}
+							placeholder="按当前汇率自动计算"
+							readOnly
+						/>
+					</label>
+				</div>
 
 				{isSellTransaction ? (
 					<>

@@ -45,7 +45,13 @@ from app.services import legacy_service, service_context
 
 
 class StaticMarketDataClient:
-	async def fetch_fx_rate(self, from_currency: str, to_currency: str) -> tuple[float, list[str]]:
+	async def fetch_fx_rate(
+		self,
+		from_currency: str,
+		to_currency: str,
+		*,
+		prefer_stale: bool = False,
+	) -> tuple[float, list[str]]:
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
@@ -64,6 +70,8 @@ class StaticMarketDataClient:
 		self,
 		symbol: str,
 		market: str | None = None,
+		*,
+		prefer_stale: bool = False,
 	) -> tuple[Quote, list[str]]:
 		return (
 			Quote(

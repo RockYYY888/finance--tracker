@@ -111,6 +111,33 @@ async def list_accounts(
 
 	return items
 
+
+def _resolve_cash_transfer_target_amount(
+	*,
+	source_amount: float,
+	source_currency: str,
+	target_currency: str,
+	provided_target_amount: float | None,
+) -> float:
+	expected_target_amount, _fx_rate = _convert_cash_amount_between_currencies(
+		amount=source_amount,
+		from_currency=source_currency,
+		to_currency=target_currency,
+	)
+	if provided_target_amount is None:
+		return expected_target_amount
+
+	if abs(provided_target_amount - expected_target_amount) > HOLDING_QUANTITY_EPSILON:
+		raise HTTPException(
+			status_code=422,
+			detail=(
+				f"目标币种金额必须按当前汇率自动换算为 {target_currency}，"
+				f"当前应为 {expected_target_amount:g} {target_currency}。"
+			),
+		)
+
+	return provided_target_amount
+
 def create_account(
 	payload: CashAccountCreate,
 	current_user: CurrentUserDependency,
@@ -507,6 +534,8 @@ def create_cash_transfer(
 		raise HTTPException(status_code=404, detail="转入账户不存在。")
 	if source_account.id == target_account.id:
 		raise HTTPException(status_code=422, detail="转出账户和转入账户不能相同。")
+	if _normalize_currency(target_account.currency) != "CNY":
+		raise HTTPException(status_code=422, detail="转入账户必须是 CNY 现金账户。")
 	if source_account.balance + HOLDING_QUANTITY_EPSILON < payload.source_amount:
 		raise HTTPException(
 			status_code=422,
@@ -516,16 +545,12 @@ def create_cash_transfer(
 			),
 		)
 
-	target_amount = payload.target_amount
-	if target_amount is None:
-		target_amount, _fx_rate = _convert_cash_amount_between_currencies(
-			amount=payload.source_amount,
-			from_currency=source_account.currency,
-			to_currency=target_account.currency,
-		)
-	elif _normalize_currency(source_account.currency) == _normalize_currency(target_account.currency):
-		if abs(target_amount - payload.source_amount) > HOLDING_QUANTITY_EPSILON:
-			raise HTTPException(status_code=422, detail="同币种账户划转时转出和转入金额必须相同。")
+	target_amount = _resolve_cash_transfer_target_amount(
+		source_amount=payload.source_amount,
+		source_currency=source_account.currency,
+		target_currency=target_account.currency,
+		provided_target_amount=payload.target_amount,
+	)
 
 	transfer = CashTransfer(
 		user_id=current_user.username,
@@ -672,6 +697,8 @@ def update_cash_transfer(
 		raise HTTPException(status_code=404, detail="转出账户不存在。")
 	if target_account is None or target_account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="转入账户不存在。")
+	if _normalize_currency(target_account.currency) != "CNY":
+		raise HTTPException(status_code=422, detail="转入账户必须是 CNY 现金账户。")
 
 	for account in (source_account, target_account):
 		account_id = account.id or 0
@@ -696,21 +723,18 @@ def update_cash_transfer(
 		)
 
 	if "target_amount" in fields_set:
-		target_amount = payload.target_amount
+		provided_target_amount = payload.target_amount
 	elif {"from_account_id", "to_account_id", "source_amount"} & fields_set:
-		target_amount = None
+		provided_target_amount = None
 	else:
-		target_amount = transfer.target_amount
+		provided_target_amount = transfer.target_amount
 
-	if target_amount is None:
-		target_amount, _fx_rate = _convert_cash_amount_between_currencies(
-			amount=source_amount,
-			from_currency=source_account.currency,
-			to_currency=target_account.currency,
-		)
-	elif _normalize_currency(source_account.currency) == _normalize_currency(target_account.currency):
-		if abs(target_amount - source_amount) > HOLDING_QUANTITY_EPSILON:
-			raise HTTPException(status_code=422, detail="同币种账户划转时转出和转入金额必须相同。")
+	target_amount = _resolve_cash_transfer_target_amount(
+		source_amount=source_amount,
+		source_currency=source_account.currency,
+		target_currency=target_account.currency,
+		provided_target_amount=provided_target_amount,
+	)
 
 	transfer.from_account_id = source_account.id or 0
 	transfer.to_account_id = target_account.id or 0

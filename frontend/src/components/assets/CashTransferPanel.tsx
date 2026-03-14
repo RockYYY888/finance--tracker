@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
-import { formatMoneyAmount } from "../../lib/assetFormatting";
+import {
+	calculateTargetCnyAmount,
+	TARGET_DISPLAY_CURRENCY,
+	type SupportedCurrencyFxRates,
+} from "../../lib/assetCurrency";
+import { formatCnyAmount, formatMoneyAmount } from "../../lib/assetFormatting";
 import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
@@ -17,6 +22,7 @@ export interface CashTransferPanelProps {
 	busy?: boolean;
 	errorMessage?: string | null;
 	maxStartedOnDate?: string;
+	fxRates?: SupportedCurrencyFxRates;
 	onCreate?: (payload: CashTransferInput) => MaybePromise<unknown>;
 	onCancel?: () => void;
 }
@@ -54,6 +60,7 @@ export function CashTransferPanel({
 	busy = false,
 	errorMessage = null,
 	maxStartedOnDate,
+	fxRates,
 	onCreate,
 	onCancel,
 }: CashTransferPanelProps) {
@@ -71,6 +78,17 @@ export function CashTransferPanel({
 		() => accounts.find((account) => String(account.id) === draft.to_account_id) ?? null,
 		[accounts, draft.to_account_id],
 	);
+	const cnyTargetAccounts = useMemo(
+		() => accounts.filter((account) => account.currency === TARGET_DISPLAY_CURRENCY),
+		[accounts],
+	);
+	const parsedSourceAmount = draft.source_amount.trim() ? Number(draft.source_amount) : null;
+	const targetAmountCny = sourceAccount
+		? calculateTargetCnyAmount(parsedSourceAmount, sourceAccount.currency, {
+			explicitFxToCny: sourceAccount.fx_to_cny ?? null,
+			fxRates,
+		})
+		: null;
 	useAutoRefreshGuard(true, "cash-transfer-form");
 
 	useEffect(() => {
@@ -83,6 +101,24 @@ export function CashTransferPanel({
 			transferred_on: maxStartedOnDate ?? getTodayDateValue(),
 		}));
 	}, [draft.transferred_on, maxStartedOnDate]);
+
+	useEffect(() => {
+		if (!draft.to_account_id) {
+			return;
+		}
+
+		const isValidTargetAccount = cnyTargetAccounts.some(
+			(account) => String(account.id) === draft.to_account_id,
+		);
+		if (isValidTargetAccount) {
+			return;
+		}
+
+		setDraft((currentDraft) => ({
+			...currentDraft,
+			to_account_id: "",
+		}));
+	}, [cnyTargetAccounts, draft.to_account_id]);
 
 	function updateDraft<K extends keyof CashTransferFormDraft>(
 		field: K,
@@ -102,7 +138,7 @@ export function CashTransferPanel({
 
 		try {
 			if (!draft.from_account_id || !draft.to_account_id) {
-				throw new Error("请选择转出账户和转入账户。");
+				throw new Error("请选择转出账户和 CNY 转入账户。");
 			}
 			if (draft.from_account_id === draft.to_account_id) {
 				throw new Error("转出账户和转入账户不能相同。");
@@ -117,6 +153,12 @@ export function CashTransferPanel({
 					`划转金额不能超过当前账户可用余额，当前最多可转 ${sourceAccount.balance} ${sourceAccount.currency}。`,
 				);
 			}
+			if (targetAccount?.currency !== TARGET_DISPLAY_CURRENCY) {
+				throw new Error("转入账户必须是 CNY 现金账户。");
+			}
+			if (targetAmountCny == null) {
+				throw new Error(`当前无法获取 ${sourceAccount?.currency ?? "当前币种"}/CNY 汇率，请稍后重试。`);
+			}
 			if (!draft.transferred_on) {
 				throw new Error("请选择划转日。");
 			}
@@ -126,9 +168,7 @@ export function CashTransferPanel({
 				from_account_id: Number(draft.from_account_id),
 				to_account_id: Number(draft.to_account_id),
 				source_amount: sourceAmount,
-				target_amount: draft.target_amount.trim()
-					? Number(draft.target_amount)
-					: undefined,
+				target_amount: targetAmountCny,
 				transferred_on: draft.transferred_on,
 				note: draft.note.trim() || undefined,
 			});
@@ -185,13 +225,13 @@ export function CashTransferPanel({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>转入账户</span>
+						<span>转入账户（CNY）</span>
 						<select
 							value={draft.to_account_id}
 							onChange={(event) => updateDraft("to_account_id", event.target.value)}
 						>
 							<option value="">请选择</option>
-							{accounts.map((account) => (
+							{cnyTargetAccounts.map((account) => (
 								<option key={account.id} value={String(account.id)}>
 									{account.name} · {formatMoneyAmount(account.balance, account.currency)}
 								</option>
@@ -200,7 +240,19 @@ export function CashTransferPanel({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>划转金额</span>
+						<span>当前币种</span>
+						<input value={sourceAccount?.currency ?? ""} placeholder="选择转出账户后自动带出" readOnly />
+					</label>
+
+					<label className="asset-manager__field">
+						<span>目标币种</span>
+						<input value={TARGET_DISPLAY_CURRENCY} readOnly />
+					</label>
+				</div>
+
+				<div className="asset-manager__field-grid">
+					<label className="asset-manager__field">
+						<span>当前币种转出金额</span>
 						<input
 							type="text"
 							inputMode="decimal"
@@ -215,6 +267,17 @@ export function CashTransferPanel({
 						/>
 					</label>
 
+					<label className="asset-manager__field">
+						<span>目标币种到账金额（CNY）</span>
+						<input
+							value={targetAmountCny != null ? formatCnyAmount(targetAmountCny) : ""}
+							placeholder="按当前汇率自动计算"
+							readOnly
+						/>
+					</label>
+				</div>
+
+				<div className="asset-manager__field-grid">
 					<label className="asset-manager__field">
 						<span>划转日</span>
 						<DatePickerField
@@ -235,9 +298,13 @@ export function CashTransferPanel({
 					/>
 				</label>
 
-				{sourceAccount && targetAccount && sourceAccount.currency !== targetAccount.currency ? (
+				{cnyTargetAccounts.length === 0 ? (
 					<p className="asset-manager__helper-text">
-						跨币种划转会按当前汇率自动换算到 {targetAccount.currency}
+						当前没有 CNY 现金账户，无法接收目标币种金额。
+					</p>
+				) : sourceAccount ? (
+					<p className="asset-manager__helper-text">
+						支持从任意当前币种发起划转，目标币种固定为 CNY，到账金额会按当前汇率自动换算。
 					</p>
 				) : null}
 

@@ -1,13 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetManager } from "./AssetManager";
+import type { HoldingRecord } from "../../types/assets";
 
 afterEach(() => {
 	window.sessionStorage.clear();
 	cleanup();
 });
 
-const baseHolding = {
+const baseHolding: HoldingRecord = {
 	id: 1,
 	side: "BUY" as const,
 	symbol: "AAPL",
@@ -39,7 +40,7 @@ describe("AssetManager refresh stability", () => {
 		fireEvent.click(screen.getByRole("button", { name: "新增买入" }));
 		expect(screen.queryByRole("heading", { name: "投资类持仓" })).toBeNull();
 		expect(screen.queryByRole("heading", { name: "交易记录" })).toBeNull();
-		fireEvent.change(screen.getByLabelText("数量"), {
+		fireEvent.change(screen.getByLabelText(/数量/), {
 			target: { value: "12" },
 		});
 		fireEvent.change(screen.getByLabelText("备注"), {
@@ -62,7 +63,7 @@ describe("AssetManager refresh stability", () => {
 		);
 
 		expect(screen.getByRole("heading", { name: "新增买入" })).not.toBeNull();
-		expect((screen.getByLabelText("数量") as HTMLInputElement).value).toBe("12");
+		expect((screen.getByLabelText(/数量/) as HTMLInputElement).value).toBe("12");
 		expect((screen.getByLabelText("备注") as HTMLTextAreaElement).value).toBe(
 			"等下一轮行情确认",
 		);
@@ -134,7 +135,7 @@ describe("AssetManager refresh stability", () => {
 		fireEvent.change(screen.getByLabelText("持仓数量（股/支）"), {
 			target: { value: "3" },
 		});
-		fireEvent.change(screen.getByLabelText("持仓价（计价币种）"), {
+		fireEvent.change(screen.getByLabelText("当前币种持仓价"), {
 			target: { value: "182" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "保存编辑" }));
@@ -421,10 +422,10 @@ describe("AssetManager refresh stability", () => {
 		fireEvent.change(screen.getByLabelText("转出账户"), {
 			target: { value: "1" },
 		});
-		fireEvent.change(screen.getByLabelText("转入账户"), {
+		fireEvent.change(screen.getByLabelText("转入账户（CNY）"), {
 			target: { value: "2" },
 		});
-		fireEvent.change(screen.getByLabelText("划转金额"), {
+		fireEvent.change(screen.getByLabelText("当前币种转出金额"), {
 			target: { value: "30" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "确认划转" }));

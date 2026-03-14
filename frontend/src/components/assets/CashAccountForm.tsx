@@ -3,8 +3,14 @@ import type { FormEvent } from "react";
 import "./asset-components.css";
 import { CashAccountActivityList } from "./CashAccountActivityList";
 import { DatePickerField } from "./DatePickerField";
+import {
+	calculateTargetCnyAmount,
+	TARGET_DISPLAY_CURRENCY,
+	type SupportedCurrencyFxRates,
+} from "../../lib/assetCurrency";
 import { toErrorMessage } from "../../lib/apiClient";
 import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
+import { formatCnyAmount } from "../../lib/assetFormatting";
 import type {
 	AssetEditorMode,
 	CashAccountFormDraft,
@@ -17,6 +23,7 @@ import {
 	CASH_ACCOUNT_TYPE_OPTIONS,
 	DEFAULT_CASH_ACCOUNT_FORM_DRAFT,
 	getCashAccountTypeLabel,
+	SUPPORTED_CURRENCY_OPTIONS,
 } from "../../types/assets";
 
 export interface CashAccountFormProps {
@@ -33,6 +40,7 @@ export interface CashAccountFormProps {
 	activityEntries?: CashLedgerEntryRecord[];
 	activityLoading?: boolean;
 	activityErrorMessage?: string | null;
+	fxRates?: SupportedCurrencyFxRates;
 	onCreate?: (payload: CashAccountInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: CashAccountInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
@@ -55,7 +63,7 @@ function toCashAccountInput(draft: CashAccountFormDraft): CashAccountInput {
 	return {
 		name: draft.name.trim(),
 		platform: platformLabel,
-		currency: draft.currency.trim().toUpperCase(),
+		currency: draft.currency,
 		balance: Number(draft.balance),
 		account_type: draft.account_type,
 		started_on: draft.started_on.trim() || undefined,
@@ -77,6 +85,7 @@ export function CashAccountForm({
 	activityEntries = [],
 	activityLoading = false,
 	activityErrorMessage = null,
+	fxRates,
 	onCreate,
 	onEdit,
 	onDelete,
@@ -99,6 +108,11 @@ export function CashAccountForm({
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑现金账户" : "新增现金账户");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
 	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
+	const parsedBalance = draft.balance.trim() ? Number(draft.balance) : null;
+	const targetBalanceCny = calculateTargetCnyAmount(parsedBalance, draft.currency, {
+		explicitFxToCny: activityAccount?.fx_to_cny ?? null,
+		fxRates,
+	});
 
 	function updateDraft<K extends keyof CashAccountFormDraft>(
 		field: K,
@@ -204,17 +218,42 @@ export function CashAccountForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>币种</span>
-						<input
-							required
+						<span>当前币种</span>
+						<select
 							value={draft.currency}
-							onChange={(event) => updateDraft("currency", event.target.value)}
-							placeholder="CNY"
-						/>
+							onChange={(event) =>
+								updateDraft(
+									"currency",
+									event.target.value as CashAccountFormDraft["currency"],
+								)
+							}
+						>
+							{SUPPORTED_CURRENCY_OPTIONS.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
 					</label>
 
 					<label className="asset-manager__field">
-						<span>余额</span>
+						<span>目标币种</span>
+						<input value={TARGET_DISPLAY_CURRENCY} readOnly />
+					</label>
+
+					<label className="asset-manager__field">
+						<span>存入日</span>
+						<DatePickerField
+							value={draft.started_on}
+							onChange={(nextValue) => updateDraft("started_on", nextValue)}
+							placeholder="选择存入日"
+						/>
+					</label>
+				</div>
+
+				<div className="asset-manager__field-grid">
+					<label className="asset-manager__field">
+						<span>当前币种余额</span>
 						<input
 							required
 							type="text"
@@ -226,11 +265,11 @@ export function CashAccountForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>存入日</span>
-						<DatePickerField
-							value={draft.started_on}
-							onChange={(nextValue) => updateDraft("started_on", nextValue)}
-							placeholder="选择存入日"
+						<span>目标币种估值（CNY）</span>
+						<input
+							value={targetBalanceCny != null ? formatCnyAmount(targetBalanceCny) : ""}
+							placeholder="按当前汇率自动计算"
+							readOnly
 						/>
 					</label>
 				</div>

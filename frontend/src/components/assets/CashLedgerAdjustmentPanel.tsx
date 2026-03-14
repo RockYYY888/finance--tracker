@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
-import { formatDateValue, formatMoneyAmount } from "../../lib/assetFormatting";
+import {
+	calculateTargetCnyAmount,
+	TARGET_DISPLAY_CURRENCY,
+	type SupportedCurrencyFxRates,
+} from "../../lib/assetCurrency";
+import { formatCnyAmount, formatDateValue, formatMoneyAmount } from "../../lib/assetFormatting";
 import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import { toErrorMessage } from "../../lib/apiClient";
 import type {
@@ -20,6 +25,7 @@ export interface CashLedgerAdjustmentPanelProps {
 	busy?: boolean;
 	errorMessage?: string | null;
 	maxStartedOnDate?: string;
+	fxRates?: SupportedCurrencyFxRates;
 	onCreate?: (payload: CashLedgerAdjustmentInput) => MaybePromise<CashLedgerEntryRecord | null>;
 	onEdit?: (
 		recordId: number,
@@ -59,6 +65,7 @@ export function CashLedgerAdjustmentPanel({
 	busy = false,
 	errorMessage = null,
 	maxStartedOnDate,
+	fxRates,
 	onCreate,
 	onEdit,
 	onDelete,
@@ -84,6 +91,13 @@ export function CashLedgerAdjustmentPanel({
 		() => accounts.find((account) => String(account.id) === draft.cash_account_id) ?? null,
 		[accounts, draft.cash_account_id],
 	);
+	const parsedAmount = draft.amount.trim() ? Number(draft.amount) : null;
+	const targetAmountCny = selectedAccount
+		? calculateTargetCnyAmount(parsedAmount, selectedAccount.currency, {
+			explicitFxToCny: selectedAccount.fx_to_cny ?? null,
+			fxRates,
+		})
+		: null;
 	useAutoRefreshGuard(isFormOpen, "cash-ledger-adjustment-form");
 
 	useEffect(() => {
@@ -237,10 +251,22 @@ export function CashLedgerAdjustmentPanel({
 							</select>
 						</label>
 						<label className="asset-manager__field">
-							<span>
-								调整金额
-								{selectedAccount ? ` (${selectedAccount.currency})` : ""}
-							</span>
+							<span>当前币种</span>
+							<input
+								value={selectedAccount?.currency ?? ""}
+								placeholder="选择现金账户后自动带出"
+								readOnly
+							/>
+						</label>
+						<label className="asset-manager__field">
+							<span>目标币种</span>
+							<input value={TARGET_DISPLAY_CURRENCY} readOnly />
+						</label>
+					</div>
+
+					<div className="asset-manager__field-grid">
+						<label className="asset-manager__field">
+							<span>当前币种变动金额</span>
 							<input
 								type="text"
 								inputMode="decimal"
@@ -249,6 +275,17 @@ export function CashLedgerAdjustmentPanel({
 								placeholder="正数补记流入 负数补记流出"
 							/>
 						</label>
+						<label className="asset-manager__field">
+							<span>目标币种变动金额（CNY）</span>
+							<input
+								value={targetAmountCny != null ? formatCnyAmount(targetAmountCny) : ""}
+								placeholder="按当前汇率自动计算"
+								readOnly
+							/>
+						</label>
+					</div>
+
+					<div className="asset-manager__field-grid">
 						<label className="asset-manager__field">
 							<span>调整日</span>
 							<DatePickerField

@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import "./asset-components.css";
 import { DatePickerField } from "./DatePickerField";
+import {
+	calculateTargetCnyAmount,
+	TARGET_DISPLAY_CURRENCY,
+	type SupportedCurrencyFxRates,
+} from "../../lib/assetCurrency";
 import { toErrorMessage } from "../../lib/apiClient";
 import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
+import { formatCnyAmount } from "../../lib/assetFormatting";
 import type {
 	AssetEditorMode,
 	LiabilityFormDraft,
@@ -26,6 +32,8 @@ export interface LiabilityFormProps {
 	submitLabel?: string;
 	busy?: boolean;
 	errorMessage?: string | null;
+	fxRates?: SupportedCurrencyFxRates;
+	fxToCny?: number | null;
 	onCreate?: (payload: LiabilityInput) => MaybePromise<unknown>;
 	onEdit?: (recordId: number, payload: LiabilityInput) => MaybePromise<unknown>;
 	onDelete?: (recordId: number) => MaybePromise<unknown>;
@@ -40,7 +48,10 @@ function toLiabilityDraft(value?: Partial<LiabilityFormDraft> | null): Liability
 
 	return {
 		...nextDraft,
-		currency: nextDraft.currency === "USD" ? "USD" : "CNY",
+		currency:
+			nextDraft.currency === "USD" || nextDraft.currency === "HKD"
+				? nextDraft.currency
+				: "CNY",
 	};
 }
 
@@ -66,6 +77,8 @@ export function LiabilityForm({
 	submitLabel,
 	busy = false,
 	errorMessage = null,
+	fxRates,
+	fxToCny = null,
 	onCreate,
 	onEdit,
 	onDelete,
@@ -86,6 +99,11 @@ export function LiabilityForm({
 	const resolvedTitle = title ?? (mode === "edit" ? "编辑负债" : "新增负债");
 	const resolvedSubmitLabel = submitLabel ?? (mode === "edit" ? "编辑" : "新增");
 	const cancelLabel = mode === "edit" ? "取消编辑" : "取消";
+	const parsedBalance = draft.balance.trim() ? Number(draft.balance) : null;
+	const targetBalanceCny = calculateTargetCnyAmount(parsedBalance, draft.currency, {
+		explicitFxToCny: fxToCny,
+		fxRates,
+	});
 
 	function updateDraft<K extends keyof LiabilityFormDraft>(
 		field: K,
@@ -190,7 +208,7 @@ export function LiabilityForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>计价币种</span>
+						<span>当前币种</span>
 						<select
 							value={draft.currency}
 							onChange={(event) =>
@@ -206,7 +224,14 @@ export function LiabilityForm({
 					</label>
 
 					<label className="asset-manager__field">
-						<span>待偿余额</span>
+						<span>目标币种</span>
+						<input value={TARGET_DISPLAY_CURRENCY} readOnly />
+					</label>
+				</div>
+
+				<div className="asset-manager__field-grid">
+					<label className="asset-manager__field">
+						<span>当前币种待偿余额</span>
 						<input
 							required
 							type="number"
@@ -218,6 +243,17 @@ export function LiabilityForm({
 						/>
 					</label>
 
+					<label className="asset-manager__field">
+						<span>目标币种负债额（CNY）</span>
+						<input
+							value={targetBalanceCny != null ? formatCnyAmount(targetBalanceCny) : ""}
+							placeholder="按当前汇率自动计算"
+							readOnly
+						/>
+					</label>
+				</div>
+
+				<div className="asset-manager__field-grid">
 					<label className="asset-manager__field">
 						<span>起贷日</span>
 						<DatePickerField

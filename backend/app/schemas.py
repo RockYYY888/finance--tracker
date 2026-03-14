@@ -28,6 +28,7 @@ from app.models import (
 	OTHER_ASSET_CATEGORIES,
 	SELL_PROCEEDS_HANDLINGS,
 	SECURITY_MARKETS,
+	SUPPORTED_CURRENCIES,
 )
 from app.security import normalize_email, normalize_user_id, validate_password_strength
 
@@ -97,6 +98,11 @@ class CashAccountCreate(BaseModel):
 	def validate_account_type(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, CASH_ACCOUNT_TYPES, "account_type")
 
+	@field_validator("currency", mode="before")
+	@classmethod
+	def validate_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SUPPORTED_CURRENCIES, "currency")
+
 	@field_validator("note", mode="before")
 	@classmethod
 	def normalize_note(cls, value: str | None) -> str | None:
@@ -116,6 +122,11 @@ class CashAccountUpdate(BaseModel):
 	@classmethod
 	def validate_account_type(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, CASH_ACCOUNT_TYPES, "account_type")
+
+	@field_validator("currency", mode="before")
+	@classmethod
+	def validate_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SUPPORTED_CURRENCIES, "currency")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -610,6 +621,11 @@ class SecurityHoldingCreate(BaseModel):
 	def validate_market(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SECURITY_MARKETS, "market")
 
+	@field_validator("fallback_currency", mode="before")
+	@classmethod
+	def validate_fallback_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SUPPORTED_CURRENCIES, "fallback_currency")
+
 	@field_validator("broker", "note", mode="before")
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
@@ -680,6 +696,11 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	@classmethod
 	def validate_market(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SECURITY_MARKETS, "market")
+
+	@field_validator("fallback_currency", mode="before")
+	@classmethod
+	def validate_fallback_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SUPPORTED_CURRENCIES, "fallback_currency")
 
 	@field_validator("sell_proceeds_handling", mode="before")
 	@classmethod
@@ -752,6 +773,11 @@ class SecurityHoldingTransactionUpdate(BaseModel):
 	@classmethod
 	def validate_sell_proceeds_handling(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SELL_PROCEEDS_HANDLINGS, "sell_proceeds_handling")
+
+	@field_validator("fallback_currency", mode="before")
+	@classmethod
+	def validate_fallback_currency(cls, value: str | None) -> str | None:
+		return _normalize_choice(value, SUPPORTED_CURRENCIES, "fallback_currency")
 
 	@field_validator("buy_funding_handling", mode="before")
 	@classmethod
