@@ -17,6 +17,7 @@ const rechartsState = vi.hoisted(() => ({
 		width?: string | number;
 		height?: string | number;
 	}>,
+	lines: [] as Array<Record<string, unknown>>,
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
@@ -49,7 +50,10 @@ vi.mock("recharts", () => ({
 		return null;
 	},
 	Area: () => null,
-	Line: () => null,
+	Line: (props: Record<string, unknown>) => {
+		rechartsState.lines.push(props);
+		return null;
+	},
 	XAxis: (props: Record<string, unknown>) => {
 		rechartsState.xAxes.push(props);
 		return null;
@@ -119,6 +123,7 @@ class MockResizeObserver {
 describe("analytics charts responsive layout", () => {
 	beforeEach(() => {
 		rechartsState.responsiveContainers.length = 0;
+		rechartsState.lines.length = 0;
 		rechartsState.xAxes.length = 0;
 		rechartsState.yAxes.length = 0;
 		rechartsState.pies.length = 0;
@@ -181,14 +186,28 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.tickFormatter("03-08 04:00")).toBe("03-08");
 	});
 
-	it("falls back to the first renderable portfolio trend range and hides sparse ranges", async () => {
+	it("keeps all portfolio trend ranges visible and derives 24H from sparse history", async () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="hour"
-				hour_series={[{ label: "03-14 14:00", value: 100_000 }]}
+				hour_series={[
+					{
+						label: "03-14 14:00",
+						value: 100_000,
+						timestamp_utc: "2026-03-14T06:00:00Z",
+					},
+				]}
 				day_series={[
-					{ label: "03-13", value: 98_000 },
-					{ label: "03-14", value: 100_000 },
+					{
+						label: "03-13",
+						value: 98_000,
+						timestamp_utc: "2026-03-12T16:00:00Z",
+					},
+					{
+						label: "03-14",
+						value: 100_000,
+						timestamp_utc: "2026-03-13T16:00:00Z",
+					},
 				]}
 				month_series={[{ label: "2026-03", value: 100_000 }]}
 				year_series={[{ label: "2026", value: 100_000 }]}
@@ -196,14 +215,14 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "30天" }).className).toContain(
+			expect(screen.getByRole("button", { name: "24H" }).className).toContain(
 				"active",
 			);
 		});
 
-		expect(screen.queryByRole("button", { name: "24H" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "12月" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "年" })).toBeNull();
+		expect(screen.getByRole("button", { name: "7天" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "30天" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
 	});
 
 	it("switches the portfolio trend card between total value and aggregate return", async () => {
@@ -375,10 +394,10 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.interval).toBe(0);
 		expect(xAxisProps.ticks).toHaveLength(3);
 		expect(xAxisProps.padding.right).toBeGreaterThan(0);
-		expect(xAxisProps.tickFormatter("2026-03")).toBe("2026");
+		expect(xAxisProps.tickFormatter("2026-03")).toBe("03");
 	});
 
-	it("falls back to the first renderable return trend range and hides sparse ranges", async () => {
+	it("keeps all return trend ranges visible and derives 24H from sparse history", async () => {
 		render(
 			<ReturnTrendChart
 				defaultRange="hour"
@@ -387,10 +406,24 @@ describe("analytics charts responsive layout", () => {
 				seriesOptions={[
 					createAggregateReturnOption(
 						"组合",
-						[{ label: "03-14 14:00", value: 1.2 }],
 						[
-							{ label: "03-13", value: 0.6 },
-							{ label: "03-14", value: 1.2 },
+							{
+								label: "03-14 14:00",
+								value: 1.2,
+								timestamp_utc: "2026-03-14T06:00:00Z",
+							},
+						],
+						[
+							{
+								label: "03-13",
+								value: 0.6,
+								timestamp_utc: "2026-03-12T16:00:00Z",
+							},
+							{
+								label: "03-14",
+								value: 1.2,
+								timestamp_utc: "2026-03-13T16:00:00Z",
+							},
 						],
 						[{ label: "2026-03", value: 1.2 }],
 						[{ label: "2026", value: 1.2 }],
@@ -400,14 +433,62 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "30天" }).className).toContain(
+			expect(screen.getByRole("button", { name: "24H" }).className).toContain(
 				"active",
 			);
 		});
 
-		expect(screen.queryByRole("button", { name: "24H" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "12月" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "年" })).toBeNull();
+		expect(screen.getByRole("button", { name: "7天" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "30天" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
+	});
+
+	it("does not render active dots for synthetic baseline crossings", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="hour"
+				hour_series={[
+					{ label: "03-14 10:00", value: 120_000 },
+					{ label: "03-14 11:00", value: 96_000 },
+				]}
+				day_series={[]}
+				month_series={[]}
+				year_series={[]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.lines.length).toBeGreaterThan(0);
+		});
+
+		const lineProps = getLastRecordedProps(rechartsState.lines) as {
+			activeDot?: (props: Record<string, unknown>) => ReactNode;
+		};
+		expect(
+			lineProps.activeDot?.({
+				cx: 12,
+				cy: 18,
+				payload: {
+					label: "",
+					value: 100_000,
+					crossingPoint: true,
+					positiveValue: 100_000,
+					negativeValue: 100_000,
+				},
+			}),
+		).toBeNull();
+		expect(
+			lineProps.activeDot?.({
+				cx: 12,
+				cy: 18,
+				payload: {
+					label: "03-14 11:00",
+					value: 96_000,
+					positiveValue: 100_000,
+					negativeValue: 96_000,
+				},
+			}),
+		).not.toBeNull();
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {

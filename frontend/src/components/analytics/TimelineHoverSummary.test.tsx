@@ -258,4 +258,41 @@ describe("timeline hover summaries", () => {
 			expectPillToContain("当前收益率", "15.00%");
 		});
 	});
+
+	it("ignores synthetic baseline crossings when hovering timeline intersections", async () => {
+		render(
+			<ReturnTrendChart
+				title="收益趋势"
+				description="测试"
+				defaultRange="hour"
+				showCompoundedStepRate
+				seriesOptions={[
+					createAggregateReturnOption(
+						"非现金资产",
+						[
+							{ label: "03-14 10:00", value: 5 },
+							{ label: "03-14 11:00", value: -3 },
+						],
+						[],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		const { onMouseMove } = getLatestChartHandlers();
+
+		act(() => {
+			onMouseMove?.({
+				isTooltipActive: true,
+				activeTooltipIndex: 1,
+			});
+		});
+
+		await waitFor(() => {
+			expectPillToContain("当前收益率", "-3.00%");
+		});
+		expect(screen.queryByText("所选收益率")).toBeNull();
+	});
 });

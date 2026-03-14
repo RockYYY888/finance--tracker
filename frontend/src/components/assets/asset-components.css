@@ -977,7 +977,8 @@
 }
 
 .asset-records__scroll-region {
-	min-height: 0;
+	min-height: 21rem;
+	max-height: 21rem;
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	scrollbar-gutter: stable;
@@ -1073,6 +1074,11 @@
 	.asset-records__head {
 		grid-template-columns: 1fr;
 	}
+
+	.asset-records__scroll-region {
+		min-height: 18rem;
+		max-height: 18rem;
+	}
 }
 
 @media (max-width: 520px) {
@@ -1083,5 +1089,10 @@
 	.agent-workspace__doc-link {
 		width: 100%;
 		justify-content: center;
+	}
+
+	.asset-records__scroll-region {
+		min-height: 16rem;
+		max-height: 16rem;
 	}
 }

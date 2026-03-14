@@ -28,6 +28,11 @@ const CHART_COLORS = [
 	"#ff8ab3",
 	"#7ecbff",
 ];
+const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
+const HOUR_WINDOW_MS = 24 * 60 * 60 * 1000;
+const WEEK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const MONTH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const YEAR_WINDOW_MS = 366 * 24 * 60 * 60 * 1000;
 
 export const ANALYTICS_TOOLTIP_STYLE = {
 	backgroundColor: "rgba(8, 18, 34, 0.96)",
@@ -146,6 +151,123 @@ function toSortableTimestamp(point: TimelinePoint, fallbackIndex: number): numbe
 	return parsedTimestamp;
 }
 
+function toTimestampMs(point: TimelinePoint): number | null {
+	if (!point.timestamp_utc) {
+		return null;
+	}
+
+	const parsedTimestamp = Date.parse(point.timestamp_utc);
+	return Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
+}
+
+function formatDisplayDatePart(
+	timestampMs: number,
+	options: Intl.DateTimeFormatOptions,
+): string {
+	return new Intl.DateTimeFormat("zh-CN", {
+		timeZone: SHANGHAI_TIME_ZONE,
+		...options,
+	}).format(new Date(timestampMs));
+}
+
+function formatWindowBoundaryLabel(
+	timestampMs: number,
+	range: TimelineRange,
+): string {
+	if (range === "hour") {
+		return formatDisplayDatePart(timestampMs, {
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
+		}).replace("/", "-");
+	}
+
+	if (range === "year") {
+		return formatDisplayDatePart(timestampMs, {
+			year: "numeric",
+			month: "2-digit",
+		}).replace("/", "-");
+	}
+
+	return formatDisplayDatePart(timestampMs, {
+		month: "2-digit",
+		day: "2-digit",
+	}).replace("/", "-");
+}
+
+function mergeTimelineSeries(...seriesGroups: TimelinePoint[][]): TimelinePoint[] {
+	const mergedLookup = new Map<string, TimelinePoint>();
+
+	for (const point of seriesGroups.flat()) {
+		const timestampMs = toTimestampMs(point);
+		const pointKey =
+			timestampMs === null
+				? `${point.label}:${point.value}:${mergedLookup.size}`
+				: `${timestampMs}`;
+		mergedLookup.set(pointKey, point);
+	}
+
+	return prepareTimelineSeries([...mergedLookup.values()]);
+}
+
+function buildWindowedTimelineSeries(
+	series: TimelinePoint[],
+	range: TimelineRange,
+	lookbackWindowMs: number,
+): TimelinePoint[] {
+	const preparedSeries = prepareTimelineSeries(series);
+	if (preparedSeries.length < 2) {
+		return preparedSeries;
+	}
+
+	const timestampedSeries = preparedSeries.map((point) => ({
+		point,
+		timestampMs: toTimestampMs(point),
+	}));
+	if (timestampedSeries.some((entry) => entry.timestampMs === null)) {
+		return preparedSeries;
+	}
+
+	const latestTimestampMs =
+		timestampedSeries[timestampedSeries.length - 1]?.timestampMs ?? null;
+	if (latestTimestampMs === null) {
+		return preparedSeries;
+	}
+
+	const cutoffTimestampMs = latestTimestampMs - lookbackWindowMs;
+	const visibleSeries: TimelinePoint[] = [];
+	let lastPointBeforeWindow: TimelinePoint | null = null;
+
+	for (const entry of timestampedSeries) {
+		if ((entry.timestampMs ?? latestTimestampMs) < cutoffTimestampMs) {
+			lastPointBeforeWindow = entry.point;
+			continue;
+		}
+
+		visibleSeries.push(entry.point);
+	}
+
+	if (!lastPointBeforeWindow || visibleSeries.length === 0) {
+		return visibleSeries.length > 0 ? visibleSeries : preparedSeries;
+	}
+
+	const firstVisibleTimestampMs = toTimestampMs(visibleSeries[0]);
+	if (firstVisibleTimestampMs !== null && firstVisibleTimestampMs <= cutoffTimestampMs) {
+		return visibleSeries;
+	}
+
+	return [
+		{
+			...lastPointBeforeWindow,
+			label: formatWindowBoundaryLabel(cutoffTimestampMs, range),
+			timestamp_utc: new Date(cutoffTimestampMs).toISOString(),
+		},
+		...visibleSeries,
+	];
+}
+
 function trimLeadingInactivePoints(series: TimelinePoint[]): TimelinePoint[] {
 	if (series.length <= 2) {
 		return series;
@@ -229,6 +351,30 @@ export function buildPreparedTimelineSeriesByRange(
 	};
 }
 
+export function buildDisplayTimelineSeriesByRange(
+	hourSeries: TimelinePoint[],
+	daySeries: TimelinePoint[],
+	monthSeries: TimelinePoint[],
+	yearSeries: TimelinePoint[],
+): PreparedTimelineSeriesByRange {
+	const preparedDaySeries = prepareTimelineSeries(daySeries);
+	const preparedMonthSeries = prepareTimelineSeries(monthSeries);
+	const preparedYearSeries = prepareTimelineSeries(yearSeries);
+	const yearSourceSeries =
+		preparedMonthSeries.length >= 2 ? preparedMonthSeries : preparedYearSeries;
+
+	return {
+		hour: buildWindowedTimelineSeries(
+			mergeTimelineSeries(hourSeries, daySeries),
+			"hour",
+			HOUR_WINDOW_MS,
+		),
+		day: buildWindowedTimelineSeries(preparedDaySeries, "day", WEEK_WINDOW_MS),
+		month: buildWindowedTimelineSeries(preparedDaySeries, "month", MONTH_WINDOW_MS),
+		year: buildWindowedTimelineSeries(yearSourceSeries, "year", YEAR_WINDOW_MS),
+	};
+}
+
 export function getFirstRenderableTimelineRange(
 	seriesByRange: PreparedTimelineSeriesByRange,
 ): TimelineRange | null {
@@ -301,8 +447,11 @@ export function formatTimelineAxisLabel(
 		}
 	}
 
-	if (range === "day") {
-		const dayMatch = normalizedLabel.match(/(\d{2}-\d{2})(?:\s+\d{1,2}:\d{2})?$/);
+	if (
+		(range === "day" || range === "month") &&
+		/^\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?$/.test(normalizedLabel)
+	) {
+		const dayMatch = normalizedLabel.match(/^(\d{2}-\d{2})(?:\s+\d{1,2}:\d{2})?$/);
 		if (dayMatch) {
 			return dayMatch[1];
 		}
@@ -316,6 +465,11 @@ export function formatTimelineAxisLabel(
 	}
 
 	if (range === "year") {
+		const monthMatch = normalizedLabel.match(/^(\d{4})-(\d{2})$/);
+		if (monthMatch) {
+			return monthMatch[2];
+		}
+
 		const yearMatch = normalizedLabel.match(/(\d{4})/);
 		if (yearMatch) {
 			return yearMatch[1];

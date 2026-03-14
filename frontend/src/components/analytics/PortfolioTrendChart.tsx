@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -19,7 +19,7 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
-	buildPreparedTimelineSeriesByRange,
+	buildDisplayTimelineSeriesByRange,
 	calculateTimelineReferenceAxisLayout,
 	formatCompactCny,
 	formatCompactPercentMetric,
@@ -38,6 +38,7 @@ import {
 import "./analytics.css";
 import {
 	buildThresholdSegmentedChartData,
+	isThresholdSegmentedCrossingPoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
 import { useChartInteractionLock } from "./useChartInteractionLock";
@@ -88,8 +89,8 @@ type TrendMetricConfig = {
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
 	hour: "24H",
-	day: "30天",
-	month: "12月",
+	day: "7天",
+	month: "30天",
 	year: "年",
 };
 
@@ -101,15 +102,15 @@ const MODE_LABELS: Record<PortfolioTrendDisplayMode, string> = {
 const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
 	hour: "小时平均环比",
 	day: "日均环比",
-	month: "月均环比",
-	year: "年均环比",
+	month: "日均环比",
+	year: "月均环比",
 };
 
 const RETURN_STEP_LABELS: Record<TimelineRange, string> = {
 	hour: "小时均变动",
 	day: "日均变动",
-	month: "月均变动",
-	year: "年均变动",
+	month: "日均变动",
+	year: "月均变动",
 };
 
 const POSITIVE_TREND_COLOR = "#009BC1";
@@ -201,16 +202,17 @@ export function PortfolioTrendChart({
 	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
-	description = "查看资产总额与投资类收益率周期变化，支持的粒度选项根据历史数据积累逐步扩展。",
+	description = "查看资产总额与投资类收益率在 24 小时、7 天、30 天和近一年内的变化。",
 }: PortfolioTrendChartProps) {
 	const [displayMode, setDisplayMode] =
 		useState<PortfolioTrendDisplayMode>("value");
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
+	const lastAutoResolvedModeRef = useRef<PortfolioTrendDisplayMode | null>(null);
 
 	const valueSeriesByRange = useMemo(
 		() =>
-			buildPreparedTimelineSeriesByRange(
+			buildDisplayTimelineSeriesByRange(
 				hour_series,
 				day_series,
 				month_series,
@@ -220,7 +222,7 @@ export function PortfolioTrendChart({
 	);
 	const returnSeriesByRange = useMemo(
 		() =>
-			buildPreparedTimelineSeriesByRange(
+			buildDisplayTimelineSeriesByRange(
 				holdings_return_hour_series,
 				holdings_return_day_series,
 				holdings_return_month_series,
@@ -242,14 +244,8 @@ export function PortfolioTrendChart({
 	);
 	const activeSeriesByRange =
 		displayMode === "value" ? valueSeriesByRange : returnSeriesByRange;
-	const availableRanges = (Object.keys(RANGE_LABELS) as TimelineRange[]).filter(
-		(item) => activeSeriesByRange[item].length >= 2,
-	);
 	const activeFallbackRange = fallbackRangeByMode[displayMode];
-	const activeRange =
-		activeSeriesByRange[range].length >= 2 || activeFallbackRange === null
-			? range
-			: activeFallbackRange;
+	const activeRange = range;
 	const activeSeries = activeSeriesByRange[activeRange];
 	const valueRangeSeries = valueSeriesByRange[activeRange];
 	const valueRangeSummary = summarizeTimeline(valueRangeSeries);
@@ -358,14 +354,45 @@ export function PortfolioTrendChart({
 	}, [displayMode, fallbackRangeByMode]);
 
 	useEffect(() => {
-		if (activeRange !== range) {
-			setRange(activeRange);
+		if (lastAutoResolvedModeRef.current === displayMode) {
+			return;
 		}
-	}, [activeRange, range]);
+		lastAutoResolvedModeRef.current = displayMode;
+
+		if (activeFallbackRange !== null && activeSeriesByRange[range].length < 2) {
+			setRange(activeFallbackRange);
+		}
+	}, [activeFallbackRange, activeSeriesByRange, displayMode, range]);
 
 	useEffect(() => {
 		setActivePointIndex(null);
 	}, [chartDataKey]);
+
+	function renderActiveDot(props: {
+		cx?: number;
+		cy?: number;
+		fill?: string;
+		payload?: PortfolioTrendChartPoint;
+		stroke?: string;
+	}): JSX.Element | null {
+		if (
+			typeof props.cx !== "number" ||
+			typeof props.cy !== "number" ||
+			isThresholdSegmentedCrossingPoint(props.payload)
+		) {
+			return null;
+		}
+
+		return (
+			<circle
+				cx={props.cx}
+				cy={props.cy}
+				r={4}
+				fill={props.fill ?? TREND_LINE_COLOR}
+				stroke={props.stroke ?? "none"}
+			/>
+		);
+	}
 
 	const activeValueLabel =
 		displayMode === "value"
@@ -405,24 +432,22 @@ export function PortfolioTrendChart({
 					<p className="analytics-card__description">{description}</p>
 				</div>
 				<div className="analytics-card__controls">
-					{availableRanges.length > 0 ? (
-						<div
-							className="analytics-segmented"
-							role="tablist"
-							aria-label="选择趋势周期"
-						>
-							{availableRanges.map((item) => (
-								<button
-									key={item}
-									type="button"
-									className={activeRange === item ? "active" : ""}
-									onClick={() => setRange(item)}
-								>
-									{RANGE_LABELS[item]}
-								</button>
-							))}
-						</div>
-					) : null}
+					<div
+						className="analytics-segmented"
+						role="tablist"
+						aria-label="选择趋势周期"
+					>
+						{(Object.keys(RANGE_LABELS) as TimelineRange[]).map((item) => (
+							<button
+								key={item}
+								type="button"
+								className={activeRange === item ? "active" : ""}
+								onClick={() => setRange(item)}
+							>
+								{RANGE_LABELS[item]}
+							</button>
+						))}
+					</div>
 				</div>
 			</div>
 
@@ -477,8 +502,8 @@ export function PortfolioTrendChart({
 			) : !hasData ? (
 				<div className="analytics-empty-state">
 					{displayMode === "value"
-						? "还没有足够的资产快照。随着资产变动，这里会逐步形成趋势。"
-						: "暂无投资类收益率数据。"}
+						? "当前所选周期的资产总额数据还在累计中。"
+						: "当前所选周期的投资类收益率数据还在累计中。"}
 				</div>
 			) : (
 				<div
@@ -491,6 +516,15 @@ export function PortfolioTrendChart({
 							data={activeChartData}
 							onMouseMove={({ activeTooltipIndex, isTooltipActive }) => {
 								if (!isTooltipActive || typeof activeTooltipIndex !== "number") {
+									setActivePointIndex(null);
+									return;
+								}
+
+								if (
+									isThresholdSegmentedCrossingPoint(
+										activeChartData[activeTooltipIndex],
+									)
+								) {
 									setActivePointIndex(null);
 									return;
 								}
@@ -557,11 +591,10 @@ export function PortfolioTrendChart({
 									const sourcePoint = primaryEntry?.payload as
 										| PortfolioTrendChartPoint
 										| undefined;
-									const periodLabel = sourcePoint?.crossingPoint
-										? displayMode === "value"
-											? "期初资产交点"
-											: "基准线交点"
-										: String(label ?? "");
+									if (isThresholdSegmentedCrossingPoint(sourcePoint)) {
+										return null;
+									}
+									const periodLabel = String(label ?? "");
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
@@ -605,7 +638,7 @@ export function PortfolioTrendChart({
 								stroke={TREND_LINE_COLOR}
 								strokeWidth={2.4}
 								dot={false}
-								activeDot={{ r: 4, fill: TREND_LINE_COLOR }}
+								activeDot={renderActiveDot}
 							/>
 						</ComposedChart>
 					</ResponsiveContainer>

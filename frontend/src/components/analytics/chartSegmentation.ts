@@ -8,6 +8,12 @@ export type ThresholdSegmentedPoint = TimelinePoint & {
 	crossingPoint?: boolean;
 };
 
+export function isThresholdSegmentedCrossingPoint(
+	point: ThresholdSegmentedPoint | null | undefined,
+): boolean {
+	return point?.crossingPoint === true;
+}
+
 function toTimestampMs(point: TimelinePoint): number | null {
 	if (!point.timestamp_utc) {
 		return null;

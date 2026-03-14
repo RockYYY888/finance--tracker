@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Area,
 	CartesianGrid,
@@ -20,7 +20,7 @@ import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
-	buildPreparedTimelineSeriesByRange,
+	buildDisplayTimelineSeriesByRange,
 	calculateTimelineReferenceAxisLayout,
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
@@ -35,6 +35,7 @@ import {
 import "./analytics.css";
 import {
 	buildThresholdSegmentedChartData,
+	isThresholdSegmentedCrossingPoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
 import { useChartInteractionLock } from "./useChartInteractionLock";
@@ -62,16 +63,16 @@ type ReturnTrendChartProps = {
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
 	hour: "24H",
-	day: "30天",
-	month: "12月",
+	day: "7天",
+	month: "30天",
 	year: "年",
 };
 
 const STEP_DELTA_LABELS: Record<TimelineRange, string> = {
 	hour: "小时均变动",
 	day: "日均变动",
-	month: "月均变动",
-	year: "年均变动",
+	month: "日均变动",
+	year: "月均变动",
 };
 
 const POSITIVE_RETURN_COLOR = "#009BC1";
@@ -142,6 +143,7 @@ export function ReturnTrendChart({
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [selectedKey, setSelectedKey] = useState(seriesOptions[0]?.key ?? "");
 	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
+	const lastAutoResolvedSeriesKeyRef = useRef<string | null>(null);
 
 	const selectedOption = useMemo(() => {
 		if (seriesOptions.length === 0) {
@@ -165,7 +167,7 @@ export function ReturnTrendChart({
 	const seriesByRange = useMemo(
 		() =>
 			selectedOption
-				? buildPreparedTimelineSeriesByRange(
+				? buildDisplayTimelineSeriesByRange(
 					selectedOption.hour_series,
 					selectedOption.day_series,
 					selectedOption.month_series,
@@ -183,12 +185,7 @@ export function ReturnTrendChart({
 		() => getFirstRenderableTimelineRange(seriesByRange),
 		[seriesByRange],
 	);
-	const availableRanges = (Object.keys(RANGE_LABELS) as TimelineRange[]).filter(
-		(item) => seriesByRange[item].length >= 2,
-	);
-	const activeRange = seriesByRange[range].length >= 2 || fallbackRange === null
-		? range
-		: fallbackRange;
+	const activeRange = range;
 	const series = seriesByRange[activeRange];
 	const rangeSummary = summarizeTimeline(series);
 	const rangeStepDelta = summarizeAverageStepDelta(series);
@@ -237,16 +234,51 @@ export function ReturnTrendChart({
 		maxTickCount: compactAxisMode ? 5 : 7,
 	});
 	const chartDataKey = `${selectedOption?.key ?? "none"}:${activeRange}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
+	const resolvedEmptyMessage =
+		emptyMessage.trim().length > 0
+			? `${emptyMessage} 当前所选周期的数据会在累计后补齐。`
+			: "当前所选周期的收益率数据还在累计中。";
 
 	useEffect(() => {
-		if (activeRange !== range) {
-			setRange(activeRange);
+		if (lastAutoResolvedSeriesKeyRef.current === (selectedOption?.key ?? null)) {
+			return;
 		}
-	}, [activeRange, range]);
+		lastAutoResolvedSeriesKeyRef.current = selectedOption?.key ?? null;
+
+		if (fallbackRange !== null && seriesByRange[range].length < 2) {
+			setRange(fallbackRange);
+		}
+	}, [fallbackRange, range, selectedOption?.key, seriesByRange]);
 
 	useEffect(() => {
 		setActivePointIndex(null);
 	}, [chartDataKey]);
+
+	function renderActiveDot(props: {
+		cx?: number;
+		cy?: number;
+		fill?: string;
+		payload?: ReturnTrendChartPoint;
+		stroke?: string;
+	}): JSX.Element | null {
+		if (
+			typeof props.cx !== "number" ||
+			typeof props.cy !== "number" ||
+			isThresholdSegmentedCrossingPoint(props.payload)
+		) {
+			return null;
+		}
+
+		return (
+			<circle
+				cx={props.cx}
+				cy={props.cy}
+				r={4}
+				fill={props.fill ?? RETURN_LINE_COLOR}
+				stroke={props.stroke ?? "none"}
+			/>
+		);
+	}
 
 	return (
 		<section className="analytics-card">
@@ -256,20 +288,18 @@ export function ReturnTrendChart({
 					<h2 className="analytics-card__title">{title}</h2>
 					<p className="analytics-card__description">{description}</p>
 				</div>
-				{availableRanges.length > 0 ? (
-					<div className="analytics-segmented" role="tablist" aria-label="选择收益率周期">
-						{availableRanges.map((item) => (
-							<button
-								key={item}
-								type="button"
-								className={activeRange === item ? "active" : ""}
-								onClick={() => setRange(item)}
-							>
-								{RANGE_LABELS[item]}
-							</button>
-						))}
-					</div>
-				) : null}
+				<div className="analytics-segmented" role="tablist" aria-label="选择收益率周期">
+					{(Object.keys(RANGE_LABELS) as TimelineRange[]).map((item) => (
+						<button
+							key={item}
+							type="button"
+							className={activeRange === item ? "active" : ""}
+							onClick={() => setRange(item)}
+						>
+							{RANGE_LABELS[item]}
+						</button>
+					))}
+				</div>
 			</div>
 
 			{seriesOptions.length > 1 ? (
@@ -316,7 +346,7 @@ export function ReturnTrendChart({
 			{loading ? (
 				<div className="analytics-empty-state">正在加载收益率数据...</div>
 			) : !hasData ? (
-				<div className="analytics-empty-state">{emptyMessage}</div>
+				<div className="analytics-empty-state">{resolvedEmptyMessage}</div>
 			) : (
 				<div
 					className="analytics-chart analytics-chart--interactive"
@@ -328,6 +358,13 @@ export function ReturnTrendChart({
 							data={chartData}
 							onMouseMove={({ activeTooltipIndex, isTooltipActive }) => {
 								if (!isTooltipActive || typeof activeTooltipIndex !== "number") {
+									setActivePointIndex(null);
+									return;
+								}
+
+								if (
+									isThresholdSegmentedCrossingPoint(chartData[activeTooltipIndex])
+								) {
 									setActivePointIndex(null);
 									return;
 								}
@@ -391,9 +428,10 @@ export function ReturnTrendChart({
 									const sourcePoint = primaryEntry?.payload as
 										| ReturnTrendChartPoint
 										| undefined;
-									const periodLabel = sourcePoint?.crossingPoint
-										? "基准线交点"
-										: String(label ?? "");
+									if (isThresholdSegmentedCrossingPoint(sourcePoint)) {
+										return null;
+									}
+									const periodLabel = String(label ?? "");
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
@@ -437,7 +475,7 @@ export function ReturnTrendChart({
 								stroke={RETURN_LINE_COLOR}
 								strokeWidth={2.4}
 								dot={false}
-								activeDot={{ r: 4, fill: RETURN_LINE_COLOR }}
+								activeDot={renderActiveDot}
 							/>
 						</ComposedChart>
 					</ResponsiveContainer>

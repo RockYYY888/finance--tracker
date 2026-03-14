@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	buildDisplayTimelineSeriesByRange,
 	calculateDynamicAxisLayout,
 	calculateTimelineReferenceAxisLayout,
 	formatCategoryAxisLabel,
@@ -136,6 +137,59 @@ describe("prepareTimelineSeries", () => {
 	});
 });
 
+describe("buildDisplayTimelineSeriesByRange", () => {
+	it("derives a 24H return window from sparse hourly history plus daily checkpoints", () => {
+		const seriesByRange = buildDisplayTimelineSeriesByRange(
+			[
+				{
+					label: "03-14 21:00",
+					value: -7.56,
+					timestamp_utc: "2026-03-14T13:00:00Z",
+				},
+			],
+			[
+				{
+					label: "03-13",
+					value: -6.82,
+					timestamp_utc: "2026-03-12T16:00:00Z",
+				},
+				{
+					label: "03-14",
+					value: -7.12,
+					timestamp_utc: "2026-03-13T16:00:00Z",
+				},
+			],
+			[],
+			[],
+		);
+
+		expect(seriesByRange.hour.length).toBe(3);
+		expect(seriesByRange.hour[0]?.label).toBe("03-13 21:00");
+		expect(seriesByRange.hour[0]?.value).toBe(-6.82);
+		expect(seriesByRange.hour[2]?.label).toBe("03-14 21:00");
+	});
+
+	it("builds week and month windows from the same daily history", () => {
+		const dailySeries = Array.from({ length: 11 }, (_, index) => ({
+			label: `03-${String(index + 4).padStart(2, "0")}`,
+			value: 200_000 + index * 500,
+			timestamp_utc: `2026-03-${String(index + 4).padStart(2, "0")}T00:00:00Z`,
+		}));
+
+		const seriesByRange = buildDisplayTimelineSeriesByRange(
+			[],
+			dailySeries,
+			[],
+			[],
+		);
+
+		expect(seriesByRange.day.length).toBeGreaterThanOrEqual(7);
+		expect(seriesByRange.month).toHaveLength(11);
+		expect(seriesByRange.day[0]?.label).toBe("03-07");
+		expect(seriesByRange.month[0]?.label).toBe("03-04");
+	});
+});
+
 describe("summarizeTimeline", () => {
 	it("computes change across the visible period", () => {
 		const summary = summarizeTimeline([
@@ -213,7 +267,7 @@ describe("formatTimelineAxisLabel", () => {
 				compact: true,
 				range: "year",
 			}),
-		).toBe("2026");
+		).toBe("03");
 	});
 
 	it("truncates long custom labels in compact mode", () => {
