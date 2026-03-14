@@ -10,3 +10,4 @@
 
 - [x] Restrict editable asset currencies to `USD` / `HKD` / `CNY`, add current-vs-target CNY previews, and enforce CNY-only cash-transfer targets
 - [x] Keep the cash account editor focused on the form only, without rendering the account activity section below
+- [x] Simplify the trend-card summary to one mode-specific date range, move range filters to the card header, and show return deltas as percentage-point changes

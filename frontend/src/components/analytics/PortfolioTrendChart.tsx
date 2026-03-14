@@ -26,12 +26,14 @@ import {
 	formatCny,
 	formatPercentMetric,
 	formatPercentage,
+	formatSignedPercentagePointMetric,
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
 	getFirstRenderableTimelineRange,
 	getTimelineChartTicks,
-	summarizeCompoundedStepRate,
+	summarizeAverageStepDelta,
+	summarizeCompoundedValueStepRate,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
@@ -97,11 +99,18 @@ const MODE_LABELS: Record<PortfolioTrendDisplayMode, string> = {
 	return: "收益率",
 };
 
-const COMPOUNDED_STEP_LABELS: Record<TimelineRange, string> = {
+const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
 	hour: "小时平均环比",
 	day: "日均环比",
 	month: "月均环比",
 	year: "年均环比",
+};
+
+const RETURN_STEP_LABELS: Record<TimelineRange, string> = {
+	hour: "小时均变动",
+	day: "日均变动",
+	month: "月均变动",
+	year: "年均变动",
 };
 
 const POSITIVE_TREND_COLOR = "#009BC1";
@@ -156,16 +165,17 @@ function buildSummaryStateFromSeries(
 	};
 }
 
-function buildCompoundedStepRateState(
+function buildDerivedMetricState(
 	series: TimelinePoint[],
 	activeLabel: string | null,
+	summarize: (points: TimelinePoint[]) => number,
 ): { value: number; selected: boolean } {
 	const matchedIndex = findPointIndexByLabel(series, activeLabel);
 	const visibleSeries =
 		matchedIndex === null ? series : series.slice(0, matchedIndex + 1);
 
 	return {
-		value: summarizeCompoundedStepRate(visibleSeries),
+		value: summarize(visibleSeries),
 		selected: matchedIndex !== null,
 	};
 }
@@ -239,7 +249,6 @@ export function PortfolioTrendChart({
 			? range
 			: activeFallbackRange;
 	const activeSeries = activeSeriesByRange[activeRange];
-
 	const valueRangeSeries = valueSeriesByRange[activeRange];
 	const valueRangeSummary = summarizeTimeline(valueRangeSeries);
 	const valueBaseline = valueRangeSummary.startValue;
@@ -261,43 +270,27 @@ export function PortfolioTrendChart({
 	const activeLabel = activePoint?.crossingPoint
 		? null
 		: (activePoint?.label ?? null);
-	const hasReturnSummaryData = returnRangeSeries.length >= 1;
-	const hasReturnTrendData = returnRangeSeries.length >= 2;
-
-	const valueSummaryState =
-		displayMode === "value"
-			? {
-					summary:
-						activePointIndex === null
-							? valueRangeSummary
-							: summarizeTimeline(valueChartData.slice(0, activePointIndex + 1)),
-					periodLabel: formatTimelineRangeLabel(
-						valueChartData[0],
-						activePoint ?? valueChartData[valueChartData.length - 1],
-						activePoint?.crossingPoint ? "期初资产交点" : "最新周期",
-					),
-					selected: activePointIndex !== null,
-				}
-			: buildSummaryStateFromSeries(valueRangeSeries, activeLabel);
-	const returnSummaryState =
-		displayMode === "return"
-			? {
-					summary:
-						activePointIndex === null
-							? summarizeTimeline(returnRangeSeries)
-							: summarizeTimeline(returnChartData.slice(0, activePointIndex + 1)),
-					periodLabel: formatTimelineRangeLabel(
-						returnChartData[0],
-						activePoint ?? returnChartData[returnChartData.length - 1],
-						activePoint?.crossingPoint ? "基准线交点" : "最新周期",
-					),
-					selected: activePointIndex !== null,
-				}
-			: buildSummaryStateFromSeries(returnRangeSeries, activeLabel);
-	const compoundedStepRateState = buildCompoundedStepRateState(
-		returnRangeSeries,
+	const activeSummaryState = buildSummaryStateFromSeries(
+		activeSeries,
 		activeLabel,
+		activePoint?.crossingPoint
+			? displayMode === "value"
+				? "期初资产交点"
+				: "基准线交点"
+			: "最新周期",
 	);
+	const valueStepRateState = buildDerivedMetricState(
+		valueRangeSeries,
+		displayMode === "value" ? activeLabel : null,
+		summarizeCompoundedValueStepRate,
+	);
+	const returnStepDeltaState = buildDerivedMetricState(
+		returnRangeSeries,
+		displayMode === "return" ? activeLabel : null,
+		summarizeAverageStepDelta,
+	);
+	const hasActiveSummaryData = activeSeries.length >= 1;
+	const hasActiveStepMetric = activeSeries.length >= 2;
 
 	const activeMetricConfig: TrendMetricConfig =
 		displayMode === "value"
@@ -372,12 +365,34 @@ export function PortfolioTrendChart({
 		setActivePointIndex(null);
 	}, [chartDataKey]);
 
-	const valueChangeDirection = getChangeDirection(
-		valueSummaryState.summary.changeValue,
-	);
-	const returnRateLabel = compoundedStepRateState.selected
-		? `至该点${COMPOUNDED_STEP_LABELS[activeRange]}`
-		: COMPOUNDED_STEP_LABELS[activeRange];
+	const activeValueLabel =
+		displayMode === "value"
+			? activeSummaryState.selected
+				? "所选净值"
+				: "最新净值"
+			: activeSummaryState.selected
+				? "所选收益率"
+				: "当前收益率";
+	const activePeriodValue =
+		!hasActiveSummaryData
+			? "--"
+			: displayMode === "value"
+				? `${getChangeDirection(activeSummaryState.summary.changeValue)}${formatCny(Math.abs(activeSummaryState.summary.changeValue))} / ${formatSignedRatio(activeSummaryState.summary.changeRatio)}`
+				: formatSignedPercentagePointMetric(activeSummaryState.summary.changeValue);
+	const activeStepMetricLabel =
+		displayMode === "value"
+			? valueStepRateState.selected
+				? `至该点${VALUE_STEP_LABELS[activeRange]}`
+				: VALUE_STEP_LABELS[activeRange]
+			: returnStepDeltaState.selected
+				? `至该点${RETURN_STEP_LABELS[activeRange]}`
+				: RETURN_STEP_LABELS[activeRange];
+	const activeStepMetricValue =
+		!hasActiveStepMetric
+			? "--"
+			: displayMode === "value"
+				? formatPercentMetric(valueStepRateState.value, true)
+				: formatSignedPercentagePointMetric(returnStepDeltaState.value);
 
 	return (
 		<section className="analytics-card">
@@ -388,23 +403,6 @@ export function PortfolioTrendChart({
 					<p className="analytics-card__description">{description}</p>
 				</div>
 				<div className="analytics-card__controls">
-					<div
-						className="analytics-segmented"
-						role="tablist"
-						aria-label="选择趋势维度"
-					>
-						{(Object.keys(MODE_LABELS) as PortfolioTrendDisplayMode[]).map((mode) => (
-							<button
-								key={mode}
-								type="button"
-								className={displayMode === mode ? "active" : ""}
-								onClick={() => setDisplayMode(mode)}
-								disabled={fallbackRangeByMode[mode] === null}
-							>
-								{MODE_LABELS[mode]}
-							</button>
-						))}
-					</div>
 					<div
 						className="analytics-segmented"
 						role="tablist"
@@ -425,47 +423,49 @@ export function PortfolioTrendChart({
 				</div>
 			</div>
 
-			<div className="analytics-card__meta">
-				<div className="analytics-pill">
-					<span>{valueSummaryState.selected ? "所选净值" : "最新净值"}</span>
-					<strong>{formatCny(valueSummaryState.summary.latestValue)}</strong>
+			<div className="portfolio-trend-card__summary">
+				<div
+					className="analytics-segmented"
+					role="tablist"
+					aria-label="选择趋势维度"
+				>
+					{(Object.keys(MODE_LABELS) as PortfolioTrendDisplayMode[]).map((mode) => (
+						<button
+							key={mode}
+							type="button"
+							className={displayMode === mode ? "active" : ""}
+							onClick={() => setDisplayMode(mode)}
+							disabled={fallbackRangeByMode[mode] === null}
+						>
+							{MODE_LABELS[mode]}
+						</button>
+					))}
 				</div>
-				<div className="analytics-pill">
-					<span>{valueSummaryState.periodLabel}</span>
-					<strong>
-						{valueChangeDirection}
-						{formatCny(Math.abs(valueSummaryState.summary.changeValue))}
-						{" / "}
-						{formatSignedRatio(valueSummaryState.summary.changeRatio)}
-					</strong>
-				</div>
-				<div className="analytics-pill">
-					<span>{returnSummaryState.selected ? "所选收益率" : "当前收益率"}</span>
-					<strong>
-						{hasReturnSummaryData
-							? formatPercentMetric(returnSummaryState.summary.latestValue)
-							: "--"}
-					</strong>
-				</div>
-				<div className="analytics-pill">
-					<span>
-						{hasReturnSummaryData ? returnSummaryState.periodLabel : "暂无收益率数据"}
-					</span>
-					<strong>
-						{!hasReturnSummaryData
-							? "--"
-							: returnSummaryState.summary.changeRatio === null
-								? `${formatPercentMetric(returnSummaryState.summary.changeValue, true)} / --`
-								: `${formatPercentMetric(returnSummaryState.summary.changeValue, true)} / ${formatSignedRatio(returnSummaryState.summary.changeRatio)}`}
-					</strong>
-				</div>
-				<div className="analytics-pill">
-					<span>{returnRateLabel}</span>
-					<strong>
-						{hasReturnTrendData
-							? formatPercentMetric(compoundedStepRateState.value, true)
-							: "--"}
-					</strong>
+				<div className="analytics-card__meta analytics-card__meta--trend">
+					<div className="analytics-pill">
+						<span>{activeValueLabel}</span>
+						<strong>
+							{displayMode === "value"
+								? formatCny(activeSummaryState.summary.latestValue)
+								: hasActiveSummaryData
+									? formatPercentMetric(activeSummaryState.summary.latestValue)
+									: "--"}
+						</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>
+							{hasActiveSummaryData
+								? activeSummaryState.periodLabel
+								: displayMode === "value"
+									? "暂无净值数据"
+									: "暂无收益率数据"}
+						</span>
+						<strong>{activePeriodValue}</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>{activeStepMetricLabel}</span>
+						<strong>{activeStepMetricValue}</strong>
+					</div>
 				</div>
 			</div>
 

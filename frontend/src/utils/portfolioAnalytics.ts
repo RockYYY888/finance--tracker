@@ -110,6 +110,15 @@ export function formatCompactPercentMetric(value: number): string {
 	return `${value.toFixed(2)}%`;
 }
 
+export function formatSignedPercentagePointMetric(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "--";
+	}
+
+	const prefix = value > 0 ? "+" : "";
+	return `${prefix}${value.toFixed(2)} 个百分点`;
+}
+
 export function getChartColors(): string[] {
 	return CHART_COLORS;
 }
@@ -529,6 +538,65 @@ export function summarizeCompoundedStepRate(series: TimelinePoint[]): number {
 	}
 
 	return (Math.pow(cumulativeRatio, 1 / intervalCount) - 1) * 100;
+}
+
+/**
+ * Calculates the geometric mean of step-over-step changes for positive value series.
+ */
+export function summarizeCompoundedValueStepRate(series: TimelinePoint[]): number {
+	const validPoints = series.filter(
+		(point) => Number.isFinite(point.value) && point.value > 0,
+	);
+
+	if (validPoints.length < 2) {
+		return 0;
+	}
+
+	let cumulativeRatio = 1;
+	let intervalCount = 0;
+
+	for (let index = 1; index < validPoints.length; index += 1) {
+		const previousValue = validPoints[index - 1].value;
+		const currentValue = validPoints[index].value;
+
+		if (previousValue <= 0 || currentValue <= 0) {
+			continue;
+		}
+
+		cumulativeRatio *= currentValue / previousValue;
+		intervalCount += 1;
+	}
+
+	if (intervalCount === 0) {
+		return 0;
+	}
+
+	return (Math.pow(cumulativeRatio, 1 / intervalCount) - 1) * 100;
+}
+
+/**
+ * Calculates the average step-over-step delta for timeline values.
+ */
+export function summarizeAverageStepDelta(series: TimelinePoint[]): number {
+	const validPoints = series.filter((point) => Number.isFinite(point.value));
+
+	if (validPoints.length < 2) {
+		return 0;
+	}
+
+	let cumulativeDelta = 0;
+	let intervalCount = 0;
+
+	for (let index = 1; index < validPoints.length; index += 1) {
+		cumulativeDelta += validPoints[index].value - validPoints[index - 1].value;
+		intervalCount += 1;
+	}
+
+	if (intervalCount === 0) {
+		return 0;
+	}
+
+	return cumulativeDelta / intervalCount;
 }
 
 export type DynamicAxisLayout = {

@@ -83,6 +83,10 @@
 	flex-wrap: wrap;
 }
 
+.analytics-card__meta--trend {
+	flex: 1 1 560px;
+}
+
 .analytics-pill {
 	display: inline-flex;
 	align-items: center;
@@ -173,6 +177,17 @@
 .analytics-chart {
 	min-width: 0;
 	width: 100%;
+}
+
+.portfolio-trend-card__summary {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.8rem;
+	flex-wrap: wrap;
+}
+
+.portfolio-trend-card__summary > .analytics-segmented {
+	flex: 0 0 auto;
 }
 
 .analytics-chart--interactive {
@@ -469,6 +484,14 @@
 
 	.analytics-card__description {
 		max-width: none;
+	}
+
+	.portfolio-trend-card__summary {
+		flex-direction: column;
+	}
+
+	.analytics-card__meta--trend {
+		flex-basis: auto;
 	}
 
 	.analytics-legend__item {

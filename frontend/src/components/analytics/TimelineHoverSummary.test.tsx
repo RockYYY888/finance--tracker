@@ -147,8 +147,9 @@ describe("timeline hover summaries", () => {
 
 		expectPillToContain("最新净值", "¥150.00");
 		expectPillToContain("03-01→03-03", "增加¥50.00 / +50.00%", 0);
-		expectPillToContain("当前收益率", "15.00%");
-		expectPillToContain("日均环比", "+2.25%");
+		expectPillToContain("日均环比", "+22.47%");
+		expect(screen.queryByText("当前收益率")).toBeNull();
+		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
 
 		const { onMouseMove, onMouseLeave } = getLatestChartHandlers();
 		expect(onMouseMove).toBeDefined();
@@ -165,8 +166,7 @@ describe("timeline hover summaries", () => {
 			expectPillToContain("所选净值", "¥120.00");
 		});
 		expectPillToContain("03-01→03-02", "增加¥20.00 / +20.00%", 0);
-		expectPillToContain("所选收益率", "12.00%");
-		expectPillToContain("至该点日均环比", "+1.82%");
+		expectPillToContain("至该点日均环比", "+20.00%");
 
 		act(() => {
 			onMouseLeave?.();
@@ -175,7 +175,37 @@ describe("timeline hover summaries", () => {
 		await waitFor(() => {
 			expectPillToContain("最新净值", "¥150.00");
 		});
+
+		await act(async () => {
+			screen.getByRole("button", { name: "收益率" }).click();
+		});
+
 		expectPillToContain("当前收益率", "15.00%");
+		expectPillToContain("03-01→03-03", "+5.00 个百分点", 0);
+		expectPillToContain("日均变动", "+2.50 个百分点");
+		expect(screen.queryByText("最新净值")).toBeNull();
+		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
+
+		act(() => {
+			onMouseMove?.({
+				isTooltipActive: true,
+				activeTooltipIndex: 1,
+			});
+		});
+
+		await waitFor(() => {
+			expectPillToContain("所选收益率", "12.00%");
+		});
+		expectPillToContain("03-01→03-02", "+2.00 个百分点", 0);
+		expectPillToContain("至该点日均变动", "+2.00 个百分点");
+
+		act(() => {
+			onMouseLeave?.();
+		});
+
+		await waitFor(() => {
+			expectPillToContain("当前收益率", "15.00%");
+		});
 	});
 
 	it("updates return trend summary pills while hovering and restores after leaving", async () => {

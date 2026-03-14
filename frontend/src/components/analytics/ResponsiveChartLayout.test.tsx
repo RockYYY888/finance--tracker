@@ -248,6 +248,44 @@ describe("analytics charts responsive layout", () => {
 		});
 
 		expect(screen.getByText("基准线上方区域")).toBeTruthy();
+		expect(screen.queryByText("最新净值")).toBeNull();
+		expect(screen.getByText("当前收益率")).toBeTruthy();
+		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
+		expect(screen.getByText("+2.00 个百分点")).toBeTruthy();
+	});
+
+	it("shows return deltas as percentage-point changes instead of exploding relative ratios", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{ label: "03-01", value: 250_000 },
+					{ label: "03-14", value: 230_000 },
+				]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[]}
+				holdings_return_day_series={[
+					{ label: "03-01", value: 0.01 },
+					{ label: "03-14", value: -7.55 },
+				]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+			/>,
+		);
+
+		screen.getByRole("button", { name: "收益率" }).click();
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "收益率" }).className).toContain(
+				"active",
+			);
+		});
+
+		const summaryPill = screen.getByText("03-01→03-14").parentElement;
+		expect(summaryPill?.textContent).toContain("-7.56 个百分点");
+		expect(summaryPill?.textContent).not.toContain("75600.00%");
 	});
 
 	it("keeps return trend chart compact and compresses yearly labels in narrow containers", async () => {

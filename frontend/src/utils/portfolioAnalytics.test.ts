@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
 	calculateDynamicAxisLayout,
 	formatCategoryAxisLabel,
+	formatSignedPercentagePointMetric,
 	formatTimelineAxisLabel,
 	getAdaptiveCategoryAxisWidth,
 	getAdaptiveYAxisWidth,
 	getAllocationDonutLayout,
 	getTimelineChartTicks,
 	prepareTimelineSeries,
+	summarizeAverageStepDelta,
+	summarizeCompoundedValueStepRate,
 	summarizeTimeline,
 } from "./portfolioAnalytics";
 
@@ -142,6 +145,33 @@ describe("summarizeTimeline", () => {
 
 		expect(summary.changeValue).toBe(239_687.62);
 		expect(summary.changeRatio).toBeNull();
+	});
+});
+
+describe("trend summary helpers", () => {
+	it("calculates compounded step rate for positive value series", () => {
+		expect(
+			summarizeCompoundedValueStepRate([
+				{ label: "03-01", value: 100 },
+				{ label: "03-02", value: 120 },
+				{ label: "03-03", value: 150 },
+			]),
+		).toBeCloseTo(22.4744, 3);
+	});
+
+	it("calculates average step delta for return series", () => {
+		expect(
+			summarizeAverageStepDelta([
+				{ label: "03-01", value: 10 },
+				{ label: "03-02", value: 12 },
+				{ label: "03-03", value: 15 },
+			]),
+		).toBe(2.5);
+	});
+
+	it("formats signed percentage point deltas for card metrics", () => {
+		expect(formatSignedPercentagePointMetric(2.5)).toBe("+2.50 个百分点");
+		expect(formatSignedPercentagePointMetric(-7.56)).toBe("-7.56 个百分点");
 	});
 });
 
