@@ -606,6 +606,13 @@ type DynamicAxisOptions = {
 	targetTickCount?: number;
 };
 
+export type TimelineReferenceMode = "series-start" | "zero";
+
+type TimelineReferenceAxisOptions = Omit<DynamicAxisOptions, "referenceValue"> & {
+	referenceMode?: TimelineReferenceMode;
+	referenceValue?: number;
+};
+
 function clamp(value: number, minValue: number, maxValue: number): number {
 	return Math.min(Math.max(value, minValue), maxValue);
 }
@@ -777,13 +784,6 @@ export function calculateDynamicAxisLayout(
 	domainMin = Math.floor(domainMin / step) * step;
 	domainMax = Math.ceil(domainMax / step) * step;
 
-	if (anchorMin === 0 && anchorValues.every((value) => value >= 0)) {
-		domainMin = 0;
-	}
-	if (anchorMax === 0 && anchorValues.every((value) => value <= 0)) {
-		domainMax = 0;
-	}
-
 	if (domainMin === domainMax) {
 		domainMin -= safeMinSpan;
 		domainMax += safeMinSpan;
@@ -796,6 +796,31 @@ export function calculateDynamicAxisLayout(
 		maxValue,
 		tickValues: buildAxisTicks(domainMin, domainMax, step),
 	};
+}
+
+/**
+ * Builds a shared timeline y-axis layout so value and return charts use the same
+ * dynamic padding around their reference line.
+ */
+export function calculateTimelineReferenceAxisLayout(
+	series: TimelinePoint[],
+	{
+		referenceMode = "series-start",
+		referenceValue,
+		...options
+	}: TimelineReferenceAxisOptions = {},
+): DynamicAxisLayout {
+	const resolvedReferenceValue =
+		typeof referenceValue === "number" && Number.isFinite(referenceValue)
+			? referenceValue
+			: referenceMode === "zero"
+				? 0
+				: (series[0]?.value ?? 0);
+
+	return calculateDynamicAxisLayout(series, {
+		...options,
+		referenceValue: resolvedReferenceValue,
+	});
 }
 
 export function buildAllocationLegend(

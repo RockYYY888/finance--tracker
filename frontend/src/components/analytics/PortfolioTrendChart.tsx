@@ -20,7 +20,7 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildPreparedTimelineSeriesByRange,
-	calculateDynamicAxisLayout,
+	calculateTimelineReferenceAxisLayout,
 	formatCompactCny,
 	formatCompactPercentMetric,
 	formatCny,
@@ -75,7 +75,7 @@ type TimelineSummaryState = {
 };
 
 type TrendMetricConfig = {
-	referenceValue: number;
+	referenceMode: "series-start" | "zero";
 	minSpan: number;
 	valueFormatter: (value: number) => string;
 	compactValueFormatter: (value: number) => string;
@@ -94,8 +94,8 @@ const RANGE_LABELS: Record<TimelineRange, string> = {
 };
 
 const MODE_LABELS: Record<PortfolioTrendDisplayMode, string> = {
-	value: "总额",
-	return: "收益率",
+	value: "资产总额",
+	return: "投资类收益率",
 };
 
 const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
@@ -201,7 +201,7 @@ export function PortfolioTrendChart({
 	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
-	description = "查看总额与收益率在 24 小时、30 天、12 个月和年度维度的变化。",
+	description = "查看资产总额与投资类收益率周期变化，支持的粒度选项根据历史数据积累逐步扩展。",
 }: PortfolioTrendChartProps) {
 	const [displayMode, setDisplayMode] =
 		useState<PortfolioTrendDisplayMode>("value");
@@ -297,7 +297,7 @@ export function PortfolioTrendChart({
 	const activeMetricConfig: TrendMetricConfig =
 		displayMode === "value"
 			? {
-					referenceValue: valueBaseline,
+					referenceMode: "series-start",
 					minSpan: Math.max(Math.abs(valueRangeSummary.latestValue) * 0.02, 100),
 					valueFormatter: formatCny,
 					compactValueFormatter: formatCompactCny,
@@ -308,11 +308,11 @@ export function PortfolioTrendChart({
 					negativeLegend: "期初资产下方区域",
 				}
 			: {
-					referenceValue: ZERO_RETURN_THRESHOLD,
+					referenceMode: "zero",
 					minSpan: 0.3,
 					valueFormatter: (value) => formatPercentMetric(value),
 					compactValueFormatter: formatCompactPercentMetric,
-					tooltipLabel: "收益率",
+					tooltipLabel: "投资类收益率",
 					referenceLabel: "基准线",
 					referenceLineStroke: "rgba(0, 155, 193, 0.65)",
 					positiveLegend: "基准线上方区域",
@@ -320,11 +320,11 @@ export function PortfolioTrendChart({
 				};
 	const axisLayout = useMemo(
 		() =>
-			calculateDynamicAxisLayout(activeSeries, {
-				referenceValue: activeMetricConfig.referenceValue,
+			calculateTimelineReferenceAxisLayout(activeSeries, {
+				referenceMode: activeMetricConfig.referenceMode,
 				minSpan: activeMetricConfig.minSpan,
 			}),
-		[activeMetricConfig.minSpan, activeMetricConfig.referenceValue, activeSeries],
+		[activeMetricConfig.minSpan, activeMetricConfig.referenceMode, activeSeries],
 	);
 	const { chartContainerRef, chartWidth, compactAxisMode } =
 		useResponsiveChartFrame();
@@ -373,8 +373,8 @@ export function PortfolioTrendChart({
 				? "所选净值"
 				: "最新净值"
 			: activeSummaryState.selected
-				? "所选收益率"
-				: "当前收益率";
+				? "所选投资类收益率"
+				: "当前投资类收益率";
 	const activePeriodValue =
 		!hasActiveSummaryData
 			? "--"
@@ -461,7 +461,7 @@ export function PortfolioTrendChart({
 								? activeSummaryState.periodLabel
 								: displayMode === "value"
 									? "暂无净值数据"
-									: "暂无收益率数据"}
+									: "暂无投资类收益率数据"}
 						</span>
 						<strong>{activePeriodValue}</strong>
 					</div>
@@ -478,7 +478,7 @@ export function PortfolioTrendChart({
 				<div className="analytics-empty-state">
 					{displayMode === "value"
 						? "还没有足够的资产快照。随着资产变动，这里会逐步形成趋势。"
-						: "暂无整体收益率数据。"}
+						: "暂无投资类收益率数据。"}
 				</div>
 			) : (
 				<div
@@ -612,7 +612,7 @@ export function PortfolioTrendChart({
 					<div
 						className="return-trend-legend"
 						role="list"
-						aria-label={displayMode === "value" ? "净值图例" : "收益率图例"}
+						aria-label={displayMode === "value" ? "净值图例" : "投资类收益率图例"}
 					>
 						<span
 							className="return-trend-legend__item return-trend-legend__item--positive"

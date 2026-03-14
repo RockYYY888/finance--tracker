@@ -229,21 +229,21 @@ describe("analytics charts responsive layout", () => {
 			/>,
 		);
 
-		expect(screen.getByRole("button", { name: "总额" }).className).toContain(
+		expect(screen.getByRole("button", { name: "资产总额" }).className).toContain(
 			"active",
 		);
 
-		screen.getByRole("button", { name: "收益率" }).click();
+		screen.getByRole("button", { name: "投资类收益率" }).click();
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "收益率" }).className).toContain(
+			expect(screen.getByRole("button", { name: "投资类收益率" }).className).toContain(
 				"active",
 			);
 		});
 
 		expect(screen.getByText("基准线上方区域")).toBeTruthy();
 		expect(screen.queryByText("最新净值")).toBeNull();
-		expect(screen.getByText("当前收益率")).toBeTruthy();
+		expect(screen.getByText("当前投资类收益率")).toBeTruthy();
 		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
 		expect(screen.getByText("+2.00%")).toBeTruthy();
 	});
@@ -269,10 +269,10 @@ describe("analytics charts responsive layout", () => {
 			/>,
 		);
 
-		screen.getByRole("button", { name: "收益率" }).click();
+		screen.getByRole("button", { name: "投资类收益率" }).click();
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "收益率" }).className).toContain(
+			expect(screen.getByRole("button", { name: "投资类收益率" }).className).toContain(
 				"active",
 			);
 		});
@@ -280,6 +280,64 @@ describe("analytics charts responsive layout", () => {
 		const summaryPill = screen.getByText("03-01→03-14").parentElement;
 		expect(summaryPill?.textContent).toContain("-7.56%");
 		expect(summaryPill?.textContent).not.toContain("75600.00%");
+	});
+
+	it("keeps headroom above the zero reference in aggregate and holding return charts", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{ label: "03-01", value: 250_000 },
+					{ label: "03-14", value: 230_000 },
+				]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[]}
+				holdings_return_day_series={[
+					{ label: "03-01", value: -4.2 },
+					{ label: "03-14", value: -7.55 },
+				]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+			/>,
+		);
+
+		screen.getByRole("button", { name: "投资类收益率" }).click();
+
+		await waitFor(() => {
+			const axisProps = getLastRecordedProps(rechartsState.yAxes) as {
+				domain: [number, number];
+			};
+			expect(axisProps.domain[1]).toBeGreaterThan(0);
+		});
+
+		render(
+			<ReturnTrendChart
+				defaultRange="day"
+				title="单只持仓收益率"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"腾讯控股",
+						[],
+						[
+							{ label: "03-01", value: -3.4 },
+							{ label: "03-14", value: -7.8 },
+						],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			const axisProps = getLastRecordedProps(rechartsState.yAxes) as {
+				domain: [number, number];
+			};
+			expect(axisProps.domain[1]).toBeGreaterThan(0);
+		});
 	});
 
 	it("keeps return trend chart compact and compresses yearly labels in narrow containers", async () => {

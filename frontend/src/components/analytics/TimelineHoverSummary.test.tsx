@@ -148,7 +148,7 @@ describe("timeline hover summaries", () => {
 		expectPillToContain("最新净值", "¥150.00");
 		expectPillToContain("03-01→03-03", "增加¥50.00 / +50.00%", 0);
 		expectPillToContain("日均环比", "+22.47%");
-		expect(screen.queryByText("当前收益率")).toBeNull();
+		expect(screen.queryByText("当前投资类收益率")).toBeNull();
 		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
 
 		const { onMouseMove, onMouseLeave } = getLatestChartHandlers();
@@ -177,10 +177,10 @@ describe("timeline hover summaries", () => {
 		});
 
 		await act(async () => {
-			screen.getByRole("button", { name: "收益率" }).click();
+			screen.getByRole("button", { name: "投资类收益率" }).click();
 		});
 
-		expectPillToContain("当前收益率", "15.00%");
+		expectPillToContain("当前投资类收益率", "15.00%");
 		expectPillToContain("03-01→03-03", "+5.00%", 0);
 		expectPillToContain("日均变动", "+2.50%");
 		expect(screen.queryByText("最新净值")).toBeNull();
@@ -194,7 +194,7 @@ describe("timeline hover summaries", () => {
 		});
 
 		await waitFor(() => {
-			expectPillToContain("所选收益率", "12.00%");
+			expectPillToContain("所选投资类收益率", "12.00%");
 		});
 		expectPillToContain("03-01→03-02", "+2.00%", 0);
 		expectPillToContain("至该点日均变动", "+2.00%");
@@ -204,7 +204,7 @@ describe("timeline hover summaries", () => {
 		});
 
 		await waitFor(() => {
-			expectPillToContain("当前收益率", "15.00%");
+			expectPillToContain("当前投资类收益率", "15.00%");
 		});
 	});
 

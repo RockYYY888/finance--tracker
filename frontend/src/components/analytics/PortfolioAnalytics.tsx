@@ -67,7 +67,7 @@ export function PortfolioAnalytics({
 					/>
 					<ReturnTrendChart
 						title="单只持仓收益率"
-						description="查看任一持仓在不同周期的收益率变化。"
+						description="查看任一持仓收益率周期变化，支持的粒度选项根据历史数据积累逐步扩展。"
 						seriesOptions={createHoldingReturnOptions(holding_return_series)}
 						loading={loading}
 						defaultRange={defaultRange}

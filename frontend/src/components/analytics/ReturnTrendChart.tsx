@@ -21,7 +21,7 @@ import {
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
 	ANALYTICS_TOOLTIP_STYLE,
 	buildPreparedTimelineSeriesByRange,
-	calculateDynamicAxisLayout,
+	calculateTimelineReferenceAxisLayout,
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
@@ -194,8 +194,8 @@ export function ReturnTrendChart({
 	const rangeStepDelta = summarizeAverageStepDelta(series);
 	const axisLayout = useMemo(
 		() =>
-			calculateDynamicAxisLayout(series, {
-				referenceValue: ZERO_RETURN_THRESHOLD,
+			calculateTimelineReferenceAxisLayout(series, {
+				referenceMode: "zero",
 				minSpan: 0.3,
 			}),
 		[series],

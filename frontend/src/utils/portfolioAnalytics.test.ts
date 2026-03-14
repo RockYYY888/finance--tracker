@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	calculateDynamicAxisLayout,
+	calculateTimelineReferenceAxisLayout,
 	formatCategoryAxisLabel,
 	formatTimelineAxisLabel,
 	getAdaptiveCategoryAxisWidth,
@@ -34,20 +35,34 @@ describe("calculateDynamicAxisLayout", () => {
 		expect(layout.tickValues[layout.tickValues.length - 1]).toBe(layout.domain[1]);
 	});
 
-	it("keeps zero pinned when it is the reference floor", () => {
-		const layout = calculateDynamicAxisLayout(
+	it("keeps breathing room around a zero reference for positive return series", () => {
+		const layout = calculateTimelineReferenceAxisLayout(
 			[
 				{ label: "A", value: 12 },
 				{ label: "B", value: 15 },
 				{ label: "C", value: 17 },
 			],
-			{ referenceValue: 0, minSpan: 1 },
+			{ referenceMode: "zero", minSpan: 1 },
 		);
 
 		expect(layout.referenceValue).toBe(0);
-		expect(layout.domain[0]).toBe(0);
+		expect(layout.domain[0]).toBeLessThan(0);
 		expect(layout.domain[1]).toBeGreaterThan(15);
-		expect(layout.tickValues).toContain(0);
+	});
+
+	it("keeps breathing room above a zero reference for negative return series", () => {
+		const layout = calculateTimelineReferenceAxisLayout(
+			[
+				{ label: "A", value: -5 },
+				{ label: "B", value: -8 },
+				{ label: "C", value: -12 },
+			],
+			{ referenceMode: "zero", minSpan: 0.3 },
+		);
+
+		expect(layout.referenceValue).toBe(0);
+		expect(layout.domain[0]).toBeLessThan(-12);
+		expect(layout.domain[1]).toBeGreaterThan(0);
 	});
 
 	it("keeps a visible range for flat data with minSpan", () => {
