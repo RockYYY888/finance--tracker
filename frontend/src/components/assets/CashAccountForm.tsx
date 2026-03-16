@@ -23,6 +23,7 @@ import {
 	getCashAccountTypeLabel,
 	SUPPORTED_CURRENCY_OPTIONS,
 } from "../../types/assets";
+import { AssetDeleteDialog } from "./AssetDeleteDialog";
 
 export interface CashAccountFormProps {
 	mode?: AssetEditorMode;
@@ -89,10 +90,12 @@ export function CashAccountForm({
 	);
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [isWorking, setIsWorking] = useState(false);
+	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
 	useEffect(() => {
 		setDraft(toCashAccountDraft(value));
 		setLocalError(null);
+		setIsDeleteDialogOpen(false);
 	}, [mode, resetKey]);
 
 	const effectiveError = localError ?? errorMessage;
@@ -144,9 +147,9 @@ export function CashAccountForm({
 		}
 	}
 
-	async function handleDelete(): Promise<void> {
+	async function handleDelete(): Promise<boolean> {
 		if (!onDelete || recordId === null) {
-			return;
+			return false;
 		}
 
 		setLocalError(null);
@@ -154,39 +157,42 @@ export function CashAccountForm({
 
 		try {
 			await onDelete(recordId);
+			return true;
 		} catch (error) {
 			setLocalError(toErrorMessage(error, "删除现金账户失败，请稍后重试。"));
+			return false;
 		} finally {
 			setIsWorking(false);
 		}
 	}
 
 	return (
-		<section className="asset-manager__panel">
-			<div className="asset-manager__panel-head">
-				<div>
-					<p className="asset-manager__eyebrow">CASH FORM</p>
-					<h3>{resolvedTitle}</h3>
-					{subtitle ? <p>{subtitle}</p> : null}
+		<>
+			<section className="asset-manager__panel">
+				<div className="asset-manager__panel-head">
+					<div>
+						<p className="asset-manager__eyebrow">CASH FORM</p>
+						<h3>{resolvedTitle}</h3>
+						{subtitle ? <p>{subtitle}</p> : null}
+					</div>
 				</div>
-			</div>
 
-			{effectiveError ? (
-				<div className="asset-manager__message asset-manager__message--error">
-					{effectiveError}
-				</div>
-			) : null}
+				{effectiveError ? (
+					<div className="asset-manager__message asset-manager__message--error">
+						{effectiveError}
+					</div>
+				) : null}
 
-			<form className="asset-manager__form" onSubmit={(event) => void handleSubmit(event)}>
-				<label className="asset-manager__field">
-					<span>账户名称</span>
-					<input
-						required
-						value={draft.name}
-						onChange={(event) => updateDraft("name", event.target.value)}
-						placeholder="例如：日常备用金"
-					/>
-				</label>
+				<form className="asset-manager__form" onSubmit={(event) => void handleSubmit(event)}>
+					<label className="asset-manager__field">
+						<span>账户名称</span>
+						<input
+							required
+							value={draft.name}
+							onChange={(event) => updateDraft("name", event.target.value)}
+							placeholder="例如：日常备用金"
+						/>
+					</label>
 
 				<div className="asset-manager__field-grid">
 					<label className="asset-manager__field">
@@ -265,14 +271,14 @@ export function CashAccountForm({
 					</label>
 				</div>
 
-				<label className="asset-manager__field">
-					<span>备注</span>
-					<textarea
-						value={draft.note}
-						onChange={(event) => updateDraft("note", event.target.value)}
-						placeholder="可选，例如：仅作流动资金 / 固定储蓄"
-					/>
-				</label>
+					<label className="asset-manager__field">
+						<span>备注</span>
+						<textarea
+							value={draft.note}
+							onChange={(event) => updateDraft("note", event.target.value)}
+							placeholder="可选，例如：仅作流动资金 / 固定储蓄"
+						/>
+					</label>
 
 					<div className="asset-manager__form-actions">
 						<button
@@ -298,14 +304,39 @@ export function CashAccountForm({
 							<button
 								type="button"
 								className="asset-manager__button asset-manager__button--legacy-delete"
-								onClick={() => void handleDelete()}
+								onClick={() => setIsDeleteDialogOpen(true)}
 								disabled={isSubmitting}
 							>
 								删除账户
 							</button>
 						) : null}
 					</div>
-			</form>
-		</section>
+				</form>
+			</section>
+
+			<AssetDeleteDialog
+				open={isDeleteDialogOpen}
+				busy={isSubmitting}
+				title={`确认删除 ${draft.name.trim() || "这个现金账户"}？`}
+				description="确认后会直接删除这个账户。为了避免你后面还要手动清理，我们会顺手把和它绑定的现金关联一起收掉。"
+				impactItems={[
+					"该账户本身会被移除。",
+					"相关现金流水和账户划转会一并删除。",
+					"投资买卖记录会保留，只会移除其中绑定到这个账户的现金结算关联。",
+				]}
+				onClose={() => {
+					if (!isSubmitting) {
+						setIsDeleteDialogOpen(false);
+					}
+				}}
+				onConfirm={() => {
+					void handleDelete().then((deleted) => {
+						if (deleted) {
+							setIsDeleteDialogOpen(false);
+						}
+					});
+				}}
+			/>
+		</>
 	);
 }

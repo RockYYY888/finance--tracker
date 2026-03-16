@@ -74,6 +74,7 @@ type AuthStatus = "checking" | "anonymous" | "authenticated";
 type WorkspaceView = "manage" | "agent" | "insights";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
+const AGENT_AUDIT_BACKGROUND_REFRESH_DELAY_MS = 1500;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
 const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
@@ -570,6 +571,36 @@ function App() {
 		void loadDashboard({ initial: true });
 		void refreshFeedbackSummary();
 	}, [authStatus, currentUserId]);
+
+	useEffect(() => {
+		if (
+			authStatus !== "authenticated" ||
+			!currentUserId ||
+			activeWorkspaceView === "agent" ||
+			hasLoadedAgentAuditRef.current
+		) {
+			return;
+		}
+
+		let idleCallbackId: number | null = null;
+		const timerId = window.setTimeout(() => {
+			if ("requestIdleCallback" in window) {
+				idleCallbackId = window.requestIdleCallback(() => {
+					void loadAgentAudit();
+				}, { timeout: AGENT_AUDIT_BACKGROUND_REFRESH_DELAY_MS });
+				return;
+			}
+
+			void loadAgentAudit();
+		}, AGENT_AUDIT_BACKGROUND_REFRESH_DELAY_MS);
+
+		return () => {
+			window.clearTimeout(timerId);
+			if (idleCallbackId !== null && "cancelIdleCallback" in window) {
+				window.cancelIdleCallback(idleCallbackId);
+			}
+		};
+	}, [activeWorkspaceView, authStatus, currentUserId]);
 
 	useEffect(() => {
 		if (authStatus !== "authenticated") {

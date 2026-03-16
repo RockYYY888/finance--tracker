@@ -550,32 +550,47 @@ describe("App session restore", () => {
 		expect(managePanel?.hasAttribute("hidden")).toBe(true);
 	});
 
-	it("loads the agent workspace only after the user opens that tab and then reuses it", async () => {
+	it("refreshes the agent workspace in the background after login and reuses it", async () => {
+		vi.useFakeTimers();
 		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
 
 		render(<App />);
 
-		await waitFor(() => {
-			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		await act(async () => {
+			await flushMicrotasks();
+		});
+		expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
+		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
+		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1499);
 		});
 		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
 
 		await act(async () => {
-			screen.getByRole("tab", { name: "智能体" }).click();
+			await vi.advanceTimersByTimeAsync(1);
+		});
+		await act(async () => {
+			await flushMicrotasks();
 		});
 
-		await waitFor(() => {
-			expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledWith({
-				includeAllUsers: false,
-			});
+		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledWith({
+			includeAllUsers: false,
 		});
 		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledWith({
 			source: "AGENT",
 			limit: 120,
 		});
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "智能体" }).click();
+		});
+
 		expect(screen.getByTestId("agent-audit-panel")).not.toBeNull();
 
 		await act(async () => {

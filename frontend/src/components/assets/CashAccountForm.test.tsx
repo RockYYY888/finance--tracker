@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CashAccountForm } from "./CashAccountForm";
 import { CashAccountList } from "./CashAccountList";
@@ -203,5 +203,103 @@ describe("Cash account button styling", () => {
 
 		expect(screen.queryByRole("heading", { name: "账户变动记录" })).toBeNull();
 		expect(screen.queryByRole("tab", { name: "全部" })).toBeNull();
+	});
+
+	it("asks for confirmation before deleting a cash account from the form", async () => {
+		const onDelete = vi.fn().mockResolvedValue(undefined);
+
+		render(
+			<CashAccountForm
+				mode="edit"
+				recordId={1}
+				value={{
+					name: "主账户",
+					currency: "CNY",
+					balance: "1000",
+				}}
+				onEdit={vi.fn()}
+				onDelete={onDelete}
+				onCancel={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "删除账户" }));
+
+		expect(screen.getByRole("dialog")).not.toBeNull();
+		expect(onDelete).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+
+		await waitFor(() => {
+			expect(onDelete).toHaveBeenCalledWith(1);
+		});
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog")).toBeNull();
+		});
+	});
+
+	it("asks for confirmation before deleting a cash account from the list", async () => {
+		const onDelete = vi.fn().mockResolvedValue(undefined);
+
+		render(
+			<CashAccountList
+				accounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 1000,
+						account_type: "BANK",
+						value_cny: 1000,
+					},
+				]}
+				onDelete={onDelete}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+		expect(screen.getByRole("dialog")).not.toBeNull();
+		expect(onDelete).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+
+		await waitFor(() => {
+			expect(onDelete).toHaveBeenCalledWith(1);
+		});
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog")).toBeNull();
+		});
+	});
+
+	it("keeps the delete dialog open when list deletion fails", async () => {
+		const onDelete = vi.fn().mockRejectedValue(new Error("删除失败"));
+
+		render(
+			<CashAccountList
+				accounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 1000,
+						account_type: "BANK",
+						value_cny: 1000,
+					},
+				]}
+				onDelete={onDelete}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "删除" }));
+		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+
+		await waitFor(() => {
+			expect(onDelete).toHaveBeenCalledWith(1);
+		});
+		expect(screen.getByRole("dialog")).not.toBeNull();
+		expect(screen.getByText("删除失败")).not.toBeNull();
 	});
 });

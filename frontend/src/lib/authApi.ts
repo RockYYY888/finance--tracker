@@ -11,6 +11,7 @@ import type {
 const authApiClient = createApiClient();
 const CLIENT_DEVICE_ID_STORAGE_KEY = "asset-tracker-client-device-id";
 let inMemoryClientDeviceId: string | null = null;
+let authSessionRequestInFlight: Promise<AuthSession> | null = null;
 
 function generateClientDeviceId(): string {
 	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -59,7 +60,16 @@ function toJsonBody(
 }
 
 export async function getAuthSession(): Promise<AuthSession> {
-	return authApiClient.request<AuthSession>("/api/auth/session");
+	if (authSessionRequestInFlight !== null) {
+		return authSessionRequestInFlight;
+	}
+
+	authSessionRequestInFlight = authApiClient.request<AuthSession>("/api/auth/session");
+	try {
+		return await authSessionRequestInFlight;
+	} finally {
+		authSessionRequestInFlight = null;
+	}
 }
 
 export async function loginWithPassword(payload: AuthLoginCredentials): Promise<AuthSession> {

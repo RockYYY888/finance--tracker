@@ -682,6 +682,28 @@
 	color: var(--text-muted);
 }
 
+.asset-manager__helper-block--danger {
+	border-color: rgba(255, 124, 145, 0.22);
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 100%),
+		rgba(60, 14, 24, 0.72);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.03),
+		0 12px 26px rgba(255, 124, 145, 0.08);
+}
+
+.asset-manager__helper-block--danger strong {
+	color: #ffd6de;
+}
+
+.asset-manager__danger-list {
+	margin: 0.55rem 0 0;
+	padding-left: 1.1rem;
+	display: grid;
+	gap: 0.35rem;
+	color: #ffdfe5;
+}
+
 .asset-manager__filter-row {
 	display: flex;
 	flex-wrap: wrap;

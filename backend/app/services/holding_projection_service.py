@@ -1066,10 +1066,13 @@ def _reverse_holding_transaction_cash_settlement(
 
 	account = session.get(CashAccount, settlement.cash_account_id)
 	if account is None or account.user_id != current_user.username:
-		raise HTTPException(
-			status_code=409,
-			detail="关联现金账户不存在，无法回滚这笔现金结算，请先修复现金账户。",
+		_delete_cash_ledger_entries_for_holding_transaction(
+			session,
+			user_id=current_user.username,
+			holding_transaction_id=transaction.id or 0,
 		)
+		session.delete(settlement)
+		return None
 
 	before_state = _capture_model_state(account)
 	_delete_cash_ledger_entries_for_holding_transaction(

@@ -4,54 +4,128 @@ from typing import Annotated, Any
 
 from fastapi import Header, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy import or_
 from sqlmodel import select
 
-from app.models import AssetMutationAudit, CashAccount, CashLedgerEntry, CashTransfer
+from app.models import (
+	AssetMutationAudit,
+	CashAccount,
+	CashLedgerEntry,
+	CashTransfer,
+	HoldingTransactionCashSettlement,
+)
 from app.schemas import (
-    AssetMutationAuditRead,
-    CashAccountCreate,
-    CashAccountRead,
-    CashAccountUpdate,
-    CashLedgerAdjustmentApplyRead,
-    CashLedgerAdjustmentCreate,
-    CashLedgerAdjustmentUpdate,
-    CashLedgerEntryRead,
-    CashTransferApplyRead,
-    CashTransferCreate,
-    CashTransferRead,
-    CashTransferUpdate,
+	AssetMutationAuditRead,
+	CashAccountCreate,
+	CashAccountRead,
+	CashAccountUpdate,
+	CashLedgerAdjustmentApplyRead,
+	CashLedgerAdjustmentCreate,
+	CashLedgerAdjustmentUpdate,
+	CashLedgerEntryRead,
+	CashTransferApplyRead,
+	CashTransferCreate,
+	CashTransferRead,
+	CashTransferUpdate,
 )
 from app.services import job_service
 from app.services.auth_service import CurrentUserDependency
 from app.services.common_service import (
-    _build_idempotency_request_hash,
-    _capture_model_state,
-    _ensure_date_not_future,
-    _invalidate_dashboard_cache,
-    _load_idempotent_response,
-    _normalize_currency,
-    _normalize_optional_text,
-    _record_asset_mutation,
-    _store_idempotent_response,
-    _to_asset_mutation_audit_read,
-    _touch_model,
+	_build_idempotency_request_hash,
+	_capture_model_state,
+	_ensure_date_not_future,
+	_invalidate_dashboard_cache,
+	_load_idempotent_response,
+	_normalize_currency,
+	_normalize_optional_text,
+	_record_asset_mutation,
+	_store_idempotent_response,
+	_to_asset_mutation_audit_read,
+	_touch_model,
 )
 from app.services.holding_projection_service import (
-    HOLDING_QUANTITY_EPSILON,
-    _convert_cash_amount_between_currencies,
-    _create_cash_ledger_entry,
-    _delete_cash_ledger_entries_for_transfer,
-    _get_manual_cash_ledger_adjustment,
-    _list_cash_ledger_entries_for_account,
-    _reconcile_cash_account_initial_ledger_entry,
-    _sync_cash_account_balance_from_ledger,
+	HOLDING_QUANTITY_EPSILON,
+	_convert_cash_amount_between_currencies,
+	_create_cash_ledger_entry,
+	_delete_cash_ledger_entries_for_holding_transaction,
+	_delete_cash_ledger_entries_for_transfer,
+	_get_manual_cash_ledger_adjustment,
+	_list_cash_ledger_entries_for_account,
+	_reconcile_cash_account_initial_ledger_entry,
+	_sync_cash_account_balance_from_ledger,
 )
 from app.services.portfolio_read_service import (
-    _to_cash_account_read,
-    _to_cash_ledger_entry_read,
-    _to_cash_transfer_read,
+	_to_cash_account_read,
+	_to_cash_ledger_entry_read,
+	_to_cash_transfer_read,
 )
 from app.services.service_context import SessionDependency
+
+
+def _delete_cash_account_related_transfers(
+	session: SessionDependency,
+	*,
+	current_user: CurrentUserDependency,
+	account: CashAccount,
+) -> tuple[set[int], list[int]]:
+	related_transfers = list(
+		session.exec(
+			select(CashTransfer)
+			.where(CashTransfer.user_id == current_user.username)
+			.where(
+				or_(
+					CashTransfer.from_account_id == (account.id or 0),
+					CashTransfer.to_account_id == (account.id or 0),
+				),
+			),
+		),
+	)
+	affected_other_account_ids: set[int] = set()
+	deleted_transfer_ids: list[int] = []
+
+	for transfer in related_transfers:
+		if transfer.from_account_id != (account.id or 0):
+			affected_other_account_ids.add(transfer.from_account_id)
+		if transfer.to_account_id != (account.id or 0):
+			affected_other_account_ids.add(transfer.to_account_id)
+
+		_delete_cash_ledger_entries_for_transfer(
+			session,
+			user_id=current_user.username,
+			cash_transfer_id=transfer.id or 0,
+		)
+		deleted_transfer_ids.append(transfer.id or 0)
+		session.delete(transfer)
+
+	return affected_other_account_ids, deleted_transfer_ids
+
+
+def _delete_cash_account_related_settlements(
+	session: SessionDependency,
+	*,
+	current_user: CurrentUserDependency,
+	account: CashAccount,
+) -> list[int]:
+	settlements = list(
+		session.exec(
+			select(HoldingTransactionCashSettlement)
+			.where(HoldingTransactionCashSettlement.user_id == current_user.username)
+			.where(HoldingTransactionCashSettlement.cash_account_id == (account.id or 0)),
+		),
+	)
+	deleted_transaction_ids: list[int] = []
+
+	for settlement in settlements:
+		_delete_cash_ledger_entries_for_holding_transaction(
+			session,
+			user_id=current_user.username,
+			holding_transaction_id=settlement.holding_transaction_id,
+		)
+		deleted_transaction_ids.append(settlement.holding_transaction_id)
+		session.delete(settlement)
+
+	return deleted_transaction_ids
+
 
 def list_asset_mutation_audits(
 	current_user: CurrentUserDependency,
@@ -242,22 +316,22 @@ def delete_account(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="Account not found.")
 
-	non_initial_entries = [
-		entry
-		for entry in _list_cash_ledger_entries_for_account(
-			session,
-			user_id=current_user.username,
-			cash_account_id=account.id or 0,
-		)
-		if entry.entry_type != "INITIAL_BALANCE"
-	]
-	if non_initial_entries:
-		raise HTTPException(
-			status_code=409,
-			detail="该现金账户已有流水记录，请先删除相关划转或交易结算后再删除账户。",
-		)
-
 	before_state = _capture_model_state(account)
+	affected_other_account_ids, deleted_transfer_ids = _delete_cash_account_related_transfers(
+		session,
+		current_user=current_user,
+		account=account,
+	)
+	deleted_transaction_ids = _delete_cash_account_related_settlements(
+		session,
+		current_user=current_user,
+		account=account,
+	)
+	for affected_account_id in affected_other_account_ids:
+		affected_account = session.get(CashAccount, affected_account_id)
+		if affected_account is None or affected_account.user_id != current_user.username:
+			continue
+		_sync_cash_account_balance_from_ledger(session, account=affected_account)
 	for entry in _list_cash_ledger_entries_for_account(
 		session,
 		user_id=current_user.username,
@@ -274,6 +348,42 @@ def delete_account(
 		before_state=before_state,
 		after_state=None,
 	)
+	for affected_account_id in affected_other_account_ids:
+		affected_account = session.get(CashAccount, affected_account_id)
+		if affected_account is None or affected_account.user_id != current_user.username:
+			continue
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_ACCOUNT",
+			entity_id=affected_account.id,
+			operation="UPDATE",
+			before_state=None,
+			after_state=_capture_model_state(affected_account),
+			reason=f"CASH_ACCOUNT_DELETE#{account_id}",
+		)
+	for deleted_transfer_id in deleted_transfer_ids:
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="CASH_TRANSFER",
+			entity_id=deleted_transfer_id,
+			operation="DELETE",
+			before_state=None,
+			after_state=None,
+			reason=f"CASH_ACCOUNT_DELETE#{account_id}",
+		)
+	for deleted_transaction_id in deleted_transaction_ids:
+		_record_asset_mutation(
+			session,
+			current_user,
+			entity_type="HOLDING_CASH_SETTLEMENT",
+			entity_id=deleted_transaction_id,
+			operation="DELETE",
+			before_state=None,
+			after_state=None,
+			reason=f"CASH_ACCOUNT_DELETE#{account_id}",
+		)
 	job_service.enqueue_user_portfolio_snapshot_rebuild(session, current_user.username)
 	session.commit()
 	_invalidate_dashboard_cache(current_user.username)

@@ -270,6 +270,152 @@ def test_delete_account_removes_record(session: Session) -> None:
 	assert session.exec(select(CashAccount)).all() == []
 
 
+def test_delete_account_cascades_related_cash_transfers_and_rebalances_other_accounts(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	source_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=500,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+	target_account = create_account(
+		CashAccountCreate(
+			name="备用金",
+			platform="Cash",
+			currency="cny",
+			balance=200,
+			account_type="cash",
+		),
+		current_user,
+		session,
+	)
+	created_transfer = create_cash_transfer(
+		CashTransferCreate(
+			from_account_id=source_account.id or 0,
+			to_account_id=target_account.id or 0,
+			source_amount=100,
+			transferred_on=date(2026, 3, 2),
+			note="首次划转",
+		),
+		current_user,
+		session,
+	)
+
+	assert created_transfer.to_account.balance == 300.0
+
+	response = delete_account(source_account.id or 0, current_user, session)
+
+	assert response.status_code == 204
+	assert session.get(CashAccount, source_account.id) is None
+	refreshed_target_account = session.get(CashAccount, target_account.id)
+	assert refreshed_target_account is not None
+	assert refreshed_target_account.balance == 200.0
+	assert session.exec(select(CashTransfer)).all() == []
+	assert session.exec(
+		select(CashLedgerEntry).where(CashLedgerEntry.cash_transfer_id.is_not(None)),
+	).all() == []
+
+
+def test_delete_account_cascades_holding_cash_settlement_but_keeps_trade_record(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=1000,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+
+	applied_buy = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	response = delete_account(cash_account.id or 0, current_user, session)
+
+	assert response.status_code == 204
+	assert session.get(CashAccount, cash_account.id) is None
+	assert session.exec(select(HoldingTransactionCashSettlement)).all() == []
+	assert session.exec(
+		select(CashLedgerEntry)
+		.where(CashLedgerEntry.holding_transaction_id == applied_buy.transaction.id),
+	).all() == []
+	assert session.get(SecurityHoldingTransaction, applied_buy.transaction.id) is not None
+
+
+def test_delete_holding_transaction_cleans_stale_cash_settlement_without_blocking(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="cny",
+			balance=1000,
+			account_type="bank",
+		),
+		current_user,
+		session,
+	)
+
+	applied_buy = create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="aapl",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="usd",
+			market="us",
+			traded_on=date(2026, 3, 1),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+	stale_account = session.get(CashAccount, cash_account.id)
+	assert stale_account is not None
+	session.delete(stale_account)
+	session.commit()
+
+	response = delete_holding_transaction(applied_buy.transaction.id or 0, current_user, session)
+
+	assert response.status_code == 204
+	assert session.get(SecurityHoldingTransaction, applied_buy.transaction.id) is None
+	assert session.exec(select(HoldingTransactionCashSettlement)).all() == []
+	assert session.exec(
+		select(CashLedgerEntry)
+		.where(CashLedgerEntry.holding_transaction_id == applied_buy.transaction.id),
+	).all() == []
+
+
 def test_delete_account_returns_404_when_missing(session: Session) -> None:
 	current_user = make_user(session)
 	with pytest.raises(HTTPException) as error:
