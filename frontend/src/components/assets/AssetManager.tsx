@@ -78,6 +78,26 @@ const EMPTY_LOADED_RESOURCES: Record<AssetResource, boolean> = {
 	otherAssets: false,
 };
 
+function getLoadedResourcesFromInitialData(
+	initialData: Pick<
+		AssetManagerProps,
+		| "initialCashAccounts"
+		| "initialHoldings"
+		| "initialFixedAssets"
+		| "initialLiabilities"
+		| "initialOtherAssets"
+	>,
+): Record<AssetResource, boolean> {
+	return {
+		...EMPTY_LOADED_RESOURCES,
+		cashAccounts: initialData.initialCashAccounts !== undefined,
+		holdings: initialData.initialHoldings !== undefined,
+		fixedAssets: initialData.initialFixedAssets !== undefined,
+		liabilities: initialData.initialLiabilities !== undefined,
+		otherAssets: initialData.initialOtherAssets !== undefined,
+	};
+}
+
 export interface AssetManagerProps {
 	initialCashAccounts?: CashAccountRecord[];
 	initialHoldings?: HoldingRecord[];
@@ -394,14 +414,15 @@ export function AssetManager({
 		readInitialSection(defaultSection)
 	);
 	const [holdingEditorIntent, setHoldingEditorIntent] = useState<HoldingEditorIntent>("buy");
-	const [loadedResources, setLoadedResources] = useState<Record<AssetResource, boolean>>(() => ({
-		...EMPTY_LOADED_RESOURCES,
-		cashAccounts: initialCashAccounts !== undefined,
-		holdings: initialHoldings !== undefined,
-		fixedAssets: initialFixedAssets !== undefined,
-		liabilities: initialLiabilities !== undefined,
-		otherAssets: initialOtherAssets !== undefined,
-	}));
+	const [loadedResources, setLoadedResources] = useState<Record<AssetResource, boolean>>(() =>
+		getLoadedResourcesFromInitialData({
+			initialCashAccounts,
+			initialHoldings,
+			initialFixedAssets,
+			initialLiabilities,
+			initialOtherAssets,
+		})
+	);
 	const [isCashTransferEditorOpen, setIsCashTransferEditorOpen] = useState(false);
 	const [cashTransferError, setCashTransferError] = useState<string | null>(null);
 	const [isSubmittingCashTransfer, setIsSubmittingCashTransfer] = useState(false);
@@ -456,6 +477,34 @@ export function AssetManager({
 			// Ignore storage errors and keep the in-memory section selection.
 		}
 	}, [activeSection]);
+
+	useEffect(() => {
+		const nextLoadedResources = getLoadedResourcesFromInitialData({
+			initialCashAccounts,
+			initialHoldings,
+			initialFixedAssets,
+			initialLiabilities,
+			initialOtherAssets,
+		});
+		setLoadedResources((currentResources) => {
+			let didChange = false;
+			const mergedResources = { ...currentResources };
+			for (const resource of Object.keys(nextLoadedResources) as AssetResource[]) {
+				if (!nextLoadedResources[resource] || mergedResources[resource]) {
+					continue;
+				}
+				mergedResources[resource] = true;
+				didChange = true;
+			}
+			return didChange ? mergedResources : currentResources;
+		});
+	}, [
+		initialCashAccounts,
+		initialFixedAssets,
+		initialHoldings,
+		initialLiabilities,
+		initialOtherAssets,
+	]);
 
 	function openHoldingBuyEditor(): void {
 		setHoldingEditorIntent("buy");

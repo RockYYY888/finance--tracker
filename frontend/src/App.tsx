@@ -46,6 +46,12 @@ import type {
 	AgentRegistrationRecord,
 	AgentTaskRecord,
 	AssetRecordRecord,
+	CashAccountRecord,
+	FixedAssetRecord,
+	HoldingRecord,
+	OtherAssetRecord,
+	SupportedCurrency,
+	LiabilityRecord,
 } from "./types/assets";
 import { EMPTY_DASHBOARD, type DashboardResponse } from "./types/dashboard";
 import type {
@@ -55,6 +61,13 @@ import type {
 	ReleaseNoteRecord,
 	UserFeedbackRecord,
 } from "./types/feedback";
+import type {
+	ValuedCashAccount,
+	ValuedFixedAsset,
+	ValuedHolding,
+	ValuedLiability,
+	ValuedOtherAsset,
+} from "./types/portfolioAnalytics";
 import { formatCny } from "./utils/portfolioAnalytics";
 
 type AuthStatus = "checking" | "anonymous" | "authenticated";
@@ -118,6 +131,88 @@ type DashboardCacheSnapshot = {
 	dashboard: DashboardResponse;
 	lastUpdatedAt: string | null;
 };
+
+function toSupportedCurrency(value: string, fallback: SupportedCurrency = "CNY"): SupportedCurrency {
+	return value === "USD" || value === "HKD" || value === "CNY" ? value : fallback;
+}
+
+function toCashAccountSeed(account: ValuedCashAccount): CashAccountRecord {
+	return {
+		id: account.id,
+		name: account.name,
+		platform: account.platform,
+		currency: toSupportedCurrency(account.currency),
+		balance: account.balance,
+		account_type: account.account_type,
+		started_on: account.started_on ?? undefined,
+		note: account.note ?? undefined,
+		fx_to_cny: account.fx_to_cny,
+		value_cny: account.value_cny,
+	};
+}
+
+function toHoldingSeed(holding: ValuedHolding): HoldingRecord {
+	return {
+		id: holding.id,
+		side: "BUY",
+		symbol: holding.symbol,
+		name: holding.name,
+		quantity: holding.quantity,
+		fallback_currency: toSupportedCurrency(holding.fallback_currency),
+		cost_basis_price: holding.cost_basis_price ?? undefined,
+		market: holding.market,
+		broker: holding.broker ?? undefined,
+		started_on: holding.started_on ?? undefined,
+		note: holding.note ?? undefined,
+		price: holding.price,
+		price_currency: holding.price_currency,
+		value_cny: holding.value_cny,
+		return_pct: holding.return_pct ?? undefined,
+		last_updated: holding.last_updated,
+	};
+}
+
+function toFixedAssetSeed(asset: ValuedFixedAsset): FixedAssetRecord {
+	return {
+		id: asset.id,
+		name: asset.name,
+		category: asset.category,
+		current_value_cny: asset.current_value_cny,
+		purchase_value_cny: asset.purchase_value_cny ?? undefined,
+		started_on: asset.started_on ?? undefined,
+		note: asset.note ?? undefined,
+		value_cny: asset.value_cny,
+		return_pct: asset.return_pct ?? undefined,
+	};
+}
+
+function toLiabilitySeed(entry: ValuedLiability): LiabilityRecord {
+	return {
+		id: entry.id,
+		name: entry.name,
+		category: entry.category,
+		currency: toSupportedCurrency(entry.currency),
+		balance: entry.balance,
+		started_on: entry.started_on ?? undefined,
+		note: entry.note ?? undefined,
+		fx_to_cny: entry.fx_to_cny,
+		value_cny: entry.value_cny,
+	};
+}
+
+function toOtherAssetSeed(asset: ValuedOtherAsset): OtherAssetRecord {
+	return {
+		id: asset.id,
+		name: asset.name,
+		category: asset.category,
+		current_value_cny: asset.current_value_cny,
+		original_value_cny: asset.original_value_cny ?? undefined,
+		started_on: asset.started_on ?? undefined,
+		note: asset.note ?? undefined,
+		value_cny: asset.value_cny,
+		return_pct: asset.return_pct ?? undefined,
+	};
+}
 
 function getDashboardCacheKey(userId: string): string {
 	return `${DASHBOARD_CACHE_KEY_PREFIX}${userId}`;
@@ -473,7 +568,6 @@ function App() {
 		}
 
 		void loadDashboard({ initial: true });
-		void loadAgentAudit();
 		void refreshFeedbackSummary();
 	}, [authStatus, currentUserId]);
 
@@ -1126,6 +1220,17 @@ function App() {
 		void loadDashboard();
 	}
 
+	const hasDashboardSeedData = lastUpdatedAt !== null;
+	const assetManagerSeeds = hasDashboardSeedData
+		? {
+			cashAccounts: dashboard.cash_accounts.map(toCashAccountSeed),
+			holdings: dashboard.holdings.map(toHoldingSeed),
+			fixedAssets: dashboard.fixed_assets.map(toFixedAssetSeed),
+			liabilities: dashboard.liabilities.map(toLiabilitySeed),
+			otherAssets: dashboard.other_assets.map(toOtherAssetSeed),
+		}
+		: null;
+
 	return (
 		<div className="app-shell">
 			<div className="ambient ambient-left" />
@@ -1403,6 +1508,21 @@ function App() {
 				aria-hidden={activeWorkspaceView !== "manage"}
 			>
 				<AssetManager
+					initialCashAccounts={
+						assetManagerSeeds?.cashAccounts
+					}
+					initialHoldings={
+						assetManagerSeeds?.holdings
+					}
+					initialFixedAssets={
+						assetManagerSeeds?.fixedAssets
+					}
+					initialLiabilities={
+						assetManagerSeeds?.liabilities
+					}
+					initialOtherAssets={
+						assetManagerSeeds?.otherAssets
+					}
 					cashActions={assetManagerController.cashAccounts}
 					cashTransferActions={assetManagerController.cashTransfers}
 					holdingActions={assetManagerController.holdings}

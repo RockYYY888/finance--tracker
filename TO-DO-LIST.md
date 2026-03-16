@@ -8,6 +8,7 @@
 
 ## Recent
 
+- [x] Remove eager agent-workspace prefetch from login, hydrate asset manager directly from dashboard data, and fix summary tabs showing placeholders after sign-in
 - [x] Harden holding search against empty upstream search payloads, allow single-character lookup, and show a clearer no-result state
 - [x] Restrict editable asset currencies to `USD` / `HKD` / `CNY`, add current-vs-target CNY previews, and enforce CNY-only cash-transfer targets
 - [x] Keep the cash account editor focused on the form only, without rendering the account activity section below

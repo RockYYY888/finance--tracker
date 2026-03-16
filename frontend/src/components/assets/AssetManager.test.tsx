@@ -202,6 +202,76 @@ describe("AssetManager refresh stability", () => {
 		expect(within(investmentTab).queryByText("0")).toBeNull();
 	});
 
+	it("hydrates summary counts when dashboard-backed initial data arrives after mount", () => {
+		const { rerender } = render(
+			<AssetManager
+				defaultSection="cash"
+				loadOnMount
+				title="资产管理"
+			/>,
+		);
+
+		expect(within(screen.getByRole("tab", { name: /投资类/ })).getByText("—")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /固定资产/ })).getByText("—")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /负债/ })).getByText("—")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /其他/ })).getByText("—")).not.toBeNull();
+
+		rerender(
+			<AssetManager
+				defaultSection="cash"
+				loadOnMount
+				initialCashAccounts={[]}
+				initialHoldings={[baseHolding]}
+				initialFixedAssets={[
+					{
+						id: 1,
+						name: "自住房",
+						category: "REAL_ESTATE",
+						current_value_cny: 500000,
+						purchase_value_cny: 420000,
+						started_on: "2026-03-01",
+						note: "固定资产",
+						value_cny: 500000,
+						return_pct: 19.05,
+					},
+				]}
+				initialLiabilities={[
+					{
+						id: 1,
+						name: "房贷",
+						category: "MORTGAGE",
+						currency: "CNY",
+						balance: 300000,
+						started_on: "2026-03-01",
+						note: "负债",
+						value_cny: 300000,
+						fx_to_cny: 1,
+					},
+				]}
+				initialOtherAssets={[
+					{
+						id: 1,
+						name: "备用应收",
+						category: "RECEIVABLE",
+						current_value_cny: 5000,
+						original_value_cny: 4800,
+						started_on: "2026-03-01",
+						note: "其他资产",
+						value_cny: 5000,
+						return_pct: 4.17,
+					},
+				]}
+				title="资产管理"
+			/>,
+		);
+
+		expect(within(screen.getByRole("tab", { name: /现金/ })).getByText("0")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /投资类/ })).getByText("1")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /固定资产/ })).getByText("1")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /负债/ })).getByText("1")).not.toBeNull();
+		expect(within(screen.getByRole("tab", { name: /其他/ })).getByText("1")).not.toBeNull();
+	});
+
 	it("does not refetch the active section on unrelated parent rerender", async () => {
 		const holdingRefresh = vi.fn().mockResolvedValue([baseHolding]);
 		const { rerender } = render(

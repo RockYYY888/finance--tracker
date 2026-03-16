@@ -51,6 +51,10 @@ const assetRecordsDialogMocks = vi.hoisted(() => ({
 	lastOpenState: false,
 }));
 
+const assetManagerMocks = vi.hoisted(() => ({
+	lastProps: null as Record<string, unknown> | null,
+}));
+
 vi.mock("./lib/authApi", () => ({
 	getAuthSession: authApiMocks.getAuthSession,
 	loginWithPassword: authApiMocks.loginWithPassword,
@@ -78,7 +82,10 @@ vi.mock("./components/auth/LoginScreen", () => ({
 }));
 
 vi.mock("./components/assets", () => ({
-	AssetManager: () => <div data-testid="asset-manager">资产模块</div>,
+	AssetManager: (props: Record<string, unknown>) => {
+		assetManagerMocks.lastProps = props;
+		return <div data-testid="asset-manager">资产模块</div>;
+	},
 }));
 
 vi.mock("./components/analytics", () => ({
@@ -160,6 +167,7 @@ describe("App session restore", () => {
 		vi.clearAllMocks();
 		vi.useRealTimers();
 		assetRecordsDialogMocks.lastOpenState = false;
+		assetManagerMocks.lastProps = null;
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		window.localStorage.clear();
@@ -353,6 +361,65 @@ describe("App session restore", () => {
 		).toContain("\"holdings_value_cny\":120000");
 	});
 
+	it("passes hydrated dashboard collections into the asset manager", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+		dashboardApiMocks.getDashboard.mockResolvedValue({
+			...EMPTY_DASHBOARD,
+			cash_accounts: [
+				{
+					id: 1,
+					name: "主账户",
+					platform: "Bank",
+					currency: "CNY",
+					balance: 100,
+					account_type: "BANK",
+					value_cny: 100,
+				},
+			],
+			holdings: [
+				{
+					id: 1,
+					side: "BUY",
+					symbol: "AAPL",
+					name: "Apple",
+					quantity: 2,
+					fallback_currency: "USD",
+					cost_basis_price: 180,
+					market: "US",
+					broker: "Futu",
+					started_on: "2026-03-08",
+					note: "长期",
+					price: 188,
+					price_currency: "USD",
+					value_cny: 2710,
+					return_pct: 4.44,
+					last_updated: "2026-03-10T12:00:00Z",
+				},
+			],
+			fixed_assets: [],
+			liabilities: [],
+			other_assets: [],
+		});
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+		await waitFor(() => {
+			expect(assetManagerMocks.lastProps).not.toBeNull();
+		});
+
+		expect(assetManagerMocks.lastProps).toMatchObject({
+			initialCashAccounts: [
+				expect.objectContaining({ id: 1, name: "主账户" }),
+			],
+			initialHoldings: [
+				expect.objectContaining({ id: 1, symbol: "AAPL" }),
+			],
+		});
+	});
+
 	it("falls back to the login screen when session restore fails", async () => {
 		authApiMocks.getAuthSession.mockRejectedValue(new Error("请先登录。"));
 		window.sessionStorage.setItem(STORAGE_KEY, "alice");
@@ -483,10 +550,21 @@ describe("App session restore", () => {
 		expect(managePanel?.hasAttribute("hidden")).toBe(true);
 	});
 
-	it("prefetches and reuses the agent workspace data across tab switches", async () => {
+	it("loads the agent workspace only after the user opens that tab and then reuses it", async () => {
 		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
 
 		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
+		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
+		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "智能体" }).click();
+		});
 
 		await waitFor(() => {
 			expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledWith({
@@ -498,11 +576,6 @@ describe("App session restore", () => {
 			source: "AGENT",
 			limit: 120,
 		});
-
-		await act(async () => {
-			screen.getByRole("tab", { name: "智能体" }).click();
-		});
-
 		expect(screen.getByTestId("agent-audit-panel")).not.toBeNull();
 
 		await act(async () => {
