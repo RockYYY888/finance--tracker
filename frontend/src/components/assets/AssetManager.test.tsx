@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetManager } from "./AssetManager";
 import type { HoldingRecord } from "../../types/assets";
@@ -183,6 +183,36 @@ describe("AssetManager refresh stability", () => {
 		await waitFor(() => {
 			expect(holdingRefresh).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("does not refetch the seeded active section on the first mount", async () => {
+		const cashRefresh = vi.fn().mockResolvedValue([]);
+
+		render(
+			<AssetManager
+				defaultSection="cash"
+				loadOnMount
+				initialCashAccounts={[
+					{
+						id: 1,
+						name: "主账户",
+						platform: "Bank",
+						currency: "CNY",
+						balance: 100,
+						account_type: "BANK",
+						value_cny: 100,
+					},
+				]}
+				cashActions={{ onRefresh: cashRefresh }}
+				title="资产管理"
+			/>,
+		);
+
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(cashRefresh).not.toHaveBeenCalled();
 	});
 
 	it("shows a loading placeholder instead of zero for sections that have not loaded yet", () => {

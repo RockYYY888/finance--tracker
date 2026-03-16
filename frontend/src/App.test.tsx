@@ -78,7 +78,21 @@ vi.mock("./lib/assetApi", () => ({
 }));
 
 vi.mock("./components/auth/LoginScreen", () => ({
-	LoginScreen: () => <div data-testid="login-screen">登录页</div>,
+	LoginScreen: ({
+		onLogin,
+	}: {
+		onLogin: (payload: { user_id: string; password: string }) => Promise<void>;
+	}) => (
+		<div data-testid="login-screen">
+			登录页
+			<button
+				type="button"
+				onClick={() => void onLogin({ user_id: "bob", password: "secret-password" })}
+			>
+				模拟登录
+			</button>
+		</div>
+	),
 }));
 
 vi.mock("./components/assets", () => ({
@@ -258,7 +272,7 @@ describe("App session restore", () => {
 		dashboardApiMocks.getDashboard.mockResolvedValue({ ...EMPTY_DASHBOARD });
 	});
 
-	it("keeps the app shell visible while restoring a remembered session", async () => {
+	it("shows a neutral recovery shell while restoring a remembered session", async () => {
 		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
 		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
 		window.sessionStorage.setItem(STORAGE_KEY, "alice");
@@ -266,17 +280,19 @@ describe("App session restore", () => {
 		render(<App />);
 
 		expect(screen.queryByTestId("login-screen")).toBeNull();
-		expect(screen.getByText("你好，alice")).not.toBeNull();
 		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
+		expect(screen.queryByText("你好，alice")).toBeNull();
+		expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(6);
 
 		pendingSession.resolve({ user_id: "alice", email: null });
 
 		await waitFor(() => {
 			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
 		});
+		expect(screen.getByText("你好，alice")).not.toBeNull();
 	});
 
-	it("restores cached dashboard totals while remembered session recovery is in progress", () => {
+	it("keeps cached dashboard totals hidden until session confirmation completes", () => {
 		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
 		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
 		window.sessionStorage.setItem(STORAGE_KEY, "alice");
@@ -296,14 +312,44 @@ describe("App session restore", () => {
 		render(<App />);
 
 		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
+		expect(screen.queryByText("¥25.08万")).toBeNull();
+		expect(screen.queryByText("¥1.43万")).toBeNull();
+		expect(screen.queryByText("¥23.65万")).toBeNull();
+	});
+
+	it("uses the cached dashboard snapshot after session confirmation while live refresh is pending", async () => {
+		const pendingDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+		dashboardApiMocks.getDashboard.mockReturnValue(pendingDashboard.promise);
+		window.sessionStorage.setItem(STORAGE_KEY, "alice");
+		window.sessionStorage.setItem(
+			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
+			JSON.stringify({
+				schemaVersion: 1,
+				dashboard: {
+					...EMPTY_DASHBOARD,
+					total_value_cny: 250_763.82,
+					cash_value_cny: 14_255.51,
+					holdings_value_cny: 236_508.31,
+				},
+				lastUpdatedAt: "2026-03-14T13:20:09.000Z",
+			}),
+		);
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，alice")).not.toBeNull();
+		});
 		expect(screen.getByText("¥25.08万")).not.toBeNull();
 		expect(screen.getByText("¥1.43万")).not.toBeNull();
 		expect(screen.getByText("¥23.65万")).not.toBeNull();
 	});
 
-	it("falls back to persistent dashboard cache when the tab cache is empty", () => {
-		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
-		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);
+	it("falls back to persistent dashboard cache when the tab cache is empty", async () => {
+		const pendingDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+		dashboardApiMocks.getDashboard.mockReturnValue(pendingDashboard.promise);
 		window.localStorage.setItem(STORAGE_KEY, "alice");
 		window.localStorage.setItem(
 			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
@@ -320,6 +366,9 @@ describe("App session restore", () => {
 
 		render(<App />);
 
+		await waitFor(() => {
+			expect(screen.getByText("你好，alice")).not.toBeNull();
+		});
 		expect(screen.getByText("¥19.89万")).not.toBeNull();
 		expect(screen.getByText("¥16.82万")).not.toBeNull();
 		expect(screen.getByText("¥3.07万")).not.toBeNull();
@@ -355,10 +404,37 @@ describe("App session restore", () => {
 			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
 		);
 		expect(cachedValue).not.toBeNull();
+		expect(cachedValue).toContain("\"schemaVersion\":1");
 		expect(cachedValue).toContain("\"holdings_value_cny\":120000");
 		expect(
 			window.localStorage.getItem(`${DASHBOARD_CACHE_KEY_PREFIX}alice`),
 		).toContain("\"holdings_value_cny\":120000");
+	});
+
+	it("ignores malformed cached dashboard snapshots instead of crashing", async () => {
+		const pendingDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+		dashboardApiMocks.getDashboard.mockReturnValue(pendingDashboard.promise);
+		window.sessionStorage.setItem(STORAGE_KEY, "alice");
+		window.sessionStorage.setItem(
+			`${DASHBOARD_CACHE_KEY_PREFIX}alice`,
+			JSON.stringify({
+				schemaVersion: 1,
+				dashboard: {
+					total_value_cny: "bad-data",
+					cash_accounts: [null, 1, "oops"],
+				},
+				lastUpdatedAt: "not-a-date",
+			}),
+		);
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，alice")).not.toBeNull();
+		});
+		expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(6);
+		expect(screen.queryByText("NaN")).toBeNull();
 	});
 
 	it("passes hydrated dashboard collections into the asset manager", async () => {
@@ -433,6 +509,61 @@ describe("App session restore", () => {
 		});
 
 		expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+	});
+
+	it("ignores a stale dashboard response after logging out and signing into another account", async () => {
+		const aliceDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
+		const bobDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+		authApiMocks.logoutCurrentUser.mockResolvedValue(undefined);
+		authApiMocks.loginWithPassword.mockResolvedValue({ user_id: "bob", email: null });
+		dashboardApiMocks.getDashboard
+			.mockReturnValueOnce(aliceDashboard.promise)
+			.mockReturnValueOnce(bobDashboard.promise);
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，alice")).not.toBeNull();
+		});
+
+		await act(async () => {
+			screen.getByRole("button", { name: "退出登录" }).click();
+			await flushMicrotasks();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("login-screen")).not.toBeNull();
+		});
+
+		await act(async () => {
+			screen.getByRole("button", { name: "模拟登录" }).click();
+			await flushMicrotasks();
+		});
+
+		bobDashboard.resolve({
+			...EMPTY_DASHBOARD,
+			total_value_cny: 200_000,
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，bob")).not.toBeNull();
+		});
+		await waitFor(() => {
+			expect(screen.getByText("¥20.00万")).not.toBeNull();
+		});
+
+		aliceDashboard.resolve({
+			...EMPTY_DASHBOARD,
+			total_value_cny: 100_000,
+		});
+
+		await act(async () => {
+			await flushMicrotasks();
+		});
+
+		expect(screen.getByText("¥20.00万")).not.toBeNull();
+		expect(screen.queryByText("¥10.00万")).toBeNull();
 	});
 
 	it("pauses timed dashboard refresh while user input is protected by a refresh guard", async () => {

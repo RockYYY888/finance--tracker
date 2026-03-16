@@ -757,15 +757,17 @@ export function AssetManager({
 	}
 
 	useEffect(() => {
-		const shouldRefreshSection =
-			(!hasLoadedInitialSectionRef.current && loadOnMount) ||
-			!hasLoadedSectionResources(activeSection);
-		if (!shouldRefreshSection) {
+		const isInitialMount = !hasLoadedInitialSectionRef.current;
+		if (isInitialMount) {
+			hasLoadedInitialSectionRef.current = true;
+		}
+
+		if (isInitialMount && !loadOnMount) {
 			return;
 		}
 
-		if (!hasLoadedInitialSectionRef.current && loadOnMount) {
-			hasLoadedInitialSectionRef.current = true;
+		if (hasLoadedSectionResources(activeSection)) {
+			return;
 		}
 
 		switch (activeSection) {

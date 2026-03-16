@@ -62,6 +62,9 @@ import type {
 	UserFeedbackRecord,
 } from "./types/feedback";
 import type {
+	AllocationSlice,
+	HoldingReturnSeries,
+	TimelinePoint,
 	ValuedCashAccount,
 	ValuedFixedAsset,
 	ValuedHolding,
@@ -75,6 +78,7 @@ type WorkspaceView = "manage" | "agent" | "insights";
 const SESSION_CHECK_TIMEOUT_MS = 3000;
 const AUTH_SUBMISSION_TIMEOUT_MS = 10000;
 const AGENT_AUDIT_BACKGROUND_REFRESH_DELAY_MS = 1500;
+const DASHBOARD_CACHE_SCHEMA_VERSION = 1;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
 const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
@@ -129,9 +133,78 @@ function clearRememberedSessionUserId(): void {
 }
 
 type DashboardCacheSnapshot = {
+	schemaVersion: number;
 	dashboard: DashboardResponse;
 	lastUpdatedAt: string | null;
 };
+
+function toFiniteNumber(value: unknown, fallbackValue = 0): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : fallbackValue;
+}
+
+function toNullableFiniteNumber(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toObjectArray<T extends object>(value: unknown): T[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+
+	return value.filter((item): item is T => item !== null && typeof item === "object");
+}
+
+function toStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+
+	return value.filter((item): item is string => typeof item === "string");
+}
+
+function sanitizeCachedDashboard(value: unknown): DashboardResponse | null {
+	if (!value || typeof value !== "object") {
+		return null;
+	}
+
+	const dashboard = value as Record<string, unknown>;
+	return {
+		...EMPTY_DASHBOARD,
+		server_today: typeof dashboard.server_today === "string" ? dashboard.server_today : "",
+		total_value_cny: toFiniteNumber(dashboard.total_value_cny),
+		cash_value_cny: toFiniteNumber(dashboard.cash_value_cny),
+		holdings_value_cny: toFiniteNumber(dashboard.holdings_value_cny),
+		fixed_assets_value_cny: toFiniteNumber(dashboard.fixed_assets_value_cny),
+		liabilities_value_cny: toFiniteNumber(dashboard.liabilities_value_cny),
+		other_assets_value_cny: toFiniteNumber(dashboard.other_assets_value_cny),
+		usd_cny_rate: toNullableFiniteNumber(dashboard.usd_cny_rate),
+		hkd_cny_rate: toNullableFiniteNumber(dashboard.hkd_cny_rate),
+		cash_accounts: toObjectArray<ValuedCashAccount>(dashboard.cash_accounts),
+		holdings: toObjectArray<ValuedHolding>(dashboard.holdings),
+		fixed_assets: toObjectArray<ValuedFixedAsset>(dashboard.fixed_assets),
+		liabilities: toObjectArray<ValuedLiability>(dashboard.liabilities),
+		other_assets: toObjectArray<ValuedOtherAsset>(dashboard.other_assets),
+		allocation: toObjectArray<AllocationSlice>(dashboard.allocation),
+		hour_series: toObjectArray<TimelinePoint>(dashboard.hour_series),
+		day_series: toObjectArray<TimelinePoint>(dashboard.day_series),
+		month_series: toObjectArray<TimelinePoint>(dashboard.month_series),
+		year_series: toObjectArray<TimelinePoint>(dashboard.year_series),
+		holdings_return_hour_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_hour_series),
+		holdings_return_day_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_day_series),
+		holdings_return_month_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_month_series),
+		holdings_return_year_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_year_series),
+		holding_return_series: toObjectArray<HoldingReturnSeries>(dashboard.holding_return_series),
+		warnings: toStringArray(dashboard.warnings),
+	};
+}
+
+function normalizeCachedTimestamp(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+
+	return Number.isNaN(new Date(value).getTime()) ? null : value;
+}
 
 function toSupportedCurrency(value: string, fallback: SupportedCurrency = "CNY"): SupportedCurrency {
 	return value === "USD" || value === "HKD" || value === "CNY" ? value : fallback;
@@ -241,11 +314,21 @@ function readCachedDashboardSnapshot(userId: string): DashboardCacheSnapshot | n
 		) {
 			return null;
 		}
+		if (
+			typeof parsedValue.schemaVersion === "number" &&
+			parsedValue.schemaVersion !== DASHBOARD_CACHE_SCHEMA_VERSION
+		) {
+			return null;
+		}
+		const sanitizedDashboard = sanitizeCachedDashboard(parsedValue.dashboard);
+		if (sanitizedDashboard === null) {
+			return null;
+		}
 
 		return {
-			dashboard: parsedValue.dashboard as DashboardResponse,
-			lastUpdatedAt:
-				typeof parsedValue.lastUpdatedAt === "string" ? parsedValue.lastUpdatedAt : null,
+			schemaVersion: DASHBOARD_CACHE_SCHEMA_VERSION,
+			dashboard: sanitizedDashboard,
+			lastUpdatedAt: normalizeCachedTimestamp(parsedValue.lastUpdatedAt),
 		};
 	} catch {
 		return null;
@@ -263,6 +346,7 @@ function writeCachedDashboardSnapshot(
 
 	try {
 		const serializedSnapshot = JSON.stringify({
+			schemaVersion: DASHBOARD_CACHE_SCHEMA_VERSION,
 			dashboard,
 			lastUpdatedAt,
 		} satisfies DashboardCacheSnapshot);
@@ -386,8 +470,11 @@ function App() {
 	const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 	const [dashboard, setDashboard] = useState<DashboardResponse>(() => {
 		const rememberedUserId = readRememberedSessionUserId();
-		return rememberedUserId
-			? readCachedDashboardSnapshot(rememberedUserId)?.dashboard ?? EMPTY_DASHBOARD
+		const cachedDashboardSnapshot = rememberedUserId
+			? readCachedDashboardSnapshot(rememberedUserId)
+			: null;
+		return cachedDashboardSnapshot?.lastUpdatedAt
+			? cachedDashboardSnapshot.dashboard
 			: EMPTY_DASHBOARD;
 	});
 	const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
@@ -440,14 +527,32 @@ function App() {
 	const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
 	const [emailDialogErrorMessage, setEmailDialogErrorMessage] = useState<string | null>(null);
 	const [emailNoticeMessage, setEmailNoticeMessage] = useState<string | null>(null);
-	const dashboardRequestInFlightRef = useRef(false);
+	const dashboardRequestInFlightRef = useRef<number | null>(null);
+	const latestDashboardRequestIdRef = useRef(0);
 	const pendingDashboardRefreshRef = useRef(false);
 	const pendingForceRefreshRef = useRef(false);
 	const autoRefreshResumeRef = useRef(false);
 	const hasLoadedAgentAuditRef = useRef(false);
 	const agentAuditRequestInFlightRef = useRef<Promise<void> | null>(null);
 	const latestAgentAuditRequestIdRef = useRef(0);
+	const currentUserIdRef = useRef<string | null>(currentUserId);
+	const authStatusRef = useRef<AuthStatus>(authStatus);
 	const isAutoRefreshBlocked = useHasActiveAutoRefreshGuards();
+
+	useEffect(() => {
+		currentUserIdRef.current = currentUserId;
+	}, [currentUserId]);
+
+	useEffect(() => {
+		authStatusRef.current = authStatus;
+	}, [authStatus]);
+
+	function invalidateDashboardRequests(): void {
+		latestDashboardRequestIdRef.current += 1;
+		dashboardRequestInFlightRef.current = null;
+		pendingDashboardRefreshRef.current = false;
+		pendingForceRefreshRef.current = false;
+	}
 
 	function resetDashboardState(): void {
 		setDashboard(EMPTY_DASHBOARD);
@@ -455,14 +560,15 @@ function App() {
 		setIsRefreshingDashboard(false);
 		setErrorMessage(null);
 		setLastUpdatedAt(null);
-		dashboardRequestInFlightRef.current = false;
-		pendingDashboardRefreshRef.current = false;
-		pendingForceRefreshRef.current = false;
+		invalidateDashboardRequests();
 	}
 
 	function markSignedInWithProfile(userId: string, email: string | null): void {
 		const cachedDashboardSnapshot = readCachedDashboardSnapshot(userId);
+		const hasUsableCachedDashboard = cachedDashboardSnapshot?.lastUpdatedAt !== null;
 		rememberSessionUserId(userId);
+		currentUserIdRef.current = userId;
+		authStatusRef.current = "authenticated";
 		setCurrentUserId(userId);
 		setCurrentUserEmail(email);
 		setAuthStatus("authenticated");
@@ -501,13 +607,24 @@ function App() {
 		setEmailNoticeMessage(null);
 		setEmailDialogErrorMessage(null);
 		setIsEmailDialogOpen(false);
-		setDashboard(cachedDashboardSnapshot?.dashboard ?? EMPTY_DASHBOARD);
-		setLastUpdatedAt(cachedDashboardSnapshot?.lastUpdatedAt ?? null);
-		setIsLoadingDashboard(cachedDashboardSnapshot === null);
+		invalidateDashboardRequests();
+		setDashboard(
+			hasUsableCachedDashboard && cachedDashboardSnapshot
+				? cachedDashboardSnapshot.dashboard
+				: EMPTY_DASHBOARD,
+		);
+		setLastUpdatedAt(
+			hasUsableCachedDashboard && cachedDashboardSnapshot
+				? cachedDashboardSnapshot.lastUpdatedAt
+				: null,
+		);
+		setIsLoadingDashboard(!hasUsableCachedDashboard);
 	}
 
 	function markSignedOut(): void {
 		clearRememberedSessionUserId();
+		currentUserIdRef.current = null;
+		authStatusRef.current = "anonymous";
 		setCurrentUserId(null);
 		setCurrentUserEmail(null);
 		setAuthStatus("anonymous");
@@ -659,6 +776,7 @@ function App() {
 	}, [authStatus, isAutoRefreshBlocked]);
 
 	async function hydrateSession(): Promise<void> {
+		authStatusRef.current = "checking";
 		setAuthStatus("checking");
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
@@ -1096,10 +1214,13 @@ function App() {
 			return;
 		}
 
-		if (dashboardRequestInFlightRef.current) {
+		if (dashboardRequestInFlightRef.current !== null) {
 			pendingDashboardRefreshRef.current = true;
 			pendingForceRefreshRef.current =
 				pendingForceRefreshRef.current || Boolean(options.forceRefresh);
+			return;
+		}
+		if (!currentUserId) {
 			return;
 		}
 
@@ -1107,19 +1228,34 @@ function App() {
 			setIsLoadingDashboard(true);
 		}
 
-		dashboardRequestInFlightRef.current = true;
+		const requestUserId = currentUserId;
+		const requestId = latestDashboardRequestIdRef.current + 1;
+		latestDashboardRequestIdRef.current = requestId;
+		dashboardRequestInFlightRef.current = requestId;
 		setIsRefreshingDashboard(true);
 		setErrorMessage(null);
 
 		try {
 			const nextDashboard = await getDashboard(Boolean(options.forceRefresh));
 			const nextLastUpdatedAt = new Date().toISOString();
+			if (
+				latestDashboardRequestIdRef.current !== requestId ||
+				currentUserIdRef.current !== requestUserId ||
+				authStatusRef.current !== "authenticated"
+			) {
+				return;
+			}
 			setDashboard(nextDashboard);
 			setLastUpdatedAt(nextLastUpdatedAt);
-			if (currentUserId) {
-				writeCachedDashboardSnapshot(currentUserId, nextDashboard, nextLastUpdatedAt);
-			}
+			writeCachedDashboardSnapshot(requestUserId, nextDashboard, nextLastUpdatedAt);
 		} catch (error) {
+			if (
+				latestDashboardRequestIdRef.current !== requestId ||
+				currentUserIdRef.current !== requestUserId ||
+				authStatusRef.current !== "authenticated"
+			) {
+				return;
+			}
 			const nextErrorMessage = error instanceof Error
 				? error.message
 				: "无法加载资产总览，请确认后端服务是否启动。";
@@ -1130,7 +1266,10 @@ function App() {
 
 			setErrorMessage(nextErrorMessage);
 		} finally {
-			dashboardRequestInFlightRef.current = false;
+			if (dashboardRequestInFlightRef.current !== requestId) {
+				return;
+			}
+			dashboardRequestInFlightRef.current = null;
 			setIsRefreshingDashboard(false);
 			setIsLoadingDashboard(false);
 			if (pendingDashboardRefreshRef.current) {
@@ -1212,6 +1351,35 @@ function App() {
 	}
 
 	const isRecoveringSession = authStatus === "checking" && currentUserId !== null;
+
+	if (isRecoveringSession) {
+		return (
+			<div className="app-shell">
+				<div className="ambient ambient-left" />
+				<div className="ambient ambient-right" />
+
+				<header className="hero-panel">
+					<div className="hero-copy-block">
+						<div className="hero-copy-block__main">
+							<p className="eyebrow">SESSION RESTORE</p>
+							<h1>正在恢复登录状态</h1>
+							<p className="hero-copy">确认当前会话之前，不展示本地缓存里的资产数据。</p>
+							<p className="hero-subtle">验证通过后会继续回到你的工作区。</p>
+						</div>
+					</div>
+
+					<div className="summary-grid" aria-label="恢复中的资产概览">
+						{["总资产", "现金资产", "投资类", "固定资产", "其他", "负债"].map((label) => (
+							<div key={label} className="stat-card neutral">
+								<span>{label}</span>
+								<strong>—</strong>
+							</div>
+						))}
+					</div>
+				</header>
+			</div>
+		);
+	}
 
 	if (!currentUserId || authStatus === "anonymous") {
 		return (
