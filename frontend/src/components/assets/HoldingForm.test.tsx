@@ -51,6 +51,28 @@ describe("HoldingForm search results", () => {
 		expect(screen.queryByText(/代码推断/)).toBeNull();
 		expect(screen.getByText(/Bitget/)).not.toBeNull();
 	});
+
+	it("starts searching with a single-character query and shows the empty state", async () => {
+		const onSearch = vi.fn().mockResolvedValue([]);
+
+		render(<HoldingForm onSearch={onSearch} />);
+
+		fireEvent.change(screen.getByLabelText("搜索投资标的"), {
+			target: { value: "寒" },
+		});
+
+		await waitFor(() => {
+			expect(onSearch).toHaveBeenCalledWith("寒");
+		}, { timeout: 1000 });
+		await waitFor(() => {
+			expect(
+				screen.getByText("没有找到匹配标的，试试代码、拼音或更完整的名称。"),
+			).not.toBeNull();
+		}, { timeout: 1000 });
+
+		expect(screen.queryByText("请输入至少 2 个字符。")).toBeNull();
+		expect(screen.queryByText("标的搜索失败，请稍后重试。")).toBeNull();
+	});
 });
 
 describe("HoldingForm create defaults", () => {

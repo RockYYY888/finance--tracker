@@ -756,11 +756,18 @@ class YahooSecuritySearchProvider:
 				payload = response.json()
 		except httpx.HTTPError as exc:
 			raise QuoteLookupError(f"Security search request failed for {query}.") from exc
+		except ValueError as exc:
+			raise QuoteLookupError(f"Security search returned invalid data for {query}.") from exc
 
 		results: list[SecuritySearchResult] = []
 		seen_symbols: set[str] = set()
+		items = payload.get("quotes") if isinstance(payload, dict) else []
+		if items is None:
+			return []
+		if not isinstance(items, list):
+			raise QuoteLookupError(f"Security search returned invalid data for {query}.")
 
-		for item in payload.get("quotes", []):
+		for item in items:
 			raw_symbol = str(item.get("symbol") or "").strip()
 			quote_type = str(item.get("quoteType") or "").strip().upper()
 			if not raw_symbol or (quote_type and quote_type not in SEARCHABLE_QUOTE_TYPES):
@@ -827,11 +834,19 @@ class EastMoneySecuritySearchProvider:
 				payload = response.json()
 		except httpx.HTTPError as exc:
 			raise QuoteLookupError(f"Eastmoney search request failed for {query}.") from exc
+		except ValueError as exc:
+			raise QuoteLookupError(f"Eastmoney search returned invalid data for {query}.") from exc
 
 		results: list[SecuritySearchResult] = []
 		seen_symbols: set[str] = set()
+		quotation_table = payload.get("QuotationCodeTable") if isinstance(payload, dict) else {}
+		items = quotation_table.get("Data") if isinstance(quotation_table, dict) else []
+		if items is None:
+			return []
+		if not isinstance(items, list):
+			raise QuoteLookupError(f"Eastmoney search returned invalid data for {query}.")
 
-		for item in payload.get("QuotationCodeTable", {}).get("Data", []):
+		for item in items:
 			parsed_result = parse_eastmoney_search_item(item)
 			if parsed_result is None or parsed_result.symbol in seen_symbols:
 				continue

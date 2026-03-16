@@ -15,6 +15,7 @@ from app.services.market_data import (
 	Quote,
 	QuoteLookupError,
 	SecuritySearchResult,
+	YahooSecuritySearchProvider,
 	build_eastmoney_secid,
 	build_local_search_results,
 	build_fx_symbol,
@@ -625,6 +626,64 @@ def test_parse_eastmoney_search_item_maps_hk_codes() -> None:
 	assert result is not None
 	assert result.symbol == "2015.HK"
 	assert result.market == "HK"
+
+
+def test_eastmoney_search_provider_returns_empty_results_for_null_data(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	class StaticAsyncClient:
+		def __init__(self, *args, **kwargs) -> None:
+			pass
+
+		async def __aenter__(self) -> "StaticAsyncClient":
+			return self
+
+		async def __aexit__(self, exc_type, exc, tb) -> None:
+			return None
+
+		async def get(self, *args, **kwargs) -> httpx.Response:
+			request = httpx.Request("GET", EastMoneySecuritySearchProvider.EASTMONEY_SEARCH_URL)
+			return httpx.Response(
+				200,
+				request=request,
+				json={"QuotationCodeTable": {"Data": None, "Status": 0, "TotalCount": 0}},
+			)
+
+	monkeypatch.setattr("app.services.market_data.httpx.AsyncClient", StaticAsyncClient)
+	provider = EastMoneySecuritySearchProvider()
+
+	results = asyncio.run(provider.search("不存在的标的xyz123"))
+
+	assert results == []
+
+
+def test_yahoo_search_provider_returns_empty_results_for_null_quotes(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	class StaticAsyncClient:
+		def __init__(self, *args, **kwargs) -> None:
+			pass
+
+		async def __aenter__(self) -> "StaticAsyncClient":
+			return self
+
+		async def __aexit__(self, exc_type, exc, tb) -> None:
+			return None
+
+		async def get(self, *args, **kwargs) -> httpx.Response:
+			request = httpx.Request("GET", YahooSecuritySearchProvider.YAHOO_SEARCH_URL)
+			return httpx.Response(
+				200,
+				request=request,
+				json={"count": 0, "quotes": None},
+			)
+
+	monkeypatch.setattr("app.services.market_data.httpx.AsyncClient", StaticAsyncClient)
+	provider = YahooSecuritySearchProvider()
+
+	results = asyncio.run(provider.search("zzznotfound"))
+
+	assert results == []
 
 
 def test_eastmoney_quote_provider_exposes_http_status_details(

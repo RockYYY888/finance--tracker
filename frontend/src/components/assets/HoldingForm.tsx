@@ -128,10 +128,6 @@ function allowsFractionalQuantity(market: HoldingFormDraft["market"]): boolean {
 	return market === "FUND" || market === "CRYPTO";
 }
 
-function shouldStartSearch(query: string): boolean {
-	return query.trim().length >= 2;
-}
-
 function isImplicitSearchSourceLabel(source?: string | null): boolean {
 	return source === "代码推断" || source === "本地映射";
 }
@@ -447,14 +443,6 @@ export function HoldingForm({
 			return;
 		}
 
-		if (!shouldStartSearch(searchQuery)) {
-			setSearchResults([]);
-			setIsSearchOpen(false);
-			setSearchError(null);
-			setIsSearching(false);
-			return;
-		}
-
 		if (selectionTokens.includes(normalizedQuery)) {
 			setSearchResults([]);
 			setIsSearchOpen(false);
@@ -464,6 +452,8 @@ export function HoldingForm({
 		}
 
 		const requestId = ++searchRequestIdRef.current;
+		setSearchResults([]);
+		setIsSearchOpen(false);
 		setIsSearching(true);
 
 		const timer = window.setTimeout(() => {
@@ -948,14 +938,14 @@ export function HoldingForm({
 
 								{isSearching ? (
 									<p className="asset-manager__helper-text">正在搜索…</p>
-								) : searchEnabled && searchQuery.trim().length === 1 && !draft.symbol ? (
-									<p className="asset-manager__helper-text">请输入至少 2 个字符。</p>
 								) : searchEnabled &&
 									searchQuery.trim() &&
 									!draft.symbol &&
 									searchResults.length === 0 &&
 									!searchError ? (
-									<p className="asset-manager__helper-text">没有可选结果，请换一个名称或代码。</p>
+									<p className="asset-manager__helper-text">
+										没有找到匹配标的，试试代码、拼音或更完整的名称。
+									</p>
 								) : null}
 
 								{isSearchOpen && searchResults.length > 0 ? (
