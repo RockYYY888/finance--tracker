@@ -5,6 +5,7 @@ from pathlib import Path
 import threading
 
 import pytest
+from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine, select
 
 import app.database as database
@@ -192,6 +193,23 @@ def test_api_lifespan_only_initializes_db(
 		"init_db",
 		"inside_lifespan",
 	]
+
+
+def test_sqlite_engine_recovers_from_closed_pooled_connection(tmp_path: Path) -> None:
+	engine = database._build_engine(f"sqlite:///{tmp_path / 'pool-pre-ping.db'}")
+
+	with Session(engine) as session:
+		assert session.exec(text("select 1")).one() == (1,)
+
+	pooled_connection = engine.raw_connection()
+	driver_connection = pooled_connection.driver_connection
+	pooled_connection.close()
+	driver_connection.close()
+
+	with Session(engine) as session:
+		assert session.exec(text("select 1")).one() == (1,)
+
+	engine.dispose()
 
 
 def test_worker_lifecycle_initializes_db_and_background_job_worker(

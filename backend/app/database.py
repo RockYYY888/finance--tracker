@@ -36,7 +36,11 @@ def _build_engine(database_url: str):
 	engine = create_engine(
 		database_url,
 		connect_args=connect_args,
-		pool_pre_ping=not _is_sqlite_database_url(database_url),
+		# SQLite is still accessed through a pooled SQLAlchemy engine in local/runtime
+		# deployments, so stale pooled connections must be pre-pinged the same way as
+		# network databases. Otherwise one poisoned connection can turn every request
+		# into a 500 until the process restarts.
+		pool_pre_ping=True,
 	)
 	if _is_sqlite_database_url(database_url):
 		@event.listens_for(engine, "connect")
