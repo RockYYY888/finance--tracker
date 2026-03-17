@@ -24,16 +24,6 @@
 	border: 1px solid var(--line-soft);
 	border-radius: 28px;
 	background:
-		radial-gradient(
-			circle at top right,
-			rgba(99, 232, 255, 0.12),
-			transparent 36%
-		),
-		radial-gradient(
-			circle at bottom left,
-			rgba(122, 140, 255, 0.1),
-			transparent 42%
-		),
 		linear-gradient(155deg, rgba(10, 20, 38, 0.94), rgba(7, 14, 26, 0.98));
 	box-shadow: 0 20px 48px rgba(0, 0, 0, 0.22);
 	min-width: 0;

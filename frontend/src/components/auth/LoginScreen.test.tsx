@@ -51,4 +51,10 @@ describe("LoginScreen forgot-password guidance", () => {
 			screen.queryByText("连续多次输入密码错误，是否需要改为找回密码？"),
 		).toBeNull();
 	});
+
+	it("does not render ambient decorative layers", () => {
+		const { container } = render(<LoginScreen {...buildProps()} />);
+
+		expect(container.querySelector(".ambient")).toBeNull();
+	});
 });

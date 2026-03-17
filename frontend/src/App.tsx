@@ -1352,13 +1352,10 @@ function App() {
 
 	const isRecoveringSession = authStatus === "checking" && currentUserId !== null;
 
-	if (isRecoveringSession) {
-		return (
-			<div className="app-shell">
-				<div className="ambient ambient-left" />
-				<div className="ambient ambient-right" />
-
-				<header className="hero-panel">
+		if (isRecoveringSession) {
+			return (
+				<div className="app-shell">
+					<header className="hero-panel">
 					<div className="hero-copy-block">
 						<div className="hero-copy-block__main">
 							<p className="eyebrow">SESSION RESTORE</p>
@@ -1432,8 +1429,6 @@ function App() {
 
 	return (
 		<div className="app-shell">
-			<div className="ambient ambient-left" />
-			<div className="ambient ambient-right" />
 			{isRecoveringSession ? (
 				<div className="session-recovery-mask" role="status" aria-live="polite">
 					<div className="session-recovery-mask__panel panel">

@@ -56,6 +56,10 @@ describe("global layout styles", () => {
 			globalStylesheet.match(/\.feedback-modal__panel\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
 		const assetModalPanelBlock =
 			assetStylesheet.match(/\.asset-manager__modal-panel\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+		expect(globalStylesheet).not.toContain("radial-gradient(");
+		expect(globalStylesheet).not.toMatch(/\.ambient(?:-left|-right)?\s*\{/);
+		expect(assetStylesheet).not.toContain("radial-gradient(");
+		expect(analyticsStylesheet).not.toContain("radial-gradient(");
 		expect(feedbackModalPanelBlock).not.toContain("radial-gradient(");
 		expect(assetModalPanelBlock).not.toContain("radial-gradient(");
 		expect(analyticsStylesheet).toMatch(

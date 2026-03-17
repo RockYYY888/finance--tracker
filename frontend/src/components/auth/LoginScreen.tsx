@@ -78,8 +78,6 @@ export function LoginScreen({
 
 	return (
 		<div className="auth-shell">
-			<div className="ambient ambient-left" />
-			<div className="ambient ambient-right" />
 			<section className="auth-card">
 				<div className="auth-card__intro">
 					<div className="auth-card__copy">
