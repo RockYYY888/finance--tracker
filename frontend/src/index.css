@@ -703,7 +703,6 @@ h3 {
 	border: 1px solid var(--line-soft);
 	background:
 		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%),
-		radial-gradient(circle at top right, rgba(99, 232, 255, 0.08), transparent 34%),
 		linear-gradient(145deg, rgba(9, 18, 34, 0.98), rgba(7, 13, 25, 0.96));
 	box-shadow:
 		0 24px 64px rgba(0, 0, 0, 0.28),

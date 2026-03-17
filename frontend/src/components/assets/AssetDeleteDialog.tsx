@@ -21,7 +21,7 @@ export function AssetDeleteDialog({
 	description,
 	impactItems,
 	confirmLabel = "确认删除",
-	cancelLabel = "先不删",
+	cancelLabel = "取消",
 	onConfirm,
 	onClose,
 }: AssetDeleteDialogProps) {

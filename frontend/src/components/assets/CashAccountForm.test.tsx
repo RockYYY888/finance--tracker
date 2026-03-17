@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CashAccountForm } from "./CashAccountForm";
 import { CashAccountList } from "./CashAccountList";
+import { CASH_ACCOUNT_DELETE_DESCRIPTION } from "./cashAccountDeleteCopy";
 
 afterEach(() => {
 	cleanup();
@@ -226,6 +227,8 @@ describe("Cash account button styling", () => {
 		fireEvent.click(screen.getByRole("button", { name: "删除账户" }));
 
 		expect(screen.getByRole("dialog")).not.toBeNull();
+		expect(screen.getByText(CASH_ACCOUNT_DELETE_DESCRIPTION)).not.toBeNull();
+		expect(screen.getByRole("button", { name: "取消" })).not.toBeNull();
 		expect(onDelete).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
@@ -261,6 +264,8 @@ describe("Cash account button styling", () => {
 		fireEvent.click(screen.getByRole("button", { name: "删除" }));
 
 		expect(screen.getByRole("dialog")).not.toBeNull();
+		expect(screen.getByText(CASH_ACCOUNT_DELETE_DESCRIPTION)).not.toBeNull();
+		expect(screen.getByRole("button", { name: "取消" })).not.toBeNull();
 		expect(onDelete).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));

@@ -52,6 +52,12 @@ describe("global layout styles", () => {
 		expect(assetStylesheet).toMatch(
 			/\.asset-manager__modal-panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*760px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
 		);
+		const feedbackModalPanelBlock =
+			globalStylesheet.match(/\.feedback-modal__panel\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+		const assetModalPanelBlock =
+			assetStylesheet.match(/\.asset-manager__modal-panel\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+		expect(feedbackModalPanelBlock).not.toContain("radial-gradient(");
+		expect(assetModalPanelBlock).not.toContain("radial-gradient(");
 		expect(analyticsStylesheet).toMatch(
 			/\.analytics-segmented button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
 		);

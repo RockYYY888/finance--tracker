@@ -10,6 +10,10 @@ import { toErrorMessage } from "../../lib/apiClient";
 import type { CashAccountRecord, MaybePromise } from "../../types/assets";
 import { getCollectionLoadingState } from "./loadingState";
 import { AssetDeleteDialog } from "./AssetDeleteDialog";
+import {
+	CASH_ACCOUNT_DELETE_DESCRIPTION,
+	CASH_ACCOUNT_DELETE_IMPACT_ITEMS,
+} from "./cashAccountDeleteCopy";
 
 export interface CashAccountListProps {
 	accounts: CashAccountRecord[];
@@ -188,12 +192,8 @@ export function CashAccountList({
 				open={pendingDeleteAccount !== null}
 				busy={pendingDeleteAccount !== null && deletingId === pendingDeleteAccount.id}
 				title={`确认删除 ${pendingDeleteAccount?.name ?? "这个现金账户"}？`}
-				description="确认后会直接删除这个账户。为了避免你后面还要手动清理，我们会顺手把和它绑定的现金关联一起收掉。"
-				impactItems={[
-					"该账户本身会被移除。",
-					"相关现金流水和账户划转会一并删除。",
-					"投资买卖记录会保留，只会移除其中绑定到这个账户的现金结算关联。",
-				]}
+				description={CASH_ACCOUNT_DELETE_DESCRIPTION}
+				impactItems={[...CASH_ACCOUNT_DELETE_IMPACT_ITEMS]}
 				onClose={() => {
 					if (deletingId === null) {
 						setPendingDeleteAccount(null);
