@@ -315,8 +315,12 @@ def _is_current_minute(value: datetime | None, now: datetime | None = None) -> b
 	return _current_minute_bucket(value) == _current_minute_bucket(now)
 
 async def _consume_global_force_refresh_slot() -> bool:
-	"""Allow at most one cache-clearing force refresh every 60 seconds across the process."""
-	async with runtime_state.global_force_refresh_lock:
+	"""Allow at most one cache-clearing force refresh every 60 seconds across all workers."""
+	async with runtime_state.async_redis_lock(
+		"global-force-refresh",
+		timeout=10,
+		blocking_timeout=10,
+	):
 		now = utc_now()
 		if (
 			runtime_state.get_last_global_force_refresh_at() is not None

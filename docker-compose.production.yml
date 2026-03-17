@@ -2,9 +2,11 @@ services:
   backend:
     environment:
       ASSET_TRACKER_APP_ENV: production
+      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL}
       ASSET_TRACKER_REDIS_URL: ${ASSET_TRACKER_REDIS_URL:-redis://redis:6379/0}
 
   worker:
     environment:
       ASSET_TRACKER_APP_ENV: production
+      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL}
       ASSET_TRACKER_REDIS_URL: ${ASSET_TRACKER_REDIS_URL:-redis://redis:6379/0}

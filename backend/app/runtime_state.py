@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import Iterator, MutableMapping, MutableSet
+from collections.abc import AsyncIterator, Iterator, MutableMapping, MutableSet
+from contextlib import asynccontextmanager, contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,7 +12,7 @@ import threading
 from typing import Generic, TypeVar
 
 from redis import Redis
-from redis.exceptions import RedisError
+from redis.exceptions import LockError, RedisError
 
 from app.schemas import DashboardResponse
 from app.settings import get_settings
@@ -76,6 +77,10 @@ def _clear_prefixed_keys(redis_client: Redis, prefix: str) -> None:
 	keys = list(redis_client.scan_iter(f"{prefix}:*"))
 	if keys:
 		redis_client.delete(*keys)
+
+
+def _runtime_lock_key(name: str) -> str:
+	return f"asset-tracker:runtime:lock:{name}"
 
 
 class RedisBackedDict(MutableMapping[KeyType, ValueType], Generic[KeyType, ValueType]):
@@ -285,6 +290,54 @@ def get_last_global_force_refresh_at() -> datetime | None:
 
 def set_last_global_force_refresh_at(value: datetime | None) -> None:
 	_last_global_force_refresh_at_store.set(value)
+
+
+@contextmanager
+def redis_lock(
+	name: str,
+	*,
+	timeout: float = 30,
+	blocking_timeout: float = 30,
+) -> Iterator[None]:
+	lock = redis_client.lock(
+		_runtime_lock_key(name),
+		timeout=timeout,
+		blocking_timeout=blocking_timeout,
+		thread_local=False,
+	)
+	acquired = lock.acquire(blocking=True)
+	if not acquired:
+		raise RuntimeError(f"Unable to acquire Redis runtime lock {name!r}.")
+
+	try:
+		yield
+	finally:
+		with suppress(LockError):
+			lock.release()
+
+
+@asynccontextmanager
+async def async_redis_lock(
+	name: str,
+	*,
+	timeout: float = 30,
+	blocking_timeout: float = 30,
+) -> AsyncIterator[None]:
+	lock = redis_client.lock(
+		_runtime_lock_key(name),
+		timeout=timeout,
+		blocking_timeout=blocking_timeout,
+		thread_local=False,
+	)
+	acquired = await asyncio.to_thread(lock.acquire, blocking=True)
+	if not acquired:
+		raise RuntimeError(f"Unable to acquire Redis runtime lock {name!r}.")
+
+	try:
+		yield
+	finally:
+		with suppress(LockError):
+			await asyncio.to_thread(lock.release)
 
 
 def clear_snapshot_runtime_state() -> None:

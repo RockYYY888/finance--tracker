@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
+from app import runtime_state
 from app.models import HOLDING_HISTORY_SYNC_STATUSES, HoldingHistorySyncRequest, utc_now
 from app.services.common_service import _current_hour_bucket
 
@@ -13,33 +14,38 @@ def _enqueue_holding_history_sync_request(
 	user_id: str,
 	trigger_symbol: str | None = None,
 ) -> None:
-	existing_request = session.exec(
-		select(HoldingHistorySyncRequest)
-		.where(HoldingHistorySyncRequest.user_id == user_id)
-		.order_by(HoldingHistorySyncRequest.requested_at.desc(), HoldingHistorySyncRequest.id.desc()),
-	).first()
-	now = utc_now()
-	if existing_request is None:
-		session.add(
-			HoldingHistorySyncRequest(
-				user_id=user_id,
-				status=HOLDING_HISTORY_SYNC_STATUSES[0],
-				trigger_symbol=trigger_symbol,
-				requested_at=now,
-				started_at=None,
-				completed_at=None,
-				error_message=None,
-			),
-		)
-		return
+	with runtime_state.redis_lock(
+		f"holding-history-sync-enqueue:{user_id}",
+		timeout=10,
+		blocking_timeout=10,
+	):
+		existing_request = session.exec(
+			select(HoldingHistorySyncRequest)
+			.where(HoldingHistorySyncRequest.user_id == user_id)
+			.order_by(HoldingHistorySyncRequest.requested_at.desc(), HoldingHistorySyncRequest.id.desc()),
+		).first()
+		now = utc_now()
+		if existing_request is None:
+			session.add(
+				HoldingHistorySyncRequest(
+					user_id=user_id,
+					status=HOLDING_HISTORY_SYNC_STATUSES[0],
+					trigger_symbol=trigger_symbol,
+					requested_at=now,
+					started_at=None,
+					completed_at=None,
+					error_message=None,
+				),
+			)
+			return
 
-	existing_request.status = HOLDING_HISTORY_SYNC_STATUSES[0]
-	existing_request.trigger_symbol = trigger_symbol
-	existing_request.requested_at = now
-	existing_request.started_at = None
-	existing_request.completed_at = None
-	existing_request.error_message = None
-	session.add(existing_request)
+		existing_request.status = HOLDING_HISTORY_SYNC_STATUSES[0]
+		existing_request.trigger_symbol = trigger_symbol
+		existing_request.requested_at = now
+		existing_request.started_at = None
+		existing_request.completed_at = None
+		existing_request.error_message = None
+		session.add(existing_request)
 
 def _has_holding_history_sync_pending(session: Session, user_id: str) -> bool:
 	request = session.exec(

@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+import threading
 
 import pytest
 from fastapi import HTTPException
@@ -76,6 +77,36 @@ from app.schemas import (
 from app.security import verify_password
 from app.services.market_data import Quote
 from app.services import dashboard_service, history_service, service_context
+
+
+class _InMemoryRedisLock:
+	def __init__(self, lock: threading.Lock) -> None:
+		self._lock = lock
+
+	def acquire(self, blocking: bool = True) -> bool:
+		return self._lock.acquire(blocking=blocking)
+
+	def release(self) -> None:
+		self._lock.release()
+
+
+class FakeRedisLockClient:
+	def __init__(self) -> None:
+		self._locks: dict[str, threading.Lock] = {}
+		self._guard = threading.Lock()
+
+	def lock(
+		self,
+		name: str,
+		*,
+		timeout: float | None = None,
+		blocking_timeout: float | None = None,
+		thread_local: bool | None = None,
+	) -> _InMemoryRedisLock:
+		del timeout, blocking_timeout, thread_local
+		with self._guard:
+			lock = self._locks.setdefault(name, threading.Lock())
+		return _InMemoryRedisLock(lock)
 
 
 class StaticMarketDataClient:
@@ -493,6 +524,33 @@ def test_authenticate_user_account_rate_limits_after_eight_attempts_in_one_minut
 
 	assert error.value.status_code == 429
 	assert "1 分钟内最多尝试 8 次" in error.value.detail
+
+
+def test_authenticate_user_account_uses_cluster_safe_login_attempt_lock(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	make_user(session)
+
+	class ExplodingProcessLocalLock:
+		def __enter__(self) -> None:
+			raise AssertionError("Process-local login lock should not be used anymore.")
+
+		def __exit__(self, exc_type, exc, tb) -> bool:
+			return False
+
+	monkeypatch.setattr(runtime_state, "redis_client", FakeRedisLockClient())
+	monkeypatch.setattr(runtime_state, "login_attempts_lock", ExplodingProcessLocalLock())
+
+	with pytest.raises(HTTPException) as error:
+		_authenticate_user_account(
+			session,
+			AuthLoginCredentials(user_id="tester", password="wrong-password"),
+			attempt_key=("tester", "device:test-browser"),
+		)
+
+	assert error.value.status_code == 401
+	assert error.value.detail == "账号或密码错误。"
 
 
 def test_authenticate_user_account_success_resets_consecutive_failed_counter(

@@ -254,6 +254,12 @@ def _prune_login_attempt_timestamps(
 	return [timestamp for timestamp in attempt_timestamps if timestamp >= window_start]
 
 
+def _login_attempt_lock_name(attempt_key: tuple[str, str]) -> str:
+	user_id, device_key = attempt_key
+	digest = hashlib.sha256(f"{user_id}|{device_key}".encode("utf-8")).hexdigest()
+	return f"login-attempt:{digest}"
+
+
 def _cleanup_expired_login_attempt_states(now: datetime) -> None:
 	expired_before = now - LOGIN_ATTEMPT_STATE_TTL
 	expired_keys = [
@@ -269,7 +275,7 @@ def _reserve_login_attempt(
 	attempt_key: tuple[str, str],
 	now: datetime,
 ) -> None:
-	with runtime_state.login_attempts_lock:
+	with runtime_state.redis_lock(_login_attempt_lock_name(attempt_key), timeout=5, blocking_timeout=5):
 		state = runtime_state.login_attempt_states.get(attempt_key)
 		if state is None:
 			state = runtime_state.LoginAttemptState(
@@ -301,7 +307,7 @@ def _record_failed_login_attempt(
 	attempt_key: tuple[str, str],
 	now: datetime,
 ) -> int:
-	with runtime_state.login_attempts_lock:
+	with runtime_state.redis_lock(_login_attempt_lock_name(attempt_key), timeout=5, blocking_timeout=5):
 		state = runtime_state.login_attempt_states.get(attempt_key)
 		if state is None:
 			state = runtime_state.LoginAttemptState(
@@ -318,7 +324,7 @@ def _record_failed_login_attempt(
 
 
 def _record_successful_login(attempt_key: tuple[str, str], now: datetime) -> None:
-	with runtime_state.login_attempts_lock:
+	with runtime_state.redis_lock(_login_attempt_lock_name(attempt_key), timeout=5, blocking_timeout=5):
 		state = runtime_state.login_attempt_states.get(attempt_key)
 		if state is None:
 			return

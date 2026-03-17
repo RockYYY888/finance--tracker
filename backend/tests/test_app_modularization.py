@@ -1,7 +1,8 @@
 import asyncio
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+import threading
 
 import pytest
 from sqlmodel import SQLModel, Session, create_engine, select
@@ -11,7 +12,7 @@ from app import runtime_state
 import app.main as main
 import app.worker as worker
 from app.main import create_holding_transaction
-from app.models import OutboxJob, UserAccount
+from app.models import HOLDING_HISTORY_SYNC_STATUSES, HoldingHistorySyncRequest, OutboxJob, UserAccount, utc_now
 from app.schemas import SecurityHoldingTransactionCreate
 from app.security import hash_password
 from app.services import dashboard_service, history_service, job_service, legacy_service, service_context
@@ -43,6 +44,56 @@ class StaticDashboardMarketDataClient:
 
 	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
 		return None
+
+
+class _InMemoryRedisLock:
+	def __init__(self, lock: threading.Lock) -> None:
+		self._lock = lock
+
+	def acquire(self, blocking: bool = True) -> bool:
+		return self._lock.acquire(blocking=blocking)
+
+	def release(self) -> None:
+		self._lock.release()
+
+
+class FakeRedisLockClient:
+	def __init__(self) -> None:
+		self._locks: dict[str, threading.Lock] = {}
+		self._guard = threading.Lock()
+
+	def lock(
+		self,
+		name: str,
+		*,
+		timeout: float | None = None,
+		blocking_timeout: float | None = None,
+		thread_local: bool | None = None,
+	) -> _InMemoryRedisLock:
+		del timeout, blocking_timeout, thread_local
+		with self._guard:
+			lock = self._locks.setdefault(name, threading.Lock())
+		return _InMemoryRedisLock(lock)
+
+
+def _stall_first_thread_commit(
+	monkeypatch: pytest.MonkeyPatch,
+	*,
+	thread_name: str,
+) -> tuple[threading.Event, threading.Event]:
+	original_commit = Session.commit
+	first_commit_started = threading.Event()
+	release_first_commit = threading.Event()
+
+	def delayed_commit(self: Session) -> None:
+		if threading.current_thread().name == thread_name and not first_commit_started.is_set():
+			first_commit_started.set()
+			if not release_first_commit.wait(timeout=5):
+				raise AssertionError("Timed out waiting to release the first blocked commit.")
+		original_commit(self)
+
+	monkeypatch.setattr(Session, "commit", delayed_commit)
+	return first_commit_started, release_first_commit
 
 
 def _reset_snapshot_runtime_state() -> None:
@@ -204,6 +255,138 @@ def test_snapshot_rebuild_enqueue_deduplicates_pending_jobs(session: Session) ->
 	assert jobs[0].job_type == "SNAPSHOT_REBUILD"
 	assert jobs[0].user_id == "tester"
 	assert jobs[0].status == "PENDING"
+
+
+def test_snapshot_rebuild_enqueue_deduplicates_across_concurrent_sessions(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(runtime_state, "redis_client", FakeRedisLockClient())
+	first_commit_started, release_first_commit = _stall_first_thread_commit(
+		monkeypatch,
+		thread_name="enqueue-1",
+	)
+	claimed_job_ids: list[int] = []
+	errors: list[Exception] = []
+
+	def enqueue_job() -> None:
+		try:
+			with Session(database.engine) as thread_session:
+				job = job_service.enqueue_user_portfolio_snapshot_rebuild(
+					thread_session,
+					current_user.username,
+				)
+				thread_session.commit()
+				claimed_job_ids.append(job.id or 0)
+		except Exception as exc:  # pragma: no cover - test synchronization path
+			errors.append(exc)
+
+	first_thread = threading.Thread(target=enqueue_job, name="enqueue-1")
+	second_thread = threading.Thread(target=enqueue_job, name="enqueue-2")
+	first_thread.start()
+	assert first_commit_started.wait(timeout=5)
+	second_thread.start()
+	release_first_commit.set()
+	first_thread.join(timeout=5)
+	second_thread.join(timeout=5)
+
+	assert errors == []
+	jobs = list(session.exec(select(OutboxJob).order_by(OutboxJob.id.asc())))
+	assert len(jobs) == 1
+	assert claimed_job_ids == [jobs[0].id, jobs[0].id]
+
+
+def test_claim_next_pending_job_is_atomic_across_sessions(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	first_user = make_user(session, "alpha")
+	second_user = make_user(session, "beta")
+	first_job = job_service.enqueue_user_portfolio_snapshot_rebuild(session, first_user.username)
+	second_job = job_service.enqueue_user_portfolio_snapshot_rebuild(session, second_user.username)
+	session.commit()
+	first_commit_started, release_first_commit = _stall_first_thread_commit(
+		monkeypatch,
+		thread_name="claim-1",
+	)
+	claimed_job_ids: list[int] = []
+	errors: list[Exception] = []
+
+	def claim_job() -> None:
+		try:
+			with Session(database.engine) as thread_session:
+				job = job_service._claim_next_pending_job(thread_session)
+				claimed_job_ids.append(0 if job is None else (job.id or 0))
+		except Exception as exc:  # pragma: no cover - test synchronization path
+			errors.append(exc)
+
+	first_thread = threading.Thread(target=claim_job, name="claim-1")
+	second_thread = threading.Thread(target=claim_job, name="claim-2")
+	first_thread.start()
+	assert first_commit_started.wait(timeout=5)
+	second_thread.start()
+	release_first_commit.set()
+	first_thread.join(timeout=5)
+	second_thread.join(timeout=5)
+
+	assert errors == []
+	assert sorted(claimed_job_ids) == sorted([first_job.id or 0, second_job.id or 0])
+
+
+def test_claim_next_pending_holding_history_request_is_atomic_across_sessions(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	now = utc_now()
+	session.add_all(
+		[
+			HoldingHistorySyncRequest(
+				user_id="alpha",
+				status=HOLDING_HISTORY_SYNC_STATUSES[0],
+				requested_at=now,
+			),
+			HoldingHistorySyncRequest(
+				user_id="beta",
+				status=HOLDING_HISTORY_SYNC_STATUSES[0],
+				requested_at=now + timedelta(seconds=1),
+			),
+		],
+	)
+	session.commit()
+	requests = list(
+		session.exec(
+			select(HoldingHistorySyncRequest).order_by(HoldingHistorySyncRequest.id.asc()),
+		),
+	)
+	first_commit_started, release_first_commit = _stall_first_thread_commit(
+		monkeypatch,
+		thread_name="history-claim-1",
+	)
+	claimed_request_ids: list[int] = []
+	errors: list[Exception] = []
+
+	def claim_request() -> None:
+		try:
+			with Session(database.engine) as thread_session:
+				request = history_service._claim_next_pending_holding_history_sync_request(
+					thread_session,
+				)
+				claimed_request_ids.append(0 if request is None else (request.id or 0))
+		except Exception as exc:  # pragma: no cover - test synchronization path
+			errors.append(exc)
+
+	first_thread = threading.Thread(target=claim_request, name="history-claim-1")
+	second_thread = threading.Thread(target=claim_request, name="history-claim-2")
+	first_thread.start()
+	assert first_commit_started.wait(timeout=5)
+	second_thread.start()
+	release_first_commit.set()
+	first_thread.join(timeout=5)
+	second_thread.join(timeout=5)
+
+	assert errors == []
+	assert sorted(claimed_request_ids) == sorted([request.id or 0 for request in requests])
 
 
 def test_create_holding_transaction_only_schedules_snapshot_rebuild(

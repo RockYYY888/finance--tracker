@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlmodel import Session, select
 
 from app import runtime_state
@@ -16,33 +16,33 @@ from app.models import (
 	LiabilityEntry,
 	OtherAsset,
 	PortfolioSnapshot,
-    SecurityHoldingTransaction,
-    UserAccount,
-    utc_now,
+	SecurityHoldingTransaction,
+	UserAccount,
+	utc_now,
 )
 from app.services import service_context
 from app.services.common_service import (
-    _calculate_return_pct,
-    _coerce_utc_datetime,
-    _current_hour_bucket,
-    _date_start_utc,
-    _invalidate_dashboard_cache,
-    _normalize_currency,
+	_calculate_return_pct,
+	_coerce_utc_datetime,
+	_current_hour_bucket,
+	_date_start_utc,
+	_invalidate_dashboard_cache,
+	_normalize_currency,
 )
 from app.services.history_sync_service import (
-    _build_hour_buckets,
-    _fill_hourly_prices,
-    _has_holding_history_sync_pending,
+	_build_hour_buckets,
+	_fill_hourly_prices,
+	_has_holding_history_sync_pending,
 )
 from app.services.market_data import QuoteLookupError
 from app.services.portfolio_service import (
-    HOLDING_QUANTITY_EPSILON,
-    ProjectedHoldingState,
-    _apply_holding_transaction_to_state,
-    _holding_transaction_event_at,
-    _holding_transaction_sort_key,
-    _projected_holding_cost_basis,
-    _projected_holding_quantity,
+	HOLDING_QUANTITY_EPSILON,
+	ProjectedHoldingState,
+	_apply_holding_transaction_to_state,
+	_holding_transaction_event_at,
+	_holding_transaction_sort_key,
+	_projected_holding_cost_basis,
+	_projected_holding_quantity,
 )
 
 async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str) -> None:
@@ -493,48 +493,75 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 	runtime_state.live_holdings_return_states.pop(user_id, None)
 	_invalidate_dashboard_cache(user_id)
 
+
+def _claim_next_pending_holding_history_sync_request(
+	session: Session,
+	*,
+	user_id: str | None = None,
+) -> HoldingHistorySyncRequest | None:
+	now = utc_now()
+	request_id_selector = (
+		select(HoldingHistorySyncRequest.id)
+		.where(HoldingHistorySyncRequest.status == HOLDING_HISTORY_SYNC_STATUSES[0])
+		.order_by(HoldingHistorySyncRequest.requested_at.asc(), HoldingHistorySyncRequest.id.asc())
+		.limit(1)
+	)
+	if user_id is not None:
+		request_id_selector = request_id_selector.where(HoldingHistorySyncRequest.user_id == user_id)
+
+	request_id_row = session.exec(
+		update(HoldingHistorySyncRequest)
+		.where(HoldingHistorySyncRequest.id == request_id_selector.scalar_subquery())
+		.where(HoldingHistorySyncRequest.status == HOLDING_HISTORY_SYNC_STATUSES[0])
+		.values(
+			status=HOLDING_HISTORY_SYNC_STATUSES[1],
+			started_at=now,
+			completed_at=None,
+			error_message=None,
+		)
+		.returning(HoldingHistorySyncRequest.id),
+	).first()
+	if request_id_row is None:
+		session.rollback()
+		return None
+
+	session.commit()
+	request_id = int(request_id_row[0])
+	return session.get(HoldingHistorySyncRequest, request_id)
+
 async def _process_pending_holding_history_sync_requests(
 	session: Session,
 	*,
 	limit: int = 1,
 	user_id: str | None = None,
 ) -> None:
-	async with runtime_state.holding_history_sync_lock:
-		query = (
-			select(HoldingHistorySyncRequest)
-			.where(HoldingHistorySyncRequest.status == HOLDING_HISTORY_SYNC_STATUSES[0])
-			.order_by(HoldingHistorySyncRequest.requested_at.asc(), HoldingHistorySyncRequest.id.asc())
-			.limit(limit)
+	for _ in range(limit):
+		request_row = _claim_next_pending_holding_history_sync_request(
+			session,
+			user_id=user_id,
 		)
-		if user_id is not None:
-			query = query.where(HoldingHistorySyncRequest.user_id == user_id)
-		pending_requests = list(session.exec(query))
-		for request_row in pending_requests:
-			request_row.status = HOLDING_HISTORY_SYNC_STATUSES[1]
-			request_row.started_at = utc_now()
-			request_row.error_message = None
+		if request_row is None:
+			return
+
+		try:
+			await _rebuild_user_holding_history_snapshots(session, request_row.user_id)
+		except Exception as exc:  # pragma: no cover - defensive path
+			service_context.logger.exception(
+				"Holding history rebuild failed for user %s.",
+				request_row.user_id,
+			)
+			request_row.status = HOLDING_HISTORY_SYNC_STATUSES[0]
+			request_row.error_message = str(exc)[:500]
+			request_row.started_at = None
+			request_row.completed_at = None
 			session.add(request_row)
 			session.commit()
-			session.refresh(request_row)
+			continue
 
-			try:
-				await _rebuild_user_holding_history_snapshots(session, request_row.user_id)
-			except Exception as exc:  # pragma: no cover - defensive path
-				service_context.logger.exception(
-					"Holding history rebuild failed for user %s.",
-					request_row.user_id,
-				)
-				request_row.status = HOLDING_HISTORY_SYNC_STATUSES[0]
-				request_row.error_message = str(exc)[:500]
-				request_row.started_at = None
-				session.add(request_row)
-				session.commit()
-				continue
-
-			request_row.status = HOLDING_HISTORY_SYNC_STATUSES[2]
-			request_row.error_message = None
-			request_row.completed_at = utc_now()
-			session.add(request_row)
-			session.commit()
+		request_row.status = HOLDING_HISTORY_SYNC_STATUSES[2]
+		request_row.error_message = None
+		request_row.completed_at = utc_now()
+		session.add(request_row)
+		session.commit()
 
 __all__ = ['_rebuild_user_holding_history_snapshots', '_resolve_asset_start_date', '_rebuild_user_portfolio_snapshots', '_process_pending_holding_history_sync_requests']

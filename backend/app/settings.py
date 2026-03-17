@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 	allowed_origins: str | None = None
 	allowed_hosts: str | None = None
 	redis_url: str | None = None
+	database_url: str | None = None
 
 	@property
 	def is_production(self) -> bool:
@@ -95,6 +96,18 @@ class Settings(BaseSettings):
 			return None
 		url = self.redis_url.strip()
 		return url or None
+
+	def database_url_value(self) -> str | None:
+		if self.database_url is None:
+			return None
+		url = self.database_url.strip()
+		return url or None
+
+	def database_uses_sqlite(self) -> bool:
+		database_url = self.database_url_value()
+		if database_url is None:
+			return False
+		return urlparse(database_url).scheme.lower() == "sqlite"
 
 	def email_pepper_value(self) -> str:
 		configured_secret = self._configured_session_secret_value()
@@ -146,6 +159,10 @@ class Settings(BaseSettings):
 			raise ValueError("Production mode requires ASSET_TRACKER_SESSION_SECRET.")
 		if self.is_production and not self.redis_url_value():
 			raise ValueError("Production mode requires ASSET_TRACKER_REDIS_URL.")
+		if self.is_production and not self.database_url_value():
+			raise ValueError("Production mode requires ASSET_TRACKER_DATABASE_URL.")
+		if self.is_production and self.database_uses_sqlite():
+			raise ValueError("Production mode requires ASSET_TRACKER_DATABASE_URL to use a server database.")
 
 
 @lru_cache

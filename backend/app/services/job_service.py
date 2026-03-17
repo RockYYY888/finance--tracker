@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app import runtime_state
@@ -69,21 +70,33 @@ def _enqueue_job(
 	payload: dict[str, Any],
 	dedup_key: str | None = None,
 ) -> OutboxJob:
-	if dedup_key is not None:
+	if dedup_key is None:
+		job = OutboxJob(
+			user_id=_normalize_job_user_id(user_id),
+			job_type=job_type,
+			status=PENDING_JOB_STATUS,
+			dedup_key=dedup_key,
+			payload_json=_serialize_job_payload(payload),
+		)
+		session.add(job)
+		session.flush()
+		return job
+
+	with runtime_state.redis_lock(f"job-enqueue:{dedup_key}", timeout=10, blocking_timeout=10):
 		existing = _load_active_job_by_dedup_key(session, dedup_key=dedup_key)
 		if existing is not None:
 			return existing
 
-	job = OutboxJob(
-		user_id=_normalize_job_user_id(user_id),
-		job_type=job_type,
-		status=PENDING_JOB_STATUS,
-		dedup_key=dedup_key,
-		payload_json=_serialize_job_payload(payload),
-	)
-	session.add(job)
-	session.flush()
-	return job
+		job = OutboxJob(
+			user_id=_normalize_job_user_id(user_id),
+			job_type=job_type,
+			status=PENDING_JOB_STATUS,
+			dedup_key=dedup_key,
+			payload_json=_serialize_job_payload(payload),
+		)
+		session.add(job)
+		session.flush()
+		return job
 
 
 def enqueue_user_portfolio_snapshot_rebuild(session: Session, user_id: str) -> OutboxJob:
@@ -122,25 +135,35 @@ def enqueue_agent_task_execution(
 
 def _claim_next_pending_job(session: Session) -> OutboxJob | None:
 	now = utc_now()
-	job = session.exec(
-		select(OutboxJob)
+	job_id_row = session.exec(
+		update(OutboxJob)
+		.where(
+			OutboxJob.id
+			== select(OutboxJob.id)
+			.where(OutboxJob.status == PENDING_JOB_STATUS)
+			.where(OutboxJob.available_at <= now)
+			.order_by(OutboxJob.created_at.asc(), OutboxJob.id.asc())
+			.limit(1)
+			.scalar_subquery(),
+		)
 		.where(OutboxJob.status == PENDING_JOB_STATUS)
-		.where(OutboxJob.available_at <= now)
-		.order_by(OutboxJob.created_at.asc(), OutboxJob.id.asc())
+		.values(
+			status=RUNNING_JOB_STATUS,
+			started_at=now,
+			completed_at=None,
+			last_error=None,
+			attempt_count=OutboxJob.attempt_count + 1,
+			updated_at=now,
+		)
+		.returning(OutboxJob.id),
 	).first()
-	if job is None:
+	if job_id_row is None:
+		session.rollback()
 		return None
 
-	job.status = RUNNING_JOB_STATUS
-	job.started_at = now
-	job.completed_at = None
-	job.last_error = None
-	job.attempt_count += 1
-	_touch_job(job, now=now)
-	session.add(job)
 	session.commit()
-	session.refresh(job)
-	return job
+	job_id = int(job_id_row[0])
+	return session.get(OutboxJob, job_id)
 
 
 def _complete_job(session: Session, job_id: int) -> None:

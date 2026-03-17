@@ -513,7 +513,11 @@ async def _get_cached_dashboard(
 	):
 		return cache_entry.dashboard
 
-	async with runtime_state.dashboard_cache_lock:
+	async with runtime_state.async_redis_lock(
+		f"dashboard-cache:{user.username}",
+		timeout=15,
+		blocking_timeout=15,
+	):
 		cache_entry = runtime_state.dashboard_cache.get(user.username)
 		if (
 			not force_refresh

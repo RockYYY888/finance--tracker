@@ -24,6 +24,7 @@ def reset_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 		"ASSET_TRACKER_ALLOWED_ORIGINS",
 		"ASSET_TRACKER_API_TOKEN",
 		"ASSET_TRACKER_APP_ENV",
+		"ASSET_TRACKER_DATABASE_URL",
 		"ASSET_TRACKER_PUBLIC_ORIGIN",
 		"ASSET_TRACKER_REDIS_URL",
 		"ASSET_TRACKER_SESSION_SECRET",
@@ -89,6 +90,31 @@ def test_settings_require_redis_url_in_production(monkeypatch: pytest.MonkeyPatc
 	settings = get_settings()
 
 	with pytest.raises(ValueError, match="ASSET_TRACKER_REDIS_URL"):
+		settings.validate_runtime()
+
+
+def test_settings_require_database_url_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
+	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")
+	monkeypatch.setenv("ASSET_TRACKER_REDIS_URL", "redis://redis:6379/0")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
+	settings = get_settings()
+
+	with pytest.raises(ValueError, match="ASSET_TRACKER_DATABASE_URL"):
+		settings.validate_runtime()
+
+
+def test_settings_reject_sqlite_database_url_in_production(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
+	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")
+	monkeypatch.setenv("ASSET_TRACKER_REDIS_URL", "redis://redis:6379/0")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
+	monkeypatch.setenv("ASSET_TRACKER_DATABASE_URL", "sqlite:////tmp/asset-tracker.db")
+	settings = get_settings()
+
+	with pytest.raises(ValueError, match="server database"):
 		settings.validate_runtime()
 
 
