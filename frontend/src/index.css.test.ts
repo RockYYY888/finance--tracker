@@ -49,8 +49,17 @@ describe("global layout styles", () => {
 		expect(globalStylesheet).toMatch(
 			/\.feedback-modal__panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*720px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
 		);
+		expect(globalStylesheet).toMatch(
+			/\.feedback-modal__backdrop\s*\{[\s\S]*border-radius:\s*0\s*;[\s\S]*box-shadow:\s*none\s*;/,
+		);
 		expect(assetStylesheet).toMatch(
 			/\.asset-manager__modal-panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*760px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
+		);
+		expect(assetStylesheet).toMatch(
+			/\.asset-manager__modal-backdrop\s*\{[\s\S]*border-radius:\s*0\s*;[\s\S]*box-shadow:\s*none\s*;/,
+		);
+		expect(assetStylesheet).toMatch(
+			/\.asset-manager__modal-backdrop:hover:not\(:disabled\)\s*\{[\s\S]*transform:\s*none\s*;/,
 		);
 		const feedbackModalPanelBlock =
 			globalStylesheet.match(/\.feedback-modal__panel\s*\{[\s\S]*?\n\}/)?.[0] ?? "";

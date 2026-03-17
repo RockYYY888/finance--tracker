@@ -566,9 +566,16 @@
 	position: absolute;
 	inset: 0;
 	border: 0;
+	border-radius: 0;
+	padding: 0;
 	background: rgba(2, 8, 18, 0.74);
 	backdrop-filter: blur(12px);
+	box-shadow: none;
 	cursor: pointer;
+}
+
+.asset-manager__modal-backdrop:hover:not(:disabled) {
+	transform: none;
 }
 
 .asset-manager__modal-panel {
