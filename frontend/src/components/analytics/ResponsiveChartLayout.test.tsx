@@ -443,7 +443,7 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
 	});
 
-	it("does not render active dots for synthetic baseline crossings", async () => {
+	it("does not render active dots for synthetic timeline points", async () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="hour"
@@ -469,9 +469,9 @@ describe("analytics charts responsive layout", () => {
 				cx: 12,
 				cy: 18,
 				payload: {
-					label: "",
+					label: "03-13 10:00",
 					value: 100_000,
-					crossingPoint: true,
+					synthetic: true,
 					positiveValue: 100_000,
 					negativeValue: 100_000,
 				},

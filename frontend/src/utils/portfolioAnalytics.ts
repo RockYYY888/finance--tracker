@@ -138,6 +138,12 @@ export function getTimelineSeries(
 	return daySeries;
 }
 
+export function isSyntheticTimelinePoint(
+	point: Pick<TimelinePoint, "synthetic"> | null | undefined,
+): boolean {
+	return point?.synthetic === true;
+}
+
 function toSortableTimestamp(point: TimelinePoint, fallbackIndex: number): number {
 	if (!point.timestamp_utc) {
 		return fallbackIndex;
@@ -263,6 +269,7 @@ function buildWindowedTimelineSeries(
 			...lastPointBeforeWindow,
 			label: formatWindowBoundaryLabel(cutoffTimestampMs, range),
 			timestamp_utc: new Date(cutoffTimestampMs).toISOString(),
+			synthetic: true,
 		},
 		...visibleSeries,
 	];

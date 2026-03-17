@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPortfolioTrendChartData } from "./PortfolioTrendChart";
+import {
+	buildPortfolioTrendAreaData,
+	buildPortfolioTrendChartData,
+} from "./PortfolioTrendChart";
 
 describe("buildPortfolioTrendChartData", () => {
 	it("keeps timeline points visible for both positive and negative values", () => {
@@ -32,7 +35,7 @@ describe("buildPortfolioTrendChartData", () => {
 		]);
 	});
 
-	it("inserts an explicit zero crossing point before switching fill color", () => {
+	it("keeps only real timeline points when the series crosses the baseline", () => {
 		const source = [
 			{ label: "03-01 10:00", value: -8_000 },
 			{ label: "03-01 11:00", value: 12_000 },
@@ -46,14 +49,6 @@ describe("buildPortfolioTrendChartData", () => {
 				negativeValue: -8_000,
 			},
 			{
-				label: "",
-				value: 0,
-				corrected: false,
-				crossingPoint: true,
-				positiveValue: 0,
-				negativeValue: 0,
-			},
-			{
 				label: "03-01 11:00",
 				value: 12_000,
 				positiveValue: 12_000,
@@ -62,13 +57,35 @@ describe("buildPortfolioTrendChartData", () => {
 		]);
 	});
 
-	it("supports custom baseline crossings for asset trend charts", () => {
+	it("supports custom baselines without inserting synthetic crossing points", () => {
 		const source = [
 			{ label: "03-01 10:00", value: 120_000 },
 			{ label: "03-01 11:00", value: 96_000 },
 		];
 
 		expect(buildPortfolioTrendChartData(source, 100_000)).toEqual([
+			{
+				label: "03-01 10:00",
+				value: 120_000,
+				positiveValue: 120_000,
+				negativeValue: 100_000,
+			},
+			{
+				label: "03-01 11:00",
+				value: 96_000,
+				positiveValue: 100_000,
+				negativeValue: 96_000,
+			},
+		]);
+	});
+
+	it("adds baseline crossing points only for the shaded area data", () => {
+		const source = [
+			{ label: "03-01 10:00", value: 120_000 },
+			{ label: "03-01 11:00", value: 96_000 },
+		];
+
+		expect(buildPortfolioTrendAreaData(source, 100_000)).toEqual([
 			{
 				label: "03-01 10:00",
 				value: 120_000,

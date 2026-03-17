@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildReturnTrendChartData } from "./ReturnTrendChart";
+import {
+	buildReturnTrendAreaData,
+	buildReturnTrendChartData,
+} from "./ReturnTrendChart";
 
 describe("buildReturnTrendChartData", () => {
 	it("splits positive and negative regions while keeping original values", () => {
@@ -32,13 +35,35 @@ describe("buildReturnTrendChartData", () => {
 		]);
 	});
 
-	it("inserts an explicit 0% crossing point when series crosses zero", () => {
+	it("keeps only real timeline points when return series crosses zero", () => {
 		const source = [
 			{ label: "03-01", value: 2 },
 			{ label: "03-05", value: -2 },
 		];
 
 		expect(buildReturnTrendChartData(source)).toEqual([
+			{
+				label: "03-01",
+				value: 2,
+				positiveValue: 2,
+				negativeValue: 0,
+			},
+			{
+				label: "03-05",
+				value: -2,
+				positiveValue: 0,
+				negativeValue: -2,
+			},
+		]);
+	});
+
+	it("adds zero crossings only for the shaded area data", () => {
+		const source = [
+			{ label: "03-01", value: 2 },
+			{ label: "03-05", value: -2 },
+		];
+
+		expect(buildReturnTrendAreaData(source)).toEqual([
 			{
 				label: "03-01",
 				value: 2,

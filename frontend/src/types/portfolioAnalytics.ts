@@ -79,6 +79,7 @@ export type TimelinePoint = {
 	value: number;
 	timestamp_utc?: string;
 	corrected?: boolean;
+	synthetic?: boolean;
 };
 
 export type HoldingReturnSeries = {

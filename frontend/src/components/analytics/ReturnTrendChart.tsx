@@ -29,11 +29,13 @@ import {
 	getTimelineChartTicks,
 	formatCompactPercentMetric,
 	formatPercentMetric,
+	isSyntheticTimelinePoint,
 	summarizeAverageStepDelta,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
 import {
+	buildThresholdSegmentedAreaData,
 	buildThresholdSegmentedChartData,
 	isThresholdSegmentedCrossingPoint,
 	type ThresholdSegmentedPoint,
@@ -90,11 +92,49 @@ export function buildReturnTrendChartData(
 	return buildThresholdSegmentedChartData(series, thresholdValue);
 }
 
+export function buildReturnTrendAreaData(
+	series: TimelinePoint[],
+	thresholdValue = 0,
+): ReturnTrendChartPoint[] {
+	return buildThresholdSegmentedAreaData(series, thresholdValue);
+}
+
 type TooltipPayloadEntry = {
 	dataKey?: string;
 	value?: number;
 	payload?: { value?: number };
 };
+
+function findPointIndex(
+	series: TimelinePoint[],
+	point: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
+): number | null {
+	if (!point) {
+		return null;
+	}
+
+	if (point.timestamp_utc) {
+		const matchedTimestampIndex = series.findIndex(
+			(candidate) => candidate.timestamp_utc === point.timestamp_utc,
+		);
+		if (matchedTimestampIndex >= 0) {
+			return matchedTimestampIndex;
+		}
+	}
+
+	if (!point.label) {
+		return null;
+	}
+
+	const matchedIndex = series.findIndex((candidate) => candidate.label === point.label);
+	return matchedIndex >= 0 ? matchedIndex : null;
+}
+
+function isInteractiveTrendPoint(
+	point: ReturnTrendChartPoint | null | undefined,
+): boolean {
+	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
+}
 
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
 	return items.map((item) => ({
@@ -198,25 +238,26 @@ export function ReturnTrendChart({
 		[series],
 	);
 	const chartData = buildReturnTrendChartData(series, ZERO_RETURN_THRESHOLD);
+	const areaData = buildReturnTrendAreaData(series, ZERO_RETURN_THRESHOLD);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
+	const selectedPoint = isInteractiveTrendPoint(activePoint) ? activePoint : null;
+	const selectedSeriesIndex = findPointIndex(series, selectedPoint);
+	const visibleSeries =
+		selectedSeriesIndex === null ? series : series.slice(0, selectedSeriesIndex + 1);
 	const hasData = series.length >= 2;
-	const visibleSummary = activePointIndex === null
-		? rangeSummary
-		: summarizeTimeline(chartData.slice(0, activePointIndex + 1));
+	const visibleSummary =
+		selectedSeriesIndex === null ? rangeSummary : summarizeTimeline(visibleSeries);
 	const periodLabel = formatTimelineRangeLabel(
-		chartData[0],
-		activePoint ?? chartData[chartData.length - 1],
-		activePoint?.crossingPoint ? "基准线交点" : "最新周期",
+		series[0],
+		visibleSeries[visibleSeries.length - 1] ?? series[series.length - 1],
+		"最新周期",
 	);
-	const visibleCompoundedStepRate = activePointIndex === null
-		? rangeStepDelta
-		: summarizeAverageStepDelta(
-			chartData
-				.slice(0, activePointIndex + 1)
-				.filter((point) => !point.crossingPoint),
-		);
+	const visibleCompoundedStepRate =
+		selectedSeriesIndex === null
+			? rangeStepDelta
+			: summarizeAverageStepDelta(visibleSeries);
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
 			formatCompactPercentMetric(axisLayout.minValue),
@@ -264,7 +305,7 @@ export function ReturnTrendChart({
 		if (
 			typeof props.cx !== "number" ||
 			typeof props.cy !== "number" ||
-			isThresholdSegmentedCrossingPoint(props.payload)
+			!isInteractiveTrendPoint(props.payload)
 		) {
 			return null;
 		}
@@ -324,7 +365,7 @@ export function ReturnTrendChart({
 					<strong>{selectedOption?.label ?? "未选择"}</strong>
 				</div>
 				<div className="analytics-pill">
-					<span>{activePoint ? "所选收益率" : "当前收益率"}</span>
+					<span>{selectedPoint ? "所选收益率" : "当前收益率"}</span>
 					<strong>{formatPercentMetric(visibleSummary.latestValue)}</strong>
 				</div>
 				<div className="analytics-pill">
@@ -334,7 +375,7 @@ export function ReturnTrendChart({
 				{showCompoundedStepRate ? (
 					<div className="analytics-pill">
 						<span>
-							{activePoint
+							{selectedPoint
 								? `至该点${STEP_DELTA_LABELS[activeRange]}`
 								: STEP_DELTA_LABELS[activeRange]}
 						</span>
@@ -363,7 +404,7 @@ export function ReturnTrendChart({
 								}
 
 								if (
-									isThresholdSegmentedCrossingPoint(chartData[activeTooltipIndex])
+									!isInteractiveTrendPoint(chartData[activeTooltipIndex])
 								) {
 									setActivePointIndex(null);
 									return;
@@ -428,7 +469,7 @@ export function ReturnTrendChart({
 									const sourcePoint = primaryEntry?.payload as
 										| ReturnTrendChartPoint
 										| undefined;
-									if (isThresholdSegmentedCrossingPoint(sourcePoint)) {
+									if (!isInteractiveTrendPoint(sourcePoint)) {
 										return null;
 									}
 									const periodLabel = String(label ?? "");
@@ -453,6 +494,7 @@ export function ReturnTrendChart({
 							/>
 							<Area
 								type="linear"
+								data={areaData}
 								dataKey="positiveValue"
 								stroke={POSITIVE_RETURN_COLOR}
 								fill={POSITIVE_RETURN_FILL}
@@ -462,6 +504,7 @@ export function ReturnTrendChart({
 							/>
 							<Area
 								type="linear"
+								data={areaData}
 								dataKey="negativeValue"
 								stroke={NEGATIVE_RETURN_COLOR}
 								fill={NEGATIVE_RETURN_FILL}

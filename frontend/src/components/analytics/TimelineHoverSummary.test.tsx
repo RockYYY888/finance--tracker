@@ -259,7 +259,7 @@ describe("timeline hover summaries", () => {
 		});
 	});
 
-	it("ignores synthetic baseline crossings when hovering timeline intersections", async () => {
+	it("ignores synthetic window boundary points when hovering timeline intersections", async () => {
 		render(
 			<ReturnTrendChart
 				title="收益趋势"
@@ -270,10 +270,24 @@ describe("timeline hover summaries", () => {
 					createAggregateReturnOption(
 						"非现金资产",
 						[
-							{ label: "03-14 10:00", value: 5 },
-							{ label: "03-14 11:00", value: -3 },
+							{
+								label: "03-14 21:00",
+								value: -7.56,
+								timestamp_utc: "2026-03-14T13:00:00Z",
+							},
 						],
-						[],
+						[
+							{
+								label: "03-13",
+								value: -6.82,
+								timestamp_utc: "2026-03-12T16:00:00Z",
+							},
+							{
+								label: "03-14",
+								value: -7.12,
+								timestamp_utc: "2026-03-13T16:00:00Z",
+							},
+						],
 						[],
 						[],
 					),
@@ -286,12 +300,12 @@ describe("timeline hover summaries", () => {
 		act(() => {
 			onMouseMove?.({
 				isTooltipActive: true,
-				activeTooltipIndex: 1,
+				activeTooltipIndex: 0,
 			});
 		});
 
 		await waitFor(() => {
-			expectPillToContain("当前收益率", "-3.00%");
+			expectPillToContain("当前收益率", "-7.56%");
 		});
 		expect(screen.queryByText("所选收益率")).toBeNull();
 	});

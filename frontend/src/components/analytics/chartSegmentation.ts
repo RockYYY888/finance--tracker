@@ -8,6 +8,10 @@ export type ThresholdSegmentedPoint = TimelinePoint & {
 	crossingPoint?: boolean;
 };
 
+type ThresholdCrossingTimelinePoint = TimelinePoint & {
+	crossingPoint: true;
+};
+
 export function isThresholdSegmentedCrossingPoint(
 	point: ThresholdSegmentedPoint | null | undefined,
 ): boolean {
@@ -31,7 +35,7 @@ function buildThresholdCrossingPoint(
 	left: TimelinePoint,
 	right: TimelinePoint,
 	thresholdValue: number,
-): TimelinePoint {
+): ThresholdCrossingTimelinePoint {
 	const denominator = right.value - left.value;
 	const ratio = Math.min(
 		1,
@@ -54,6 +58,7 @@ function buildThresholdCrossingPoint(
 		value: thresholdValue,
 		timestamp_utc: interpolatedTimestamp,
 		corrected: false,
+		crossingPoint: true,
 	};
 }
 
@@ -71,40 +76,46 @@ function shouldInsertCrossingPoint(
 	return leftDelta * rightDelta < 0;
 }
 
+function buildSegmentedPoint(
+	point: TimelinePoint,
+	thresholdValue: number,
+): ThresholdSegmentedPoint {
+	return {
+		...point,
+		positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
+		negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
+	};
+}
+
 export function buildThresholdSegmentedChartData(
 	series: TimelinePoint[],
 	thresholdValue = 0,
 ): ThresholdSegmentedPoint[] {
+	return series.map((point) => buildSegmentedPoint(point, thresholdValue));
+}
+
+export function buildThresholdSegmentedAreaData(
+	series: TimelinePoint[],
+	thresholdValue = 0,
+): ThresholdSegmentedPoint[] {
 	if (series.length <= 1) {
-		return series.map((point) => ({
-			...point,
-			positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
-			negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
-		}));
+		return buildThresholdSegmentedChartData(series, thresholdValue);
 	}
 
-	const segmentedSeries: TimelinePoint[] = [];
-	segmentedSeries.push(series[0]);
+	const segmentedSeries: Array<TimelinePoint | ThresholdCrossingTimelinePoint> = [series[0]!];
+
 	for (let index = 1; index < series.length; index += 1) {
-		const previousPoint = series[index - 1];
-		const currentPoint = series[index];
+		const previousPoint = series[index - 1]!;
+		const currentPoint = series[index]!;
 
 		if (shouldInsertCrossingPoint(previousPoint, currentPoint, thresholdValue)) {
 			segmentedSeries.push(
 				buildThresholdCrossingPoint(previousPoint, currentPoint, thresholdValue),
 			);
 		}
+
 		segmentedSeries.push(currentPoint);
 	}
 
-	return segmentedSeries.map((point) => {
-		const isCrossingPoint =
-			Math.abs(point.value - thresholdValue) <= CROSSING_EPSILON && !point.label;
-		return {
-			...point,
-			...(isCrossingPoint ? { crossingPoint: true } : {}),
-			positiveValue: point.value >= thresholdValue ? point.value : thresholdValue,
-			negativeValue: point.value < thresholdValue ? point.value : thresholdValue,
-		};
-	});
+	return segmentedSeries.map((point) => buildSegmentedPoint(point, thresholdValue));
 }

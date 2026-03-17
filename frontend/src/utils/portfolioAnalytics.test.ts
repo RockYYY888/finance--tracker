@@ -166,6 +166,7 @@ describe("buildDisplayTimelineSeriesByRange", () => {
 		expect(seriesByRange.hour.length).toBe(3);
 		expect(seriesByRange.hour[0]?.label).toBe("03-13 21:00");
 		expect(seriesByRange.hour[0]?.value).toBe(-6.82);
+		expect(seriesByRange.hour[0]?.synthetic).toBe(true);
 		expect(seriesByRange.hour[2]?.label).toBe("03-14 21:00");
 	});
 

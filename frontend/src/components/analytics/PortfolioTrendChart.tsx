@@ -31,12 +31,14 @@ import {
 	getAdaptiveYAxisWidth,
 	getFirstRenderableTimelineRange,
 	getTimelineChartTicks,
+	isSyntheticTimelinePoint,
 	summarizeAverageStepDelta,
 	summarizeCompoundedValueStepRate,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
 import "./analytics.css";
 import {
+	buildThresholdSegmentedAreaData,
 	buildThresholdSegmentedChartData,
 	isThresholdSegmentedCrossingPoint,
 	type ThresholdSegmentedPoint,
@@ -127,6 +129,13 @@ export function buildPortfolioTrendChartData(
 	return buildThresholdSegmentedChartData(series, thresholdValue);
 }
 
+export function buildPortfolioTrendAreaData(
+	series: TimelinePoint[],
+	thresholdValue = 0,
+): PortfolioTrendChartPoint[] {
+	return buildThresholdSegmentedAreaData(series, thresholdValue);
+}
+
 function formatSignedRatio(ratio: number | null): string {
 	if (ratio === null || !Number.isFinite(ratio)) {
 		return "--";
@@ -138,22 +147,35 @@ function formatSignedRatio(ratio: number | null): string {
 
 function findPointIndexByLabel(
 	series: TimelinePoint[],
-	label: string | null,
+	point: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
 ): number | null {
-	if (!label) {
+	if (!point) {
 		return null;
 	}
 
-	const matchedIndex = series.findIndex((point) => point.label === label);
+	if (point.timestamp_utc) {
+		const matchedTimestampIndex = series.findIndex(
+			(candidate) => candidate.timestamp_utc === point.timestamp_utc,
+		);
+		if (matchedTimestampIndex >= 0) {
+			return matchedTimestampIndex;
+		}
+	}
+
+	if (!point.label) {
+		return null;
+	}
+
+	const matchedIndex = series.findIndex((candidate) => candidate.label === point.label);
 	return matchedIndex >= 0 ? matchedIndex : null;
 }
 
 function buildSummaryStateFromSeries(
 	series: TimelinePoint[],
-	activeLabel: string | null,
+	activePoint: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
 	endFallbackLabel = "最新周期",
 ): TimelineSummaryState {
-	const matchedIndex = findPointIndexByLabel(series, activeLabel);
+	const matchedIndex = findPointIndexByLabel(series, activePoint);
 	const visibleSeries =
 		matchedIndex === null ? series : series.slice(0, matchedIndex + 1);
 	const endPoint = visibleSeries[visibleSeries.length - 1] ?? null;
@@ -167,10 +189,10 @@ function buildSummaryStateFromSeries(
 
 function buildDerivedMetricState(
 	series: TimelinePoint[],
-	activeLabel: string | null,
+	activePoint: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
 	summarize: (points: TimelinePoint[]) => number,
 ): { value: number; selected: boolean } {
-	const matchedIndex = findPointIndexByLabel(series, activeLabel);
+	const matchedIndex = findPointIndexByLabel(series, activePoint);
 	const visibleSeries =
 		matchedIndex === null ? series : series.slice(0, matchedIndex + 1);
 
@@ -188,6 +210,12 @@ function getChangeDirection(changeValue: number): string {
 		return "减少";
 	}
 	return "变化";
+}
+
+function isInteractiveTrendPoint(
+	point: PortfolioTrendChartPoint | null | undefined,
+): boolean {
+	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
 }
 
 export function PortfolioTrendChart({
@@ -254,37 +282,41 @@ export function PortfolioTrendChart({
 		valueRangeSeries,
 		valueBaseline,
 	);
+	const valueAreaData = buildPortfolioTrendAreaData(
+		valueRangeSeries,
+		valueBaseline,
+	);
 	const returnRangeSeries = returnSeriesByRange[activeRange];
 	const returnChartData = buildPortfolioTrendChartData(
 		returnRangeSeries,
 		ZERO_RETURN_THRESHOLD,
 	);
+	const returnAreaData = buildPortfolioTrendAreaData(
+		returnRangeSeries,
+		ZERO_RETURN_THRESHOLD,
+	);
 	const activeChartData =
 		displayMode === "value" ? valueChartData : returnChartData;
+	const activeAreaData =
+		displayMode === "value" ? valueAreaData : returnAreaData;
 	const activePoint =
 		activePointIndex === null
 			? null
 			: (activeChartData[activePointIndex] ?? null);
-	const activeLabel = activePoint?.crossingPoint
-		? null
-		: (activePoint?.label ?? null);
+	const selectedPoint = isInteractiveTrendPoint(activePoint) ? activePoint : null;
 	const activeSummaryState = buildSummaryStateFromSeries(
 		activeSeries,
-		activeLabel,
-		activePoint?.crossingPoint
-			? displayMode === "value"
-				? "期初资产交点"
-				: "基准线交点"
-			: "最新周期",
+		selectedPoint,
+		"最新周期",
 	);
 	const valueStepRateState = buildDerivedMetricState(
 		valueRangeSeries,
-		displayMode === "value" ? activeLabel : null,
+		displayMode === "value" ? selectedPoint : null,
 		summarizeCompoundedValueStepRate,
 	);
 	const returnStepDeltaState = buildDerivedMetricState(
 		returnRangeSeries,
-		displayMode === "return" ? activeLabel : null,
+		displayMode === "return" ? selectedPoint : null,
 		summarizeAverageStepDelta,
 	);
 	const hasActiveSummaryData = activeSeries.length >= 1;
@@ -378,7 +410,7 @@ export function PortfolioTrendChart({
 		if (
 			typeof props.cx !== "number" ||
 			typeof props.cy !== "number" ||
-			isThresholdSegmentedCrossingPoint(props.payload)
+			!isInteractiveTrendPoint(props.payload)
 		) {
 			return null;
 		}
@@ -521,9 +553,7 @@ export function PortfolioTrendChart({
 								}
 
 								if (
-									isThresholdSegmentedCrossingPoint(
-										activeChartData[activeTooltipIndex],
-									)
+									!isInteractiveTrendPoint(activeChartData[activeTooltipIndex])
 								) {
 									setActivePointIndex(null);
 									return;
@@ -591,7 +621,7 @@ export function PortfolioTrendChart({
 									const sourcePoint = primaryEntry?.payload as
 										| PortfolioTrendChartPoint
 										| undefined;
-									if (isThresholdSegmentedCrossingPoint(sourcePoint)) {
+									if (!isInteractiveTrendPoint(sourcePoint)) {
 										return null;
 									}
 									const periodLabel = String(label ?? "");
@@ -616,6 +646,7 @@ export function PortfolioTrendChart({
 							/>
 							<Area
 								type="linear"
+								data={activeAreaData}
 								dataKey="positiveValue"
 								stroke={POSITIVE_TREND_COLOR}
 								fill={POSITIVE_TREND_FILL}
@@ -625,6 +656,7 @@ export function PortfolioTrendChart({
 							/>
 							<Area
 								type="linear"
+								data={activeAreaData}
 								dataKey="negativeValue"
 								stroke={NEGATIVE_TREND_COLOR}
 								fill={NEGATIVE_TREND_FILL}
