@@ -14,6 +14,7 @@ import app.main as main
 from app.main import (
 	_authenticate_user_account,
 	_create_user_account,
+	_coerce_utc_datetime,
 	_update_user_email,
 	create_cash_ledger_adjustment,
 	create_fixed_asset,
@@ -77,6 +78,7 @@ from app.schemas import (
 from app.security import verify_password
 from app.services.market_data import Quote
 from app.services import dashboard_service, history_service, service_context
+import app.services.dashboard_query_service as dashboard_query_service
 
 
 class _InMemoryRedisLock:
@@ -1816,6 +1818,61 @@ def test_build_dashboard_replays_total_series_from_cash_ledger_and_holding_trans
 	assert dashboard.holdings_value_cny == 700.0
 	assert dashboard.total_value_cny == 1000.0
 	assert any(point.value == 1000.0 for point in dashboard.hour_series)
+
+
+def test_build_dashboard_persists_previous_live_hour_snapshot_when_hour_rolls(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
+
+	session.add(
+		CashAccount(
+			user_id=current_user.username,
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=100.0,
+			account_type="BANK",
+		),
+	)
+	session.commit()
+
+	first_now = datetime(2026, 3, 17, 4, 35, tzinfo=timezone.utc)
+	second_now = first_now + timedelta(hours=1, minutes=5)
+	monkeypatch.setattr(dashboard_query_service, "utc_now", lambda: first_now)
+
+	first_dashboard = asyncio.run(main._build_dashboard(session, current_user))
+	first_snapshots = list(
+		session.exec(
+			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == current_user.username)
+			.order_by(PortfolioSnapshot.created_at.asc()),
+		),
+	)
+
+	assert first_dashboard.total_value_cny == 100.0
+	assert len(first_snapshots) == 0
+
+	monkeypatch.setattr(dashboard_query_service, "utc_now", lambda: second_now)
+	second_dashboard = asyncio.run(main._build_dashboard(session, current_user))
+	second_snapshots = list(
+		session.exec(
+			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == current_user.username)
+			.order_by(PortfolioSnapshot.created_at.asc()),
+		),
+	)
+
+	assert second_dashboard.total_value_cny == 100.0
+	assert len(second_snapshots) == 1
+	assert _coerce_utc_datetime(second_snapshots[0].created_at) == first_now.replace(
+		minute=0,
+		second=0,
+		microsecond=0,
+	)
+	assert second_snapshots[0].total_value_cny == 100.0
 
 
 def test_create_holding_rejects_future_started_on_based_on_server_date(

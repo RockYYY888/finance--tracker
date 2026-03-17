@@ -53,6 +53,8 @@ from app.services.dashboard_correction_service import (
 from app.services.dashboard_live_service import (
 	_build_transient_holdings_return_snapshots,
 	_build_transient_portfolio_snapshot,
+	_roll_live_holdings_return_state_if_needed,
+	_roll_live_portfolio_state_if_needed,
 	_summarize_holdings_return_state,
 	_update_live_holdings_return_state,
 	_update_live_portfolio_state,
@@ -217,6 +219,15 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 	has_assets = bool(accounts or holdings or fixed_assets or liabilities or other_assets)
 	aggregate_holdings_return_pct, holding_return_points = _summarize_holdings_return_state(
 		valued_holdings,
+	)
+	_roll_live_portfolio_state_if_needed(session, user_id, now)
+	_roll_live_holdings_return_state_if_needed(session, user_id, now)
+	_update_live_portfolio_state(user_id, now, total_value_cny, has_assets)
+	_update_live_holdings_return_state(
+		user_id,
+		now,
+		aggregate_holdings_return_pct,
+		holding_return_points,
 	)
 	live_portfolio_snapshot = _build_transient_portfolio_snapshot(
 		user_id=user_id,
