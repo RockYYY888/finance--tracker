@@ -496,24 +496,45 @@ def build_local_search_results(query: str) -> list[SecuritySearchResult]:
 
 class YahooQuoteProvider:
 	YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
+	YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
 
 	def __init__(self, timeout: float = 10.0) -> None:
 		self.timeout = timeout
 
-	async def fetch_quote(self, symbol: str) -> Quote:
-		"""Fetch the latest quote from Yahoo's public quote endpoint."""
+	async def _request_json(
+		self,
+		url: str,
+		*,
+		symbol: str,
+		params: dict[str, object],
+		source_label: str,
+	) -> dict[str, object]:
 		try:
 			async with httpx.AsyncClient(timeout=self.timeout) as client:
 				response = await client.get(
-					self.YAHOO_QUOTE_URL,
-					params={"symbols": symbol},
+					url,
+					params=params,
 					headers={"User-Agent": "Mozilla/5.0"},
 				)
 				response.raise_for_status()
 				payload = response.json()
 		except httpx.HTTPError as exc:
-			raise QuoteLookupError(f"Quote provider request failed for {symbol}.") from exc
+			error_details = _describe_http_error(exc)
+			raise QuoteLookupError(
+				f"{source_label} request failed for {symbol} ({error_details}).",
+			) from exc
+		except ValueError as exc:
+			raise QuoteLookupError(
+				f"{source_label} returned invalid data for {symbol}.",
+			) from exc
 
+		if not isinstance(payload, dict):
+			raise QuoteLookupError(f"{source_label} returned invalid data for {symbol}.")
+
+		return payload
+
+	@staticmethod
+	def _parse_quote_payload(symbol: str, payload: dict[str, object]) -> Quote:
 		results = payload.get("quoteResponse", {}).get("result", [])
 		if not results:
 			raise QuoteLookupError(f"No quote data returned for {symbol}.")
@@ -525,9 +546,7 @@ class YahooQuoteProvider:
 			raise QuoteLookupError(f"Incomplete quote data returned for {symbol}.")
 
 		timestamp = result.get("regularMarketTime")
-		market_time = (
-			datetime.fromtimestamp(timestamp, tz=timezone.utc) if isinstance(timestamp, int) else None
-		)
+		market_time = _parse_epoch_millis(timestamp)
 
 		return Quote(
 			symbol=result.get("symbol", symbol),
@@ -536,6 +555,72 @@ class YahooQuoteProvider:
 			currency=str(currency).upper(),
 			market_time=market_time,
 		)
+
+	@staticmethod
+	def _parse_chart_payload(symbol: str, payload: dict[str, object]) -> Quote:
+		result_list = payload.get("chart", {}).get("result") or []
+		if not result_list:
+			raise QuoteLookupError(f"No chart quote data returned for {symbol}.")
+
+		result = result_list[0]
+		meta = result.get("meta") or {}
+		price = meta.get("regularMarketPrice")
+		if price in (None, 0):
+			quotes = (result.get("indicators") or {}).get("quote") or []
+			closes = (quotes[0] if quotes else {}).get("close") or []
+			price = next(
+				(
+					float(close_value)
+					for close_value in reversed(closes)
+					if close_value not in (None, 0)
+				),
+				None,
+			)
+
+		currency = meta.get("currency")
+		if price in (None, 0) or not currency:
+			raise QuoteLookupError(f"Incomplete chart quote data returned for {symbol}.")
+
+		return Quote(
+			symbol=str(meta.get("symbol") or symbol),
+			name=str(meta.get("shortName") or meta.get("longName") or symbol),
+			price=float(price),
+			currency=str(currency).upper(),
+			market_time=_parse_epoch_millis(meta.get("regularMarketTime")),
+		)
+
+	async def fetch_quote(self, symbol: str) -> Quote:
+		"""Fetch the latest quote from Yahoo and fall back to the chart API when needed."""
+		quote_error: QuoteLookupError | None = None
+
+		try:
+			payload = await self._request_json(
+				self.YAHOO_QUOTE_URL,
+				symbol=symbol,
+				params={"symbols": symbol},
+				source_label="Yahoo quote",
+			)
+			return self._parse_quote_payload(symbol, payload)
+		except QuoteLookupError as exc:
+			quote_error = exc
+
+		try:
+			payload = await self._request_json(
+				f"{self.YAHOO_CHART_URL}/{symbol}",
+				symbol=symbol,
+				params={
+					"interval": "1d",
+					"range": "1d",
+					"includePrePost": "false",
+					"events": "history",
+				},
+				source_label="Yahoo chart quote fallback",
+			)
+			return self._parse_chart_payload(symbol, payload)
+		except QuoteLookupError as exc:
+			if quote_error is None:
+				raise
+			raise QuoteLookupError(f"{quote_error}; {exc}") from exc
 
 
 class EastMoneyQuoteProvider:
@@ -857,7 +942,7 @@ class EastMoneySecuritySearchProvider:
 
 
 class FrankfurterRateProvider:
-	FRANKFURTER_URL = "https://api.frankfurter.app/latest"
+	FRANKFURTER_URL = "https://api.frankfurter.dev/v1/latest"
 
 	def __init__(self, timeout: float = 10.0) -> None:
 		self.timeout = timeout
@@ -868,7 +953,7 @@ class FrankfurterRateProvider:
 			async with httpx.AsyncClient(timeout=self.timeout) as client:
 				response = await client.get(
 					self.FRANKFURTER_URL,
-					params={"from": from_currency, "to": to_currency},
+					params={"base": from_currency, "symbols": to_currency},
 				)
 				response.raise_for_status()
 				payload = response.json()
@@ -1355,22 +1440,3 @@ class MarketDataClient:
 		results = _merge_search_results(local_results, _merge_search_results(china_results, global_results))
 		self.search_cache.set(cache_key, results, ttl_seconds=self.search_ttl_seconds)
 		return results
-
-		stale_rate = self.fx_cache.get_stale(cache_key)
-		if prefer_stale and stale_rate is not None:
-			self._ensure_fx_refresh(from_code, to_code)
-			return stale_rate, []
-
-		try:
-			rate = await self._fetch_fx_rate_from_providers(from_code, to_code)
-		except QuoteLookupError as exc:
-			error_message = str(exc)
-			stale_rate = self.fx_cache.get_stale(cache_key)
-			if stale_rate is not None:
-				return stale_rate, [
-					f"{from_code}/{to_code} 汇率源不可用，已回退到最近缓存值: {error_message}",
-				]
-			raise
-
-		self.fx_cache.set(cache_key, rate, ttl_seconds=self.fx_ttl_seconds)
-		return rate, []

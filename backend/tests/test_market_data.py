@@ -11,10 +11,12 @@ from app.services.market_data import (
 	BitgetQuoteProvider,
 	EastMoneyQuoteProvider,
 	EastMoneySecuritySearchProvider,
+	FrankfurterRateProvider,
 	MarketDataClient,
 	Quote,
 	QuoteLookupError,
 	SecuritySearchResult,
+	YahooQuoteProvider,
 	YahooSecuritySearchProvider,
 	build_eastmoney_secid,
 	build_local_search_results,
@@ -686,6 +688,77 @@ def test_yahoo_search_provider_returns_empty_results_for_null_quotes(
 	assert results == []
 
 
+def test_yahoo_quote_provider_falls_back_to_chart_endpoint_when_quote_endpoint_unauthorized(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	requested_urls: list[str] = []
+
+	class StaticAsyncClient:
+		def __init__(self, *args, **kwargs) -> None:
+			pass
+
+		async def __aenter__(self) -> "StaticAsyncClient":
+			return self
+
+		async def __aexit__(self, exc_type, exc, tb) -> None:
+			return None
+
+		async def get(self, url: str, *args, **kwargs) -> httpx.Response:
+			requested_urls.append(url)
+			if url == YahooQuoteProvider.YAHOO_QUOTE_URL:
+				request = httpx.Request("GET", url)
+				response = httpx.Response(
+					401,
+					request=request,
+					json={
+						"finance": {
+							"result": None,
+							"error": {"code": "Unauthorized"},
+						},
+					},
+				)
+				raise httpx.HTTPStatusError(
+					"401 Unauthorized",
+					request=request,
+					response=response,
+				)
+
+			request = httpx.Request("GET", url)
+			return httpx.Response(
+				200,
+				request=request,
+				json={
+					"chart": {
+						"result": [
+							{
+								"meta": {
+									"currency": "USD",
+									"symbol": "AAPL",
+									"shortName": "Apple Inc.",
+									"regularMarketPrice": 252.82,
+									"regularMarketTime": 1773691203,
+								},
+							},
+						],
+					},
+				},
+			)
+
+	monkeypatch.setattr("app.services.market_data.httpx.AsyncClient", StaticAsyncClient)
+	provider = YahooQuoteProvider()
+
+	quote = asyncio.run(provider.fetch_quote("AAPL"))
+
+	assert quote.symbol == "AAPL"
+	assert quote.name == "Apple Inc."
+	assert quote.price == 252.82
+	assert quote.currency == "USD"
+	assert requested_urls == [
+		YahooQuoteProvider.YAHOO_QUOTE_URL,
+		f"{YahooQuoteProvider.YAHOO_CHART_URL}/AAPL",
+	]
+
+
 def test_eastmoney_quote_provider_exposes_http_status_details(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -716,6 +789,37 @@ def test_eastmoney_quote_provider_exposes_http_status_details(
 		match=r"Eastmoney quote request failed for 1810\.HK \(HTTP 429",
 	):
 		asyncio.run(provider.fetch_quote("1810.HK"))
+
+
+def test_frankfurter_rate_provider_uses_latest_official_endpoint(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	class StaticAsyncClient:
+		def __init__(self, *args, **kwargs) -> None:
+			pass
+
+		async def __aenter__(self) -> "StaticAsyncClient":
+			return self
+
+		async def __aexit__(self, exc_type, exc, tb) -> None:
+			return None
+
+		async def get(self, url: str, *args, **kwargs) -> httpx.Response:
+			assert url == FrankfurterRateProvider.FRANKFURTER_URL
+			assert kwargs["params"] == {"base": "USD", "symbols": "CNY"}
+			request = httpx.Request("GET", url, params=kwargs["params"])
+			return httpx.Response(
+				200,
+				request=request,
+				json={"base": "USD", "rates": {"CNY": 6.8961}},
+			)
+
+	monkeypatch.setattr("app.services.market_data.httpx.AsyncClient", StaticAsyncClient)
+	provider = FrankfurterRateProvider()
+
+	rate = asyncio.run(provider.fetch_rate("USD", "CNY"))
+
+	assert rate == 6.8961
 
 
 def test_fetch_fx_rate_returns_stale_cache_when_providers_fail() -> None:
