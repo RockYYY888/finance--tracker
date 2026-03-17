@@ -58,22 +58,14 @@ services:
         VITE_ENABLE_PWA: "true"
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2.10-alpine
+  nginx:
+    build:
+      context: ./nginx
     depends_on:
       - backend
       - frontend
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
-      ASSET_TRACKER_DOMAIN: ${ASSET_TRACKER_DOMAIN:-localhost}
     ports:
       - "8080:80"
     restart: unless-stopped
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_config:
-  caddy_data:

@@ -1,0 +1,49 @@
+server_tokens off;
+
+server {
+	listen 80;
+	listen [::]:80;
+	server_name _;
+
+	gzip on;
+	gzip_comp_level 5;
+	gzip_min_length 1024;
+	gzip_types
+		application/javascript
+		application/json
+		application/xml
+		text/css
+		text/javascript
+		text/plain
+		text/xml;
+
+	add_header Cache-Control "no-store" always;
+	add_header Pragma "no-cache" always;
+	add_header Cross-Origin-Opener-Policy "same-origin" always;
+	add_header Cross-Origin-Resource-Policy "same-origin" always;
+	add_header Permissions-Policy "camera=(), geolocation=(), microphone=()" always;
+	add_header Referrer-Policy "same-origin" always;
+	add_header X-Content-Type-Options "nosniff" always;
+	add_header X-Frame-Options "DENY" always;
+
+	location /api/ {
+		proxy_pass http://backend:8000;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+		proxy_set_header X-API-Key ${ASSET_TRACKER_API_TOKEN};
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Host $host;
+		proxy_set_header X-Forwarded-Proto http;
+		proxy_set_header X-Real-IP $remote_addr;
+	}
+
+	location / {
+		proxy_pass http://frontend:80;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Host $host;
+		proxy_set_header X-Forwarded-Proto http;
+		proxy_set_header X-Real-IP $remote_addr;
+	}
+}

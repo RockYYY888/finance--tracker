@@ -13,7 +13,7 @@ docker compose up -d --build
 ```
 
 Open `http://127.0.0.1:8080`.
-This starts `backend`, `worker`, `frontend`, `caddy`, and `redis`.
+This starts `backend`, `worker`, `frontend`, `nginx`, and `redis`.
 The local Redis endpoint is also published at `127.0.0.1:6380` for direct host-side testing.
 
 ### Local Redis Connectivity Check
