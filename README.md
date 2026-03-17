@@ -9,12 +9,22 @@ and performance history. Agent-facing API documentation lives in
 ### Local Build
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 ```
 
 Open `http://127.0.0.1:8080`.
 This starts `backend`, `worker`, `frontend`, `nginx`, and `redis`.
 The local Redis endpoint is also published at `127.0.0.1:6380` for direct host-side testing.
+
+Local nginx verification:
+
+```bash
+curl -I http://127.0.0.1:8080/
+curl http://127.0.0.1:8080/api/health
+```
+
+If you previously ran the stack with `caddy`, keep `--remove-orphans` so the old container is removed
+and `nginx` can bind `127.0.0.1:8080` cleanly.
 
 ### Local Redis Connectivity Check
 
@@ -29,7 +39,7 @@ The Redis connectivity check exercises the real Redis container instead of a fak
 ### Server Or Proxy Build
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
 ```
 
 The proxy override file defaults to `http://host.docker.internal:7890`.
@@ -39,7 +49,7 @@ If your local proxy listens on another port such as `10808`, override it explici
 ```bash
 ASSET_TRACKER_HTTP_PROXY=http://host.docker.internal:10808 \
 ASSET_TRACKER_HTTPS_PROXY=http://host.docker.internal:10808 \
-docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
 ```
 
 `backend` and `worker` now run Alembic migrations automatically on startup. Schema changes must ship
@@ -60,7 +70,11 @@ Server deploy:
 
 ```bash
 git pull
-docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
 ```
 
 Deploy startup automatically runs `alembic upgrade head`.
+
+If your remote host or external reverse proxy referenced the old `caddy` service by name, update it to
+the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
+change is required beyond pulling the latest code and rebuilding the compose stack.
