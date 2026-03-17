@@ -43,6 +43,7 @@ describe("global layout styles", () => {
 		);
 
 		expect(globalStylesheet).toContain("min-height: 100dvh;");
+		expect(globalStylesheet).not.toContain(".session-recovery-mask");
 		expect(globalStylesheet).toMatch(
 			/\.workspace-switch__button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
 		);

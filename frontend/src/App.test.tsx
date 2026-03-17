@@ -80,11 +80,17 @@ vi.mock("./lib/assetApi", () => ({
 vi.mock("./components/auth/LoginScreen", () => ({
 	LoginScreen: ({
 		onLogin,
+		errorMessage,
+		checkingSession,
 	}: {
 		onLogin: (payload: { user_id: string; password: string }) => Promise<void>;
+		errorMessage?: string | null;
+		checkingSession?: boolean;
 	}) => (
 		<div data-testid="login-screen">
 			登录页
+			{checkingSession ? <p>检查登录中</p> : null}
+			{errorMessage ? <p>{errorMessage}</p> : null}
 			<button
 				type="button"
 				onClick={() => void onLogin({ user_id: "bob", password: "secret-password" })}
@@ -509,6 +515,27 @@ describe("App session restore", () => {
 		});
 
 		expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+	});
+
+	it("keeps remembered session hints when restore fails with a transient server error", async () => {
+		authApiMocks.getAuthSession.mockRejectedValue(
+			new Error("服务器暂时不可用，请稍后再试。"),
+		);
+		window.sessionStorage.setItem(STORAGE_KEY, "alice");
+
+		render(<App />);
+
+		expect(screen.queryByTestId("login-screen")).toBeNull();
+
+		await waitFor(() => {
+			expect(screen.getByTestId("login-screen")).not.toBeNull();
+		});
+
+		expect(
+			screen.getByText("服务器暂时不可用，请稍后再试。"),
+		).not.toBeNull();
+		expect(screen.queryByText("Internal Server Error")).toBeNull();
+		expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe("alice");
 	});
 
 	it("ignores a stale dashboard response after logging out and signing into another account", async () => {

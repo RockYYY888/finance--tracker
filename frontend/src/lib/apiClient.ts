@@ -27,6 +27,14 @@ type ApiErrorDetailItem = {
 	msg?: string;
 };
 
+const GENERIC_SERVER_ERROR_MESSAGES = new Set([
+	"internal server error",
+	"server error",
+	"bad gateway",
+	"service unavailable",
+	"gateway timeout",
+]);
+
 function translateValidationMessage(message: string): string {
 	const normalizedMessage = message.replace(/^Value error,\s*/, "").trim();
 	if (!normalizedMessage) {
@@ -110,26 +118,54 @@ function getStatusFallbackMessage(statusCode: number): string {
 	}
 }
 
+function isGenericServerErrorText(message: string): boolean {
+	const normalizedMessage = message.trim().toLowerCase();
+	if (!normalizedMessage) {
+		return true;
+	}
+
+	if (GENERIC_SERVER_ERROR_MESSAGES.has(normalizedMessage)) {
+		return true;
+	}
+
+	return (
+		normalizedMessage.startsWith("<!doctype html")
+		|| normalizedMessage.startsWith("<html")
+		|| normalizedMessage.includes("<body")
+		|| normalizedMessage.includes("traceback")
+	);
+}
+
 function extractErrorMessage(responseText: string, statusCode: number): string {
+	const fallbackMessage = getStatusFallbackMessage(statusCode);
 	if (!responseText.trim()) {
-		return getStatusFallbackMessage(statusCode);
+		return fallbackMessage;
 	}
 
 	try {
 		const parsed = JSON.parse(responseText) as { detail?: string | unknown[] };
 		if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+			if (statusCode >= 500 && isGenericServerErrorText(parsed.detail)) {
+				return fallbackMessage;
+			}
 			return parsed.detail;
 		}
 
 		const validationMessage = extractValidationErrorMessage(parsed.detail);
 		if (validationMessage) {
+			if (statusCode >= 500 && isGenericServerErrorText(validationMessage)) {
+				return fallbackMessage;
+			}
 			return validationMessage;
 		}
 	} catch {
-		return responseText.trim() || getStatusFallbackMessage(statusCode);
+		if (statusCode >= 500 && isGenericServerErrorText(responseText)) {
+			return fallbackMessage;
+		}
+		return responseText.trim() || fallbackMessage;
 	}
 
-	return getStatusFallbackMessage(statusCode);
+	return fallbackMessage;
 }
 
 function toNetworkErrorMessage(error: unknown): string {

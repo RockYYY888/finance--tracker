@@ -418,6 +418,10 @@ function formatFxRate(rate: number | null | undefined): string {
 	return rate.toFixed(4);
 }
 
+function isAuthenticationErrorMessage(message: string): boolean {
+	return message.includes("请先登录") || message.includes("请重新登录");
+}
+
 async function withTimeout<T>(
 	task: Promise<T>,
 	timeoutMs: number,
@@ -621,8 +625,10 @@ function App() {
 		setIsLoadingDashboard(!hasUsableCachedDashboard);
 	}
 
-	function markSignedOut(): void {
-		clearRememberedSessionUserId();
+	function markSignedOut(options: { clearRememberedSession?: boolean } = {}): void {
+		if (options.clearRememberedSession ?? true) {
+			clearRememberedSessionUserId();
+		}
 		currentUserIdRef.current = null;
 		authStatusRef.current = "anonymous";
 		setCurrentUserId(null);
@@ -788,8 +794,18 @@ function App() {
 				"会话检查超时",
 			);
 			markSignedInWithProfile(session.user_id, session.email ?? null);
-		} catch {
-			markSignedOut();
+		} catch (error) {
+			const nextErrorMessage =
+				error instanceof Error && error.message.trim()
+					? error.message
+					: "暂时无法验证登录状态，请稍后再试。";
+			if (isAuthenticationErrorMessage(nextErrorMessage)) {
+				markSignedOut();
+				return;
+			}
+
+			markSignedOut({ clearRememberedSession: false });
+			setAuthErrorMessage(nextErrorMessage);
 		}
 	}
 
@@ -1400,7 +1416,7 @@ function App() {
 		dashboard.other_assets.length > 0;
 	const isDashboardBusy = isLoadingDashboard || isRefreshingDashboard;
 	const showDashboardValuePlaceholder =
-		(isRecoveringSession || isLoadingDashboard) &&
+		isLoadingDashboard &&
 		lastUpdatedAt === null &&
 		isDashboardSnapshotEmpty(dashboard);
 
@@ -1429,16 +1445,6 @@ function App() {
 
 	return (
 		<div className="app-shell">
-			{isRecoveringSession ? (
-				<div className="session-recovery-mask" role="status" aria-live="polite">
-					<div className="session-recovery-mask__panel panel">
-						<p className="eyebrow">SESSION RESTORE</p>
-						<h2>正在恢复登录状态</h2>
-						<p>验证通过后会继续停留在当前页面。</p>
-					</div>
-				</div>
-			) : null}
-
 			<header className="hero-panel">
 				<div className="hero-copy-block">
 					<p className="eyebrow">HENG CANG</p>
@@ -1452,16 +1458,14 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={() => void loadDashboard({ forceRefresh: true })}
-							disabled={isDashboardBusy || isRecoveringSession}
+							disabled={isDashboardBusy}
 						>
 							<span
 								className={`hero-note__status ${isDashboardBusy ? "is-active" : ""}`}
 								aria-hidden="true"
 							/>
 							<span>
-								{isRecoveringSession
-									? "正在恢复会话..."
-									: isDashboardBusy
+								{isDashboardBusy
 									? "同步中..."
 									: `最近更新：${formatLastUpdated(lastUpdatedAt)}`}
 							</span>
@@ -1470,7 +1474,7 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={openEmailDialog}
-							disabled={isRecoveringSession || isSubmittingEmail}
+							disabled={isSubmittingEmail}
 						>
 							{currentUserEmail ? "修改邮箱" : "绑定邮箱"}
 						</button>
@@ -1480,7 +1484,7 @@ function App() {
 							onClick={() =>
 								currentUserId === "admin" ? void openAdminInbox() : void openUserInbox()
 							}
-							disabled={isRecoveringSession || isLoadingAdminInbox || isLoadingUserInbox}
+							disabled={isLoadingAdminInbox || isLoadingUserInbox}
 						>
 							{feedbackInboxCount > 0 ? `消息 (${feedbackInboxCount})` : "消息"}
 						</button>
@@ -1489,7 +1493,7 @@ function App() {
 								type="button"
 								className="hero-note hero-note--action"
 								onClick={() => void openAdminReleaseNotes()}
-								disabled={isRecoveringSession || isLoadingAdminReleaseNotes}
+								disabled={isLoadingAdminReleaseNotes}
 							>
 								更新日志
 							</button>
@@ -1498,7 +1502,6 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={openAssetRecordsDialog}
-							disabled={isRecoveringSession}
 						>
 							记录
 						</button>
@@ -1506,7 +1509,6 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={openFeedbackDialog}
-							disabled={isRecoveringSession}
 						>
 							反馈问题
 						</button>
@@ -1514,7 +1516,6 @@ function App() {
 							type="button"
 							className="hero-note hero-note--action"
 							onClick={() => void handleLogout()}
-							disabled={isRecoveringSession}
 						>
 							退出登录
 						</button>
@@ -1593,7 +1594,7 @@ function App() {
 				</div>
 			) : null}
 
-			{!hasAnyAsset && !isDashboardBusy && !errorMessage && !isRecoveringSession ? (
+			{!hasAnyAsset && !isDashboardBusy && !errorMessage ? (
 				<div className="banner info">暂无资产数据。</div>
 			) : null}
 
@@ -1667,7 +1668,7 @@ function App() {
 							holdings_return_month_series={dashboard.holdings_return_month_series}
 							holdings_return_year_series={dashboard.holdings_return_year_series}
 							holding_return_series={dashboard.holding_return_series}
-							loading={isLoadingDashboard || isRecoveringSession}
+							loading={isLoadingDashboard}
 						/>
 					</Suspense>
 				</section>
