@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.schemas import SecurityHoldingRead, UserFeedbackRead
+from app.schemas import HoldingReturnSeries, SecurityHoldingRead, UserFeedbackRead
 
 
 def test_user_feedback_read_serializes_naive_timestamps_as_explicit_utc() -> None:
@@ -35,3 +35,19 @@ def test_security_holding_read_serializes_aware_timestamps_with_utc_marker() -> 
 	payload = record.model_dump(mode="json")
 
 	assert payload["last_updated"] == "2026-03-01T04:20:51Z"
+
+
+def test_holding_return_series_includes_quantity_field() -> None:
+	record = HoldingReturnSeries(
+		symbol="0700.HK",
+		name="腾讯控股",
+		quantity=120,
+		hour_series=[],
+		day_series=[],
+		month_series=[],
+		year_series=[],
+	)
+
+	payload = record.model_dump(mode="json")
+
+	assert payload["quantity"] == 120

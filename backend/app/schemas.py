@@ -1197,6 +1197,7 @@ class AssetRecordRead(UtcTimestampResponseModel):
 class HoldingReturnSeries(BaseModel):
 	symbol: str
 	name: str
+	quantity: float
 	hour_series: list[TimelinePoint]
 	day_series: list[TimelinePoint]
 	month_series: list[TimelinePoint]

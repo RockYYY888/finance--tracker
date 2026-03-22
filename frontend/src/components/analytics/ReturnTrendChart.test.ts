@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildReturnTrendAreaData,
 	buildReturnTrendChartData,
+	createHoldingReturnOptions,
 } from "./ReturnTrendChart";
 
 describe("buildReturnTrendChartData", () => {
@@ -83,6 +84,33 @@ describe("buildReturnTrendChartData", () => {
 				value: -2,
 				positiveValue: 0,
 				negativeValue: -2,
+			},
+		]);
+	});
+});
+
+describe("createHoldingReturnOptions", () => {
+	it("builds selector labels with symbol and quantity", () => {
+		const options = createHoldingReturnOptions([
+			{
+				symbol: "0700.HK",
+				name: "腾讯控股",
+				quantity: 120,
+				hour_series: [],
+				day_series: [],
+				month_series: [],
+				year_series: [],
+			},
+		]);
+
+		expect(options).toEqual([
+			{
+				key: "0700.HK",
+				label: "腾讯控股 (0700.HK) · 120 股/份",
+				hour_series: [],
+				day_series: [],
+				month_series: [],
+				year_series: [],
 			},
 		]);
 	});

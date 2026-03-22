@@ -430,6 +430,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			HoldingReturnSeries(
 				symbol=holding.symbol,
 				name=holding.name,
+				quantity=holding.quantity,
 				hour_series=_apply_dashboard_corrections(
 					holding_hour_series_raw,
 					correction_lookup,

@@ -85,6 +85,7 @@ export type TimelinePoint = {
 export type HoldingReturnSeries = {
 	symbol: string;
 	name: string;
+	quantity: number;
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];

@@ -16,6 +16,7 @@ import type {
 	TimelinePoint,
 	TimelineRange,
 } from "../../types/portfolioAnalytics";
+import { formatQuantity } from "../../lib/assetFormatting";
 import {
 	ANALYTICS_TOOLTIP_ITEM_STYLE,
 	ANALYTICS_TOOLTIP_LABEL_STYLE,
@@ -136,10 +137,15 @@ function isInteractiveTrendPoint(
 	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
 }
 
+function formatHoldingSelectorLabel(item: HoldingReturnSeries): string {
+	const quantity = Number.isFinite(item.quantity) ? formatQuantity(item.quantity) : "0";
+	return `${item.name} (${item.symbol}) · ${quantity} 股/份`;
+}
+
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
 	return items.map((item) => ({
 		key: item.symbol,
-		label: item.name,
+		label: formatHoldingSelectorLabel(item),
 		hour_series: item.hour_series,
 		day_series: item.day_series,
 		month_series: item.month_series,
