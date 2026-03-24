@@ -8,8 +8,7 @@
 
 ## Recent
 
-- [x] Bundle the first legacy server redeploy into one bash entrypoint so backup, env patching, Redis/Postgres bootstrap, SQLite import, and final compose rebuild happen in one run
-- [x] Add a one-time legacy SQLite to Postgres import path, bundle Postgres into the production compose stack, and pass proxy settings through image builds for server redeploys
+- [x] Simplify the repo back to steady-state production deploys after completing the one-time SQLite to Postgres server migration
 - [x] Harden multi-user server paths by making job/history claims atomic across workers, moving shared runtime locks to Redis, and requiring an explicit non-SQLite production database
 - [x] Remove eager agent-workspace prefetch from login, hydrate asset manager directly from dashboard data, and fix summary tabs showing placeholders after sign-in
 - [x] Harden holding search against empty upstream search payloads, allow single-character lookup, and show a clearer no-result state

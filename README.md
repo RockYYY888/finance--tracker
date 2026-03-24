@@ -73,25 +73,15 @@ uv run pytest
 Server deploy:
 
 ```bash
-git pull
+git checkout main
+git pull --ff-only origin main
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
 ```
 
+After the completed SQLite-to-Postgres production migration, this is the only server update command you
+need for normal releases.
+
 Deploy startup automatically runs `alembic upgrade head`.
-
-## First Server Migration From Legacy SQLite
-
-Keep the old `backend/data/asset_tracker.db` file, then run:
-
-```bash
-bash scripts/first_server_sqlite_migration.sh
-```
-
-The script backs up `.env` and the SQLite file, flips runtime config to production Redis + Postgres,
-imports overlapping legacy rows into Postgres, then rebuilds the full proxy-backed stack.
-
-If your host proxy is not exposed on `127.0.0.1:10808` or `127.0.0.1:7890`, prefix the command with
-`ASSET_TRACKER_HOST_PROXY=...` and `ASSET_TRACKER_CONTAINER_PROXY=...`.
 
 If your remote host or external reverse proxy referenced the old `caddy` service by name, update it to
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
