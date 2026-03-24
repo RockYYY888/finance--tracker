@@ -333,7 +333,7 @@ export function AdminFeedbackDialog({
 				onClick={busy ? undefined : onClose}
 				aria-label="关闭消息窗口"
 			/>
-			<div className="feedback-modal__panel">
+			<div className="feedback-modal__panel feedback-modal__panel--list-layout">
 				<div className="feedback-modal__head">
 					<div>
 						<p className="eyebrow">ADMIN INBOX</p>

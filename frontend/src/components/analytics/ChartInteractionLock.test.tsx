@@ -81,6 +81,8 @@ describe("analytics chart interaction lock", () => {
 
 	afterEach(() => {
 		cleanup();
+		document.documentElement.style.overflow = "";
+		document.documentElement.style.overscrollBehavior = "";
 		document.body.style.overflow = "";
 		document.body.style.overscrollBehavior = "";
 		vi.unstubAllGlobals();
@@ -180,6 +182,8 @@ describe("analytics chart interaction lock", () => {
 		fireEvent.touchStart(interactiveCharts[0]!);
 
 		await waitFor(() => {
+			expect(document.documentElement.style.overflow).toBe("hidden");
+			expect(document.documentElement.style.overscrollBehavior).toBe("none");
 			expect(document.body.style.overflow).toBe("hidden");
 			expect(document.body.style.overscrollBehavior).toBe("none");
 		});
@@ -187,6 +191,8 @@ describe("analytics chart interaction lock", () => {
 		fireEvent.touchEnd(interactiveCharts[0]!);
 
 		await waitFor(() => {
+			expect(document.documentElement.style.overflow).toBe("");
+			expect(document.documentElement.style.overscrollBehavior).toBe("");
 			expect(document.body.style.overflow).toBe("");
 			expect(document.body.style.overscrollBehavior).toBe("");
 		});

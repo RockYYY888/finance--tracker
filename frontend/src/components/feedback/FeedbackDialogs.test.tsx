@@ -43,6 +43,10 @@ describe("Feedback dialogs policy rendering", () => {
 	afterEach(() => {
 		window.localStorage.clear();
 		document.cookie = "feedback_dismiss_skip_confirm_v1=0; Max-Age=0; Path=/";
+		document.documentElement.style.overflow = "";
+		document.documentElement.style.overscrollBehavior = "";
+		document.body.style.overflow = "";
+		document.body.style.overscrollBehavior = "";
 		cleanup();
 	});
 
@@ -137,8 +141,8 @@ describe("Feedback dialogs policy rendering", () => {
 		});
 	});
 
-	it("locks body scrolling while inbox dialog is open", () => {
-		const { rerender } = render(
+	it("locks page scrolling while inbox dialog is open and uses a fixed panel shell", () => {
+		const { container, rerender } = render(
 			<UserFeedbackInboxDialog
 				open
 				busy={false}
@@ -152,7 +156,13 @@ describe("Feedback dialogs policy rendering", () => {
 			/>,
 		);
 
+		expect(
+			container.querySelector(".feedback-modal__panel.feedback-modal__panel--list-layout"),
+		).not.toBeNull();
+		expect(document.documentElement.style.overflow).toBe("hidden");
+		expect(document.documentElement.style.overscrollBehavior).toBe("none");
 		expect(document.body.style.overflow).toBe("hidden");
+		expect(document.body.style.overscrollBehavior).toBe("none");
 
 		rerender(
 			<UserFeedbackInboxDialog
@@ -168,6 +178,9 @@ describe("Feedback dialogs policy rendering", () => {
 			/>,
 		);
 
+		expect(document.documentElement.style.overflow).toBe("");
+		expect(document.documentElement.style.overscrollBehavior).toBe("");
 		expect(document.body.style.overflow).toBe("");
+		expect(document.body.style.overscrollBehavior).toBe("");
 	});
 });

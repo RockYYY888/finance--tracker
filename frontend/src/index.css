@@ -607,6 +607,8 @@ h3 {
 	display: grid;
 	place-items: center;
 	padding: 20px;
+	overflow: hidden;
+	overscroll-behavior: none;
 }
 
 .feedback-modal__backdrop {
@@ -639,6 +641,17 @@ h3 {
 	box-shadow:
 		0 24px 64px rgba(0, 0, 0, 0.28),
 		inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.feedback-modal__panel--list-layout {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	overflow: hidden;
+}
+
+.feedback-modal__panel--list-layout .feedback-modal__head {
+	margin-bottom: 0;
 }
 
 .feedback-modal__head {
@@ -687,10 +700,14 @@ h3 {
 
 .admin-feedback-list {
 	display: grid;
+	flex: 1 1 auto;
 	gap: 14px;
-	max-height: min(58vh, 560px);
+	min-height: 0;
+	max-height: none;
 	overflow-y: auto;
+	overscroll-behavior: contain;
 	scrollbar-gutter: stable;
+	padding-right: 0.15rem;
 }
 
 .admin-feedback-card {

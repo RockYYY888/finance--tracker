@@ -168,7 +168,7 @@ export function UserFeedbackInboxDialog({
 				onClick={busy ? undefined : onClose}
 				aria-label="关闭我的消息窗口"
 			/>
-			<div className="feedback-modal__panel">
+			<div className="feedback-modal__panel feedback-modal__panel--list-layout">
 				<div className="feedback-modal__head">
 					<div>
 						<p className="eyebrow">MY MESSAGES</p>

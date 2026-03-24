@@ -57,6 +57,15 @@ describe("global layout styles", () => {
 			/\.feedback-modal__panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*720px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
 		);
 		expect(globalStylesheet).toMatch(
+			/\.feedback-modal\s*\{[\s\S]*overflow:\s*hidden\s*;[\s\S]*overscroll-behavior:\s*none\s*;/,
+		);
+		expect(globalStylesheet).toMatch(
+			/\.feedback-modal__panel--list-layout\s*\{[\s\S]*display:\s*flex\s*;[\s\S]*overflow:\s*hidden\s*;/,
+		);
+		expect(globalStylesheet).toMatch(
+			/\.admin-feedback-list\s*\{[\s\S]*overflow-y:\s*auto\s*;[\s\S]*overscroll-behavior:\s*contain\s*;/,
+		);
+		expect(globalStylesheet).toMatch(
 			/\.feedback-modal__backdrop\s*\{[\s\S]*border-radius:\s*0\s*;[\s\S]*box-shadow:\s*none\s*;/,
 		);
 		expect(assetStylesheet).toMatch(
