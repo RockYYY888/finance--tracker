@@ -257,7 +257,7 @@ PY
 wait_healthy postgres
 wait_healthy redis
 
-"${compose[@]}" run --rm backend python - <<'PY'
+"${compose[@]}" run --rm -T backend python - <<'PY'
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
