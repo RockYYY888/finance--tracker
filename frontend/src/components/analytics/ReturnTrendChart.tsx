@@ -27,7 +27,7 @@ import {
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
 	getFirstRenderableTimelineRange,
-	getTimelineChartTicks,
+	getTimelineChartTickIndices,
 	formatCompactPercentMetric,
 	formatPercentMetric,
 	isSyntheticTimelinePoint,
@@ -38,7 +38,9 @@ import "./analytics.css";
 import {
 	buildThresholdSegmentedAreaData,
 	buildThresholdSegmentedChartData,
+	buildThresholdSegmentedCoordinateData,
 	isThresholdSegmentedCrossingPoint,
+	type ThresholdSegmentedCoordinatePoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
 import { useChartInteractionLock } from "./useChartInteractionLock";
@@ -83,6 +85,25 @@ const NEGATIVE_RETURN_FILL = "rgba(215, 51, 108, 0.22)";
 const RETURN_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
 const ZERO_RETURN_THRESHOLD = 0;
 type ReturnTrendChartPoint = ThresholdSegmentedPoint;
+type ReturnTrendRenderablePoint = ThresholdSegmentedCoordinatePoint;
+
+function buildNumericXAxisDomain(
+	points: Array<{
+		xValue: number;
+	}>,
+): [number, number] {
+	if (points.length === 0) {
+		return [0, 1];
+	}
+
+	const firstValue = points[0]?.xValue ?? 0;
+	const lastValue = points[points.length - 1]?.xValue ?? firstValue;
+	if (firstValue === lastValue) {
+		return [firstValue - 1, lastValue + 1];
+	}
+
+	return [firstValue, lastValue];
+}
 
 export function buildReturnTrendChartData(
 	series: TimelinePoint[],
@@ -130,7 +151,7 @@ function findPointIndex(
 }
 
 function isInteractiveTrendPoint(
-	point: ReturnTrendChartPoint | null | undefined,
+	point: Pick<ThresholdSegmentedPoint, "crossingPoint" | "synthetic"> | null | undefined,
 ): boolean {
 	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
 }
@@ -241,8 +262,10 @@ export function ReturnTrendChart({
 			}),
 		[series],
 	);
-	const chartData = buildReturnTrendChartData(series, ZERO_RETURN_THRESHOLD);
-	const areaData = buildReturnTrendAreaData(series, ZERO_RETURN_THRESHOLD);
+	const { chartData, areaData } = useMemo(
+		() => buildThresholdSegmentedCoordinateData(series, ZERO_RETURN_THRESHOLD),
+		[series],
+	);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
 	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
@@ -273,11 +296,16 @@ export function ReturnTrendChart({
 			maxWidth: compactAxisMode ? 84 : 80,
 		},
 	);
-	const xAxisTicks = getTimelineChartTicks(series, chartWidth, {
+	const xAxisTicks = getTimelineChartTickIndices(chartData.length, chartWidth, {
 		compact: compactAxisMode,
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
-	});
+	}).map((index) => chartData[index]?.xValue ?? index);
+	const xAxisLabelByValue = useMemo(
+		() => new Map(chartData.map((point) => [point.xValue, point.label])),
+		[chartData],
+	);
+	const xAxisDomain = useMemo(() => buildNumericXAxisDomain(chartData), [chartData]);
 	const chartDataKey = `${selectedOption?.key ?? "none"}:${activeRange}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
 	const resolvedEmptyMessage =
 		emptyMessage.trim().length > 0
@@ -303,7 +331,7 @@ export function ReturnTrendChart({
 		cx?: number;
 		cy?: number;
 		fill?: string;
-		payload?: ReturnTrendChartPoint;
+		payload?: ReturnTrendRenderablePoint;
 		stroke?: string;
 	}): JSX.Element | null {
 		if (
@@ -426,10 +454,12 @@ export function ReturnTrendChart({
 						>
 							<CartesianGrid stroke="rgba(255,255,255,0.08)" />
 							<XAxis
-								dataKey="label"
+								type="number"
+								dataKey="xValue"
 								stroke="#d6d4cb"
 								tickLine={false}
 								axisLine={false}
+								domain={xAxisDomain}
 								height={compactAxisMode ? 30 : 24}
 								ticks={xAxisTicks}
 								interval={0}
@@ -439,11 +469,14 @@ export function ReturnTrendChart({
 									left: compactAxisMode ? 8 : 14,
 									right: compactAxisMode ? 16 : 24,
 								}}
-								tickFormatter={(label: string) =>
-									formatTimelineAxisLabel(label, {
+								tickFormatter={(xValue: number) =>
+									formatTimelineAxisLabel(
+										xAxisLabelByValue.get(xValue) ?? "",
+										{
 										compact: compactAxisMode,
 										range: activeRange,
-									})}
+										},
+									)}
 							/>
 							<YAxis
 								stroke="#d6d4cb"
@@ -471,12 +504,12 @@ export function ReturnTrendChart({
 										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
 									);
 									const sourcePoint = primaryEntry?.payload as
-										| ReturnTrendChartPoint
+										| ReturnTrendRenderablePoint
 										| undefined;
 									if (!isInteractiveTrendPoint(sourcePoint)) {
 										return null;
 									}
-									const periodLabel = String(label ?? "");
+									const periodLabel = sourcePoint?.label?.trim() || String(label ?? "");
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>

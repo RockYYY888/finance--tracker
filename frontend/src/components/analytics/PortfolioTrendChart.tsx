@@ -30,7 +30,7 @@ import {
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
 	getFirstRenderableTimelineRange,
-	getTimelineChartTicks,
+	getTimelineChartTickIndices,
 	isSyntheticTimelinePoint,
 	summarizeAverageStepDelta,
 	summarizeCompoundedValueStepRate,
@@ -40,7 +40,9 @@ import "./analytics.css";
 import {
 	buildThresholdSegmentedAreaData,
 	buildThresholdSegmentedChartData,
+	buildThresholdSegmentedCoordinateData,
 	isThresholdSegmentedCrossingPoint,
+	type ThresholdSegmentedCoordinatePoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
 import { useChartInteractionLock } from "./useChartInteractionLock";
@@ -64,6 +66,7 @@ type PortfolioTrendChartProps = {
 type PortfolioTrendDisplayMode = "value" | "return";
 
 type PortfolioTrendChartPoint = ThresholdSegmentedPoint;
+type PortfolioTrendRenderablePoint = ThresholdSegmentedCoordinatePoint;
 
 type TooltipPayloadEntry = {
 	dataKey?: string;
@@ -88,6 +91,24 @@ type TrendMetricConfig = {
 	positiveLegend: string;
 	negativeLegend: string;
 };
+
+function buildNumericXAxisDomain(
+	points: Array<{
+		xValue: number;
+	}>,
+): [number, number] {
+	if (points.length === 0) {
+		return [0, 1];
+	}
+
+	const firstValue = points[0]?.xValue ?? 0;
+	const lastValue = points[points.length - 1]?.xValue ?? firstValue;
+	if (firstValue === lastValue) {
+		return [firstValue - 1, lastValue + 1];
+	}
+
+	return [firstValue, lastValue];
+}
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
 	hour: "24H",
@@ -211,7 +232,7 @@ function getChangeDirection(changeValue: number): string {
 }
 
 function isInteractiveTrendPoint(
-	point: PortfolioTrendChartPoint | null | undefined,
+	point: Pick<ThresholdSegmentedPoint, "crossingPoint" | "synthetic"> | null | undefined,
 ): boolean {
 	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
 }
@@ -276,23 +297,19 @@ export function PortfolioTrendChart({
 	const valueRangeSeries = valueSeriesByRange[activeRange];
 	const valueRangeSummary = summarizeTimeline(valueRangeSeries);
 	const valueBaseline = valueRangeSummary.startValue;
-	const valueChartData = buildPortfolioTrendChartData(
-		valueRangeSeries,
-		valueBaseline,
+	const valueSegmentedData = useMemo(
+		() => buildThresholdSegmentedCoordinateData(valueRangeSeries, valueBaseline),
+		[valueBaseline, valueRangeSeries],
 	);
-	const valueAreaData = buildPortfolioTrendAreaData(
-		valueRangeSeries,
-		valueBaseline,
-	);
+	const valueChartData = valueSegmentedData.chartData;
+	const valueAreaData = valueSegmentedData.areaData;
 	const returnRangeSeries = returnSeriesByRange[activeRange];
-	const returnChartData = buildPortfolioTrendChartData(
-		returnRangeSeries,
-		ZERO_RETURN_THRESHOLD,
+	const returnSegmentedData = useMemo(
+		() => buildThresholdSegmentedCoordinateData(returnRangeSeries, ZERO_RETURN_THRESHOLD),
+		[returnRangeSeries],
 	);
-	const returnAreaData = buildPortfolioTrendAreaData(
-		returnRangeSeries,
-		ZERO_RETURN_THRESHOLD,
-	);
+	const returnChartData = returnSegmentedData.chartData;
+	const returnAreaData = returnSegmentedData.areaData;
 	const activeChartData =
 		displayMode === "value" ? valueChartData : returnChartData;
 	const activeAreaData =
@@ -367,11 +384,19 @@ export function PortfolioTrendChart({
 			maxWidth: compactAxisMode ? 84 : 80,
 		},
 	);
-	const xAxisTicks = getTimelineChartTicks(activeSeries, chartWidth, {
+	const xAxisTicks = getTimelineChartTickIndices(activeChartData.length, chartWidth, {
 		compact: compactAxisMode,
 		minTickCount: compactAxisMode ? 3 : 4,
 		maxTickCount: compactAxisMode ? 5 : 7,
-	});
+	}).map((index) => activeChartData[index]?.xValue ?? index);
+	const xAxisLabelByValue = useMemo(
+		() => new Map(activeChartData.map((point) => [point.xValue, point.label])),
+		[activeChartData],
+	);
+	const xAxisDomain = useMemo(
+		() => buildNumericXAxisDomain(activeChartData),
+		[activeChartData],
+	);
 	const chartDataKey = `${displayMode}:${activeRange}:${activeChartData.length}:${activeChartData[0]?.label ?? ""}:${activeChartData[activeChartData.length - 1]?.label ?? ""}`;
 
 	useEffect(() => {
@@ -402,7 +427,7 @@ export function PortfolioTrendChart({
 		cx?: number;
 		cy?: number;
 		fill?: string;
-		payload?: PortfolioTrendChartPoint;
+		payload?: PortfolioTrendRenderablePoint;
 		stroke?: string;
 	}): JSX.Element | null {
 		if (
@@ -569,10 +594,12 @@ export function PortfolioTrendChart({
 						>
 							<CartesianGrid stroke="rgba(255,255,255,0.08)" />
 							<XAxis
-								dataKey="label"
+								type="number"
+								dataKey="xValue"
 								stroke="#d6d4cb"
 								tickLine={false}
 								axisLine={false}
+								domain={xAxisDomain}
 								height={compactAxisMode ? 30 : 24}
 								ticks={xAxisTicks}
 								interval={0}
@@ -582,11 +609,14 @@ export function PortfolioTrendChart({
 									left: compactAxisMode ? 8 : 14,
 									right: compactAxisMode ? 16 : 24,
 								}}
-								tickFormatter={(label: string) =>
-									formatTimelineAxisLabel(label, {
+								tickFormatter={(xValue: number) =>
+									formatTimelineAxisLabel(
+										xAxisLabelByValue.get(xValue) ?? "",
+										{
 										compact: compactAxisMode,
 										range: activeRange,
-									})
+										},
+									)
 								}
 							/>
 							<YAxis
@@ -617,12 +647,12 @@ export function PortfolioTrendChart({
 										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
 									);
 									const sourcePoint = primaryEntry?.payload as
-										| PortfolioTrendChartPoint
+										| PortfolioTrendRenderablePoint
 										| undefined;
 									if (!isInteractiveTrendPoint(sourcePoint)) {
 										return null;
 									}
-									const periodLabel = String(label ?? "");
+									const periodLabel = sourcePoint?.label?.trim() || String(label ?? "");
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>

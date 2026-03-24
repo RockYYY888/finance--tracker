@@ -181,14 +181,18 @@ describe("analytics charts responsive layout", () => {
 		const xAxisProps = getLastRecordedProps(rechartsState.xAxes) as {
 			height: number;
 			interval: number;
-			ticks: string[];
+			type: string;
+			dataKey: string;
+			ticks: number[];
 			padding: { left: number; right: number };
-			tickFormatter: (label: string) => string;
+			tickFormatter: (value: number) => string;
 		};
+		expect(xAxisProps.type).toBe("number");
+		expect(xAxisProps.dataKey).toBe("xValue");
 		expect(xAxisProps.interval).toBe(0);
 		expect(xAxisProps.ticks).toHaveLength(3);
 		expect(xAxisProps.padding.right).toBeGreaterThan(0);
-		expect(xAxisProps.tickFormatter("03-08 04:00")).toBe("03-08");
+		expect(xAxisProps.tickFormatter(xAxisProps.ticks[0]!)).toBe("03-01");
 	});
 
 	it("keeps all portfolio trend ranges visible and derives 24H from sparse history", async () => {
@@ -392,14 +396,18 @@ describe("analytics charts responsive layout", () => {
 		const xAxisProps = getLastRecordedProps(rechartsState.xAxes) as {
 			height: number;
 			interval: number;
-			ticks: string[];
+			type: string;
+			dataKey: string;
+			ticks: number[];
 			padding: { left: number; right: number };
-			tickFormatter: (label: string) => string;
+			tickFormatter: (value: number) => string;
 		};
+		expect(xAxisProps.type).toBe("number");
+		expect(xAxisProps.dataKey).toBe("xValue");
 		expect(xAxisProps.interval).toBe(0);
 		expect(xAxisProps.ticks).toHaveLength(3);
 		expect(xAxisProps.padding.right).toBeGreaterThan(0);
-		expect(xAxisProps.tickFormatter("2026-03")).toBe("03");
+		expect(xAxisProps.tickFormatter(2)).toBe("03");
 	});
 
 	it("keeps all return trend ranges visible and derives 24H from sparse history", async () => {
@@ -547,6 +555,70 @@ describe("analytics charts responsive layout", () => {
 			expect(lineProps.dataKey).toBe("value");
 			expect(lineProps.stroke).not.toBe("none");
 		});
+	});
+
+	it("aligns shaded return areas to the same numeric x-axis positions as the white line", async () => {
+		render(
+			<ReturnTrendChart
+				defaultRange="hour"
+				title="收益趋势"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"组合",
+						[
+							{
+								label: "03-23 15:00",
+								value: 2.4,
+								timestamp_utc: "2026-03-23T07:00:00Z",
+							},
+							{
+								label: "03-24 15:00",
+								value: -3.4,
+								timestamp_utc: "2026-03-24T07:00:00Z",
+							},
+						],
+						[],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.areas.length).toBeGreaterThanOrEqual(2);
+			expect(rechartsState.xAxes.length).toBeGreaterThan(0);
+		});
+
+		const xAxisProps = getLastRecordedProps(rechartsState.xAxes) as {
+			type: string;
+			dataKey: string;
+			ticks: number[];
+			tickFormatter: (value: number) => string;
+		};
+		expect(xAxisProps.type).toBe("number");
+		expect(xAxisProps.dataKey).toBe("xValue");
+		expect(xAxisProps.ticks).toEqual([
+			Date.parse("2026-03-23T07:00:00Z"),
+			Date.parse("2026-03-24T07:00:00Z"),
+		]);
+		expect(xAxisProps.tickFormatter(xAxisProps.ticks[0]!)).toBe("15:00");
+
+		const positiveAreaProps = rechartsState.areas[rechartsState.areas.length - 2] as {
+			data: Array<{ xValue: number; crossingPoint?: boolean }>;
+		};
+		const negativeAreaProps = rechartsState.areas[rechartsState.areas.length - 1] as {
+			data: Array<{ xValue: number; crossingPoint?: boolean }>;
+		};
+		const positiveCrossing = positiveAreaProps.data.find((point) => point.crossingPoint);
+		const negativeCrossing = negativeAreaProps.data.find((point) => point.crossingPoint);
+		const startXValue = Date.parse("2026-03-23T07:00:00Z");
+		const endXValue = Date.parse("2026-03-24T07:00:00Z");
+
+		expect(positiveCrossing?.xValue).toBeGreaterThan(startXValue);
+		expect(positiveCrossing?.xValue).toBeLessThan(endXValue);
+		expect(negativeCrossing?.xValue).toBe(positiveCrossing?.xValue);
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {

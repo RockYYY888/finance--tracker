@@ -887,6 +887,19 @@ export function getTimelineChartTicks(
 	);
 }
 
+export function getTimelineChartTickIndices(
+	itemCount: number,
+	chartWidth: number,
+	options: ChartTickIntervalOptions = {},
+): number[] {
+	if (itemCount <= 0) {
+		return [];
+	}
+
+	const targetTickCount = resolveTimelineTickCount(chartWidth, options);
+	return pickEvenlyDistributedIndices(itemCount, targetTickCount);
+}
+
 /**
  * Builds a key-point-driven y-axis from period start/end, visible min/max, and the reference line.
  */

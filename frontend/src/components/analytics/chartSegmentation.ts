@@ -2,6 +2,10 @@ import type { TimelinePoint } from "../../types/portfolioAnalytics";
 
 const CROSSING_EPSILON = 1e-8;
 
+type TimelineCoordinatePoint = TimelinePoint & {
+	xValue: number;
+};
+
 export type ThresholdSegmentedPoint = TimelinePoint & {
 	positiveValue: number;
 	negativeValue: number;
@@ -10,10 +14,15 @@ export type ThresholdSegmentedPoint = TimelinePoint & {
 
 type ThresholdCrossingTimelinePoint = TimelinePoint & {
 	crossingPoint: true;
+	xValue?: number;
+};
+
+export type ThresholdSegmentedCoordinatePoint = ThresholdSegmentedPoint & {
+	xValue: number;
 };
 
 export function isThresholdSegmentedCrossingPoint(
-	point: ThresholdSegmentedPoint | null | undefined,
+	point: Pick<ThresholdSegmentedPoint, "crossingPoint"> | null | undefined,
 ): boolean {
 	return point?.crossingPoint === true;
 }
@@ -31,9 +40,31 @@ function toTimestampMs(point: TimelinePoint): number | null {
 	return parsedTimestamp;
 }
 
+function toNumericXValue(
+	point: TimelinePoint & {
+		xValue?: number;
+	},
+): number | null {
+	if (typeof point.xValue === "number" && Number.isFinite(point.xValue)) {
+		return point.xValue;
+	}
+
+	return toTimestampMs(point);
+}
+
+function buildTimelineCoordinateSeries(series: TimelinePoint[]): TimelineCoordinatePoint[] {
+	const timestampValues = series.map((point) => toTimestampMs(point));
+	const useTimestampScale = timestampValues.every((value) => value !== null);
+
+	return series.map((point, index) => ({
+		...point,
+		xValue: useTimestampScale ? (timestampValues[index] ?? index) : index,
+	}));
+}
+
 function buildThresholdCrossingPoint(
-	left: TimelinePoint,
-	right: TimelinePoint,
+	left: TimelinePoint & { xValue?: number },
+	right: TimelinePoint & { xValue?: number },
 	thresholdValue: number,
 ): ThresholdCrossingTimelinePoint {
 	const denominator = right.value - left.value;
@@ -46,12 +77,18 @@ function buildThresholdCrossingPoint(
 	);
 	const leftTimestampMs = toTimestampMs(left);
 	const rightTimestampMs = toTimestampMs(right);
+	const leftXValue = toNumericXValue(left);
+	const rightXValue = toNumericXValue(right);
 	const interpolatedTimestamp =
 		leftTimestampMs === null || rightTimestampMs === null
 			? undefined
 			: new Date(
 				Math.round(leftTimestampMs + (rightTimestampMs - leftTimestampMs) * ratio),
 			).toISOString();
+	const interpolatedXValue =
+		leftXValue === null || rightXValue === null
+			? undefined
+			: leftXValue + (rightXValue - leftXValue) * ratio;
 
 	return {
 		label: "",
@@ -59,6 +96,7 @@ function buildThresholdCrossingPoint(
 		timestamp_utc: interpolatedTimestamp,
 		corrected: false,
 		crossingPoint: true,
+		xValue: interpolatedXValue,
 	};
 }
 
@@ -118,4 +156,25 @@ export function buildThresholdSegmentedAreaData(
 	}
 
 	return segmentedSeries.map((point) => buildSegmentedPoint(point, thresholdValue));
+}
+
+export function buildThresholdSegmentedCoordinateData(
+	series: TimelinePoint[],
+	thresholdValue = 0,
+): {
+	chartData: ThresholdSegmentedCoordinatePoint[];
+	areaData: ThresholdSegmentedCoordinatePoint[];
+} {
+	const coordinateSeries = buildTimelineCoordinateSeries(series);
+
+	return {
+		chartData: buildThresholdSegmentedChartData(
+			coordinateSeries,
+			thresholdValue,
+		) as ThresholdSegmentedCoordinatePoint[],
+		areaData: buildThresholdSegmentedAreaData(
+			coordinateSeries,
+			thresholdValue,
+		) as ThresholdSegmentedCoordinatePoint[],
+	};
 }
