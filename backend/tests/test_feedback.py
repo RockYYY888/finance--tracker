@@ -454,7 +454,11 @@ def test_release_note_publish_pushes_station_message_to_users(session: Session) 
 		None,
 	)
 	assert published_release_note.published_at is not None
-	assert published_release_note.delivery_count == 1
+	assert published_release_note.delivery_count == 2
+
+	admin_release_notes = list_release_notes_for_current_user(admin_user, session, None)
+	assert len(admin_release_notes) == 1
+	assert admin_release_notes[0].version == "0.2.0"
 
 	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
 	assert len(user_release_notes) == 1
@@ -569,8 +573,12 @@ def test_publish_changelog_release_note_creates_and_pushes_stream_message(
 
 	assert published_release_note.version == "0.7.1"
 	assert published_release_note.published_at is not None
-	assert published_release_note.delivery_count == 1
+	assert published_release_note.delivery_count == 2
 	assert "GitHub Release:" in published_release_note.content
+
+	admin_release_notes = list_release_notes_for_current_user(admin_user, session, None)
+	assert len(admin_release_notes) == 1
+	assert admin_release_notes[0].version == "0.7.1"
 
 	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
 	assert len(user_release_notes) == 1
@@ -610,6 +618,47 @@ def test_publish_changelog_release_note_is_idempotent_for_same_payload(
 		),
 	)
 	assert len(deliveries) == 1
+
+
+def test_publish_changelog_release_note_repairs_missing_admin_delivery_without_resetting_seen(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "repeat_repair_user")
+	payload = ReleaseNotePublishChangelogCreate(
+		version="0.7.2",
+		title="Reliable release-note delivery",
+		content="- Unified the release-note publish path\n- Avoided duplicate user notifications",
+		release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.2",
+	)
+
+	first_release_note = publish_changelog_release_note_for_admin(
+		payload,
+		admin_user,
+		session,
+		None,
+	)
+	mark_release_notes_seen_for_current_user(normal_user, session, None)
+	admin_delivery = session.exec(
+		select(ReleaseNoteDelivery).where(ReleaseNoteDelivery.user_id == admin_user.username),
+	).one()
+	session.delete(admin_delivery)
+	session.commit()
+
+	second_release_note = publish_changelog_release_note_for_admin(
+		payload,
+		admin_user,
+		session,
+		None,
+	)
+
+	assert second_release_note.id == first_release_note.id
+	assert second_release_note.delivery_count == 2
+	admin_release_notes = list_release_notes_for_current_user(admin_user, session, None)
+	assert len(admin_release_notes) == 1
+	normal_release_notes = list_release_notes_for_current_user(normal_user, session, None)
+	assert len(normal_release_notes) == 1
+	assert normal_release_notes[0].seen_at is not None
 
 
 def test_publish_changelog_release_note_rejects_older_than_latest_published_version(

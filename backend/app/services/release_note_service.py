@@ -233,6 +233,29 @@ def _ensure_release_note_deliveries_for_user(session: Session, user_id: str) -> 
 		session.commit()
 
 
+def _sync_release_note_deliveries_for_all_users(
+	session: SessionDependency,
+	*,
+	release_note: ReleaseNote,
+	reset_seen: bool,
+) -> bool:
+	recipient_ids = list(session.exec(select(UserAccount.username)))
+	updated_delivery = False
+	for recipient_id in recipient_ids:
+		if _upsert_release_note_stream_delivery(
+			session,
+			user_id=recipient_id,
+			release_note=release_note,
+			reset_seen=reset_seen,
+		):
+			updated_delivery = True
+
+	if updated_delivery:
+		session.commit()
+
+	return updated_delivery
+
+
 def _publish_release_note(
 	session: SessionDependency,
 	*,
@@ -245,23 +268,11 @@ def _publish_release_note(
 		session.commit()
 		session.refresh(release_note)
 
-	recipient_ids = list(
-		session.exec(
-			select(UserAccount.username).where(UserAccount.username != current_user.username),
-		),
+	_sync_release_note_deliveries_for_all_users(
+		session,
+		release_note=release_note,
+		reset_seen=True,
 	)
-	updated_delivery = False
-	for recipient_id in recipient_ids:
-		if _upsert_release_note_stream_delivery(
-			session,
-			user_id=recipient_id,
-			release_note=release_note,
-			reset_seen=True,
-		):
-			updated_delivery = True
-
-	if updated_delivery:
-		session.commit()
 
 	return release_note
 
@@ -350,6 +361,11 @@ def publish_changelog_release_note_for_admin(
 						"the submitted changelog content."
 					),
 				)
+			_sync_release_note_deliveries_for_all_users(
+				session,
+				release_note=release_note,
+				reset_seen=False,
+			)
 			return _to_release_note_read(session, release_note)
 
 		release_note.title = payload.title
