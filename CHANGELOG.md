@@ -4,6 +4,7 @@
 
 - Fixed timeline comparison defaults so both trend charts populate the full-range start and end points immediately, and duplicate timepoints no longer destabilize interval selection.
 - Rewrote the agent API reference in a formal contract style and documented every bearer-token-compatible backend operation with parameter tables, examples, and route coverage checks.
+- GitHub Release: https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.1
 
 ## v0.7.0 - 2026-03-24
 
