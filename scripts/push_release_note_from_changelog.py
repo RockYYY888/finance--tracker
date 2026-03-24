@@ -10,7 +10,23 @@ import sys
 from typing import Any
 from urllib import error, parse, request
 
+import release_env
+
 CHANGELOG_HEADING_PATTERN = re.compile(r"^## v(?P<version>\d+\.\d+\.\d+) - (?P<date>\d{4}-\d{2}-\d{2})$")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _prepare_environment(argv: list[str] | None = None) -> tuple[list[str], Path | None]:
+	bootstrap_parser = argparse.ArgumentParser(add_help=False)
+	bootstrap_parser.add_argument(
+		"--env-file",
+		default=None,
+		help="Optional env file that provides release publishing defaults.",
+	)
+	bootstrap_args, remaining_argv = bootstrap_parser.parse_known_args(argv)
+	env_file = release_env.resolve_env_file(bootstrap_args.env_file, REPO_ROOT)
+	release_env.load_env_defaults(env_file)
+	return remaining_argv, env_file
 
 
 def _normalize_origin(origin: str) -> str:
@@ -192,28 +208,50 @@ def _login(
 	)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+	remaining_argv, env_file = _prepare_environment(argv)
 	parser = argparse.ArgumentParser(
 		description="Publish the local changelog version into the server release-note inbox stream.",
 	)
 	parser.add_argument(
+		"--env-file",
+		default=str(env_file) if env_file is not None else None,
+		help=(
+			"Optional env file with defaults such as origin, admin credentials, and api token. "
+			"Defaults to .env.release-deploy.local when present."
+		),
+	)
+	parser.add_argument(
 		"--origin",
-		required=True,
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_SERVER_ORIGIN",
+			"FEEDBACK_API_BASE_URL",
+		),
 		help="Server origin, for example https://finance.example.com or http://127.0.0.1:8080",
 	)
 	parser.add_argument(
 		"--admin-user",
-		default="admin",
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_ADMIN_USER",
+			"FEEDBACK_ADMIN_USER",
+		)
+		or "admin",
 		help="Admin username used to log in before publishing the release note.",
 	)
 	parser.add_argument(
 		"--admin-password",
-		required=True,
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_ADMIN_PASSWORD",
+			"FEEDBACK_ADMIN_PASSWORD",
+		),
 		help="Admin password used to log in before publishing the release note.",
 	)
 	parser.add_argument(
 		"--api-token",
-		default=None,
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_API_TOKEN",
+			"FEEDBACK_API_TOKEN",
+		),
 		help="Optional X-API-Key value when the server enforces ASSET_TRACKER_API_TOKEN.",
 	)
 	parser.add_argument(
@@ -237,7 +275,7 @@ def main() -> None:
 	parser.add_argument(
 		"--changelog",
 		type=Path,
-		default=Path(__file__).resolve().parents[1] / "CHANGELOG.md",
+		default=REPO_ROOT / "CHANGELOG.md",
 		help="Path to CHANGELOG.md.",
 	)
 	parser.add_argument(
@@ -245,7 +283,12 @@ def main() -> None:
 		action="store_true",
 		help="Print the resolved payload without sending it to the server.",
 	)
-	args = parser.parse_args()
+	args = parser.parse_args(remaining_argv)
+
+	if not args.origin:
+		raise RuntimeError("--origin or ASSET_TRACKER_SERVER_ORIGIN is required.")
+	if not args.admin_password:
+		raise RuntimeError("--admin-password or ASSET_TRACKER_ADMIN_PASSWORD is required.")
 
 	version = _normalize_version(args.version)
 	_ensure_clean_changelog(args.changelog)
@@ -273,6 +316,7 @@ def main() -> None:
 				"title": payload["title"],
 				"content": payload["content"],
 				"release_url": payload["release_url"],
+				"env_file": args.env_file,
 				"dry_run": args.dry_run,
 			},
 			ensure_ascii=False,

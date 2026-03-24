@@ -90,11 +90,10 @@ Routine server updates should use the command above.
 For a full versioned release, server deploy, and in-app release-note push in one command, run:
 
 ```bash
+cp .env.release-deploy.example .env.release-deploy.local
+# fill the real ssh / origin / admin credential values first
 python3 scripts/release_deploy_and_broadcast.py \
-  --server-ssh root@your-server-host \
-  --server-origin https://your-server-origin \
-  --admin-password 'your-admin-password' \
-  --api-token 'your-api-token' \
+  --env-file .env.release-deploy.local \
   --user-title 'Stability and Experience Updates' \
   --bullet 'Improved overall stability and sync reliability' \
   --bullet 'Background tasks and caching are more robust' \
@@ -104,6 +103,9 @@ python3 scripts/release_deploy_and_broadcast.py \
 It verifies or creates the GitHub release for the latest `CHANGELOG.md` version, updates `main`,
 deploys the server, runs the standard health checks, and pushes the same version into the in-app
 release-note stream. Keep the bullets user-facing and avoid raw technical internals.
+
+For remote access, prefer a non-interactive SSH key. If the server only supports password login,
+set `ASSET_TRACKER_SERVER_SSH_PASSWORD` in `.env.release-deploy.local`.
 
 If the update touches `backend/alembic/versions/`, `backend/app/models.py`,
 `backend/app/database.py`, `backend/app/settings.py`, `backend/pyproject.toml`, or any
@@ -115,4 +117,6 @@ If your remote host or external reverse proxy referenced the old `caddy` service
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
 change is required beyond pulling the latest code and rebuilding the compose stack.
 
-For Codex-assisted end-to-end releases, use `$asset-tracker-release-deploy-sop`.
+For Codex-assisted end-to-end releases, use the local
+`$asset-tracker-release-deploy-sop` skill or run the same script directly with
+`--env-file .env.release-deploy.local`.

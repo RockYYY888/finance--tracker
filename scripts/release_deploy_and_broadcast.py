@@ -9,6 +9,7 @@ import sys
 from typing import Any
 
 import push_release_note_from_changelog as release_note_push
+import release_env
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,19 @@ DEFAULT_VERIFY_COMMAND = (
 	"sh -lc 'psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c "
 	"\"select * from alembic_version;\"' >/dev/null"
 )
+
+
+def _prepare_environment(argv: list[str] | None = None) -> tuple[list[str], Path | None]:
+	bootstrap_parser = argparse.ArgumentParser(add_help=False)
+	bootstrap_parser.add_argument(
+		"--env-file",
+		default=None,
+		help="Optional env file that provides release deploy defaults.",
+	)
+	bootstrap_args, remaining_argv = bootstrap_parser.parse_known_args(argv)
+	env_file = release_env.resolve_env_file(bootstrap_args.env_file, REPO_ROOT)
+	release_env.load_env_defaults(env_file)
+	return remaining_argv, env_file
 
 
 def _run(
@@ -156,7 +170,69 @@ def _build_remote_command(branch: str, server_path: str) -> str:
 	)
 
 
-def _deploy_server(server_ssh: str, branch: str, server_path: str) -> None:
+def _deploy_server_with_password(
+	server_ssh: str,
+	branch: str,
+	server_path: str,
+	*,
+	password: str,
+) -> None:
+	try:
+		import pexpect
+	except ImportError as exc:
+		raise RuntimeError(
+			"Password-based SSH deploy requires `pexpect`, or configure a non-interactive SSH key instead.",
+		) from exc
+
+	command = [
+		"ssh",
+		"-o",
+		"StrictHostKeyChecking=accept-new",
+		server_ssh,
+		_build_remote_command(branch, server_path),
+	]
+	child = pexpect.spawn(
+		command[0],
+		command[1:],
+		encoding="utf-8",
+		timeout=None,
+	)
+	child.logfile_read = sys.stdout
+	try:
+		while True:
+			matched_index = child.expect(
+				[
+					r"(?i)password:",
+					r"Are you sure you want to continue connecting",
+					r"Permission denied",
+					pexpect.EOF,
+				],
+			)
+			if matched_index == 0:
+				child.sendline(password)
+				continue
+			if matched_index == 1:
+				child.sendline("yes")
+				continue
+			if matched_index == 2:
+				raise RuntimeError("SSH authentication failed while deploying the server.")
+			break
+	finally:
+		child.close()
+
+	if child.exitstatus not in {0, None} or child.signalstatus is not None:
+		raise RuntimeError("Remote deploy command failed.")
+
+
+def _deploy_server(server_ssh: str, branch: str, server_path: str, *, password: str | None) -> None:
+	if password:
+		_deploy_server_with_password(
+			server_ssh,
+			branch,
+			server_path,
+			password=password,
+		)
+		return
 	_run(
 		["ssh", server_ssh, _build_remote_command(branch, server_path)],
 		cwd=REPO_ROOT,
@@ -195,22 +271,61 @@ def _push_release_note(
 	_run(command, cwd=REPO_ROOT, capture_output=False)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+	remaining_argv, env_file = _prepare_environment(argv)
 	parser = argparse.ArgumentParser(
 		description=(
 			"Create or verify the GitHub release, deploy main to the server, and push the "
 			"same version into the in-app release-note stream."
 		),
 	)
+	parser.add_argument(
+		"--env-file",
+		default=str(env_file) if env_file is not None else None,
+		help=(
+			"Optional env file with defaults such as server SSH, server origin, admin credentials, "
+			"and API token. Defaults to .env.release-deploy.local when present."
+		),
+	)
 	parser.add_argument("--version", default=None, help="Defaults to the latest version in CHANGELOG.md.")
 	parser.add_argument("--branch", default=DEFAULT_BRANCH)
 	parser.add_argument("--release-title", default=None)
-	parser.add_argument("--server-ssh", default=os.getenv("ASSET_TRACKER_SERVER_SSH"))
+	parser.add_argument("--server-ssh", default=release_env.get_env_value("ASSET_TRACKER_SERVER_SSH"))
+	parser.add_argument(
+		"--server-ssh-password",
+		default=release_env.get_env_value("ASSET_TRACKER_SERVER_SSH_PASSWORD"),
+		help="Optional SSH password. Prefer SSH keys when available.",
+	)
 	parser.add_argument("--server-path", default=os.getenv("ASSET_TRACKER_SERVER_PATH", DEFAULT_SERVER_PATH))
-	parser.add_argument("--server-origin", default=os.getenv("ASSET_TRACKER_SERVER_ORIGIN"))
-	parser.add_argument("--admin-user", default=os.getenv("ASSET_TRACKER_ADMIN_USER", DEFAULT_ADMIN_USER))
-	parser.add_argument("--admin-password", default=os.getenv("ASSET_TRACKER_ADMIN_PASSWORD"))
-	parser.add_argument("--api-token", default=os.getenv("ASSET_TRACKER_API_TOKEN"))
+	parser.add_argument(
+		"--server-origin",
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_SERVER_ORIGIN",
+			"FEEDBACK_API_BASE_URL",
+		),
+	)
+	parser.add_argument(
+		"--admin-user",
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_ADMIN_USER",
+			"FEEDBACK_ADMIN_USER",
+		)
+		or DEFAULT_ADMIN_USER,
+	)
+	parser.add_argument(
+		"--admin-password",
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_ADMIN_PASSWORD",
+			"FEEDBACK_ADMIN_PASSWORD",
+		),
+	)
+	parser.add_argument(
+		"--api-token",
+		default=release_env.get_env_value(
+			"ASSET_TRACKER_API_TOKEN",
+			"FEEDBACK_API_TOKEN",
+		),
+	)
 	parser.add_argument("--user-title", required=True)
 	parser.add_argument(
 		"--bullet",
@@ -220,7 +335,7 @@ def main() -> None:
 		help="Repeat 2 to 4 times for the user-facing release-note bullets.",
 	)
 	parser.add_argument("--dry-run", action="store_true")
-	args = parser.parse_args()
+	args = parser.parse_args(remaining_argv)
 
 	version = _normalize_version(args.version)
 	entry = _load_changelog_entry(version)
@@ -261,7 +376,9 @@ def main() -> None:
 		"version": version,
 		"release_title": release_title,
 		"release_url": release_url,
+		"env_file": args.env_file,
 		"server_ssh": args.server_ssh,
+		"server_ssh_password_set": bool(args.server_ssh_password),
 		"server_origin": args.server_origin,
 		"user_title": args.user_title,
 		"user_content": user_content,
@@ -273,7 +390,12 @@ def main() -> None:
 	if args.dry_run:
 		return
 
-	_deploy_server(args.server_ssh, args.branch, args.server_path)
+	_deploy_server(
+		args.server_ssh,
+		args.branch,
+		args.server_path,
+		password=args.server_ssh_password,
+	)
 	_push_release_note(
 		origin=args.server_origin,
 		admin_user=args.admin_user,

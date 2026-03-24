@@ -12,6 +12,7 @@ frontend/dist/
 frontend/vite.config.js
 frontend/vite.config.d.ts
 .env.codex-feedback-automation.local
+.env.release-deploy.local
 AGENT.md
 AGENTS.md
 .codex/
