@@ -1,12 +1,10 @@
 import asyncio
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import text
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, select
 
 from app import runtime_state
 import app.main as main
@@ -41,7 +39,7 @@ from app.schemas import (
 	UserFeedbackCreate,
 )
 from app.services.market_data import Quote
-from app.services import legacy_service, service_context
+from app.services import service_context
 
 
 class StaticMarketDataClient:
@@ -101,12 +99,8 @@ def _reset_async_runtime_state() -> None:
 
 
 @pytest.fixture
-def session(tmp_path: Path) -> Iterator[Session]:
-	engine = create_engine(
-		f"sqlite:///{tmp_path / 'user-isolation-test.db'}",
-		connect_args={"check_same_thread": False},
-	)
-	SQLModel.metadata.create_all(engine)
+def session(postgres_engine) -> Iterator[Session]:
+	engine = postgres_engine
 	main.dashboard_cache.clear()
 	main.live_portfolio_states.clear()
 	main.live_holdings_return_states.clear()
@@ -416,45 +410,3 @@ def test_mutation_endpoints_return_404_for_foreign_owned_records(session: Sessio
 			intruder,
 			session,
 		)
-
-
-def test_ensure_legacy_schema_adds_user_id_without_assigning_admin(
-	tmp_path: Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	legacy_engine = create_engine(
-		f"sqlite:///{tmp_path / 'legacy-schema-test.db'}",
-		connect_args={"check_same_thread": False},
-	)
-
-	with legacy_engine.begin() as connection:
-		connection.execute(
-			text(
-				"CREATE TABLE cashaccount ("
-				"id INTEGER PRIMARY KEY, "
-				"name TEXT NOT NULL, "
-				"platform TEXT NOT NULL, "
-				"currency TEXT NOT NULL, "
-				"balance REAL NOT NULL, "
-				"created_at TEXT NOT NULL, "
-				"updated_at TEXT NOT NULL"
-				")",
-			),
-		)
-		connection.execute(
-			text(
-				"INSERT INTO cashaccount "
-				"(name, platform, currency, balance, created_at, updated_at) "
-				"VALUES "
-				"('Legacy Cash', 'Bank', 'CNY', 100, '2026-03-01T00:00:00Z', "
-				"'2026-03-01T00:00:00Z')",
-			),
-		)
-
-	monkeypatch.setattr(legacy_service, "engine", legacy_engine)
-	main._ensure_legacy_schema()
-
-	with Session(legacy_engine) as session:
-		user_id = session.exec(text("SELECT user_id FROM cashaccount")).one()[0]
-
-	assert user_id is None

@@ -9,7 +9,6 @@ RUN uv sync --frozen
 
 COPY app ./app
 COPY alembic ./alembic
-COPY data ./data
 
 ENV PATH="/app/.venv/bin:${PATH}" \
 	ASSET_TRACKER_APP_ENV=production

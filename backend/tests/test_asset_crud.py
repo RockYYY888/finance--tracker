@@ -1,13 +1,12 @@
 import asyncio
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 import threading
 
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, select
 
 from app import runtime_state
 import app.main as main
@@ -186,12 +185,8 @@ def _reset_async_runtime_state() -> None:
 
 
 @pytest.fixture
-def session(tmp_path: Path) -> Iterator[Session]:
-	engine = create_engine(
-		f"sqlite:///{tmp_path / 'asset-crud-test.db'}",
-		connect_args={"check_same_thread": False},
-	)
-	SQLModel.metadata.create_all(engine)
+def session(postgres_engine) -> Iterator[Session]:
+	engine = postgres_engine
 	_reset_async_runtime_state()
 
 	with Session(engine) as db_session:

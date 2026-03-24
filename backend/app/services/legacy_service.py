@@ -10,17 +10,15 @@ from app.models import (
 	CASH_SETTLEMENT_DIRECTIONS,
 	AssetMutationAudit,
 	CashAccount,
-    CashLedgerEntry,
+	CashLedgerEntry,
 	FixedAsset,
 	HoldingPerformanceSnapshot,
-    HoldingTransactionCashSettlement,
+	HoldingTransactionCashSettlement,
 	LiabilityEntry,
 	OtherAsset,
 	PortfolioSnapshot,
-    SecurityHolding,
-    SecurityHoldingTransaction,
-	UserFeedback,
-    UserAccount,
+	SecurityHolding,
+	SecurityHoldingTransaction,
 )
 from app.services import service_context
 from app.services.common_service import (
@@ -75,132 +73,6 @@ def _audit_legacy_user_ownership() -> None:
 					table_name,
 					legacy_row_count,
 				)
-
-def _load_table_columns(session: Session, table_name: str) -> set[str]:
-	rows = session.exec(text(f"PRAGMA table_info({table_name})")).all()
-	return {row[1] for row in rows}
-
-def _ensure_legacy_schema() -> None:
-	"""Add newly introduced columns when the local SQLite file predates them."""
-	schema_changes = (
-		(
-			UserAccount.__table__.name,
-			{
-				"email": "TEXT",
-				"email_digest": "TEXT",
-			},
-		),
-		(
-			UserFeedback.__table__.name,
-			{
-				"category": "TEXT NOT NULL DEFAULT 'USER_REQUEST'",
-				"priority": "TEXT NOT NULL DEFAULT 'MEDIUM'",
-				"source": "TEXT NOT NULL DEFAULT 'USER'",
-				"status": "TEXT NOT NULL DEFAULT 'OPEN'",
-				"reply_message": "TEXT",
-				"replied_at": "TEXT",
-				"replied_by": "TEXT",
-				"reply_seen_at": "TEXT",
-				"resolved_at": "TEXT",
-				"closed_by": "TEXT",
-				"assignee": "TEXT",
-				"acknowledged_at": "TEXT",
-				"acknowledged_by": "TEXT",
-				"ack_deadline": "TEXT",
-				"internal_note": "TEXT",
-				"internal_note_updated_at": "TEXT",
-				"internal_note_updated_by": "TEXT",
-				"fingerprint": "TEXT",
-				"dedupe_window_minutes": "INTEGER",
-				"occurrence_count": "INTEGER NOT NULL DEFAULT 1",
-				"last_seen_at": "TEXT",
-			},
-		),
-		(
-			CashAccount.__table__.name,
-			{
-				"user_id": "TEXT",
-				"account_type": "TEXT NOT NULL DEFAULT 'OTHER'",
-				"started_on": "TEXT",
-				"note": "TEXT",
-			},
-		),
-		(
-			SecurityHolding.__table__.name,
-			{
-				"user_id": "TEXT",
-				"cost_basis_price": "REAL",
-				"market": "TEXT NOT NULL DEFAULT 'OTHER'",
-				"broker": "TEXT",
-				"started_on": "TEXT",
-				"note": "TEXT",
-			},
-		),
-		(
-			FixedAsset.__table__.name,
-			{
-				"user_id": "TEXT",
-				"started_on": "TEXT",
-			},
-		),
-		(
-			LiabilityEntry.__table__.name,
-			{
-				"user_id": "TEXT",
-				"started_on": "TEXT",
-			},
-		),
-		(
-			OtherAsset.__table__.name,
-			{
-				"user_id": "TEXT",
-				"started_on": "TEXT",
-			},
-		),
-		(
-			PortfolioSnapshot.__table__.name,
-			{
-				"user_id": "TEXT",
-			},
-		),
-		(
-			HoldingPerformanceSnapshot.__table__.name,
-			{
-				"user_id": "TEXT",
-			},
-		),
-		(
-			HoldingTransactionCashSettlement.__table__.name,
-			{
-				"flow_direction": "TEXT NOT NULL DEFAULT 'INFLOW'",
-			},
-		),
-		(
-			AssetMutationAudit.__table__.name,
-			{
-				"agent_task_id": "INTEGER",
-			},
-		),
-	)
-
-	with Session(engine) as session:
-		has_changes = False
-		for table_name, column_defs in schema_changes:
-			existing_columns = _load_table_columns(session, table_name)
-			if not existing_columns:
-				continue
-
-			for column_name, definition in column_defs.items():
-				if column_name in existing_columns:
-					continue
-
-				session.exec(
-					text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"),
-				)
-				has_changes = True
-
-		if has_changes:
-			session.commit()
 
 def _migrate_legacy_holdings_to_transactions() -> None:
 	"""Backfill transaction rows from legacy holding snapshots for historical continuity."""
@@ -441,4 +313,11 @@ def _backfill_cash_ledger_entries() -> None:
 			_sync_cash_account_balance_from_ledger(session, account=account)
 		session.commit()
 
-__all__ = ['_audit_legacy_user_ownership', '_load_table_columns', '_ensure_legacy_schema', '_migrate_legacy_holdings_to_transactions', '_extract_transaction_id_from_sell_proceeds_reason', '_backfill_holding_transaction_cash_settlements', '_backfill_cash_ledger_entries', 'engine']
+__all__ = [
+	"_audit_legacy_user_ownership",
+	"_migrate_legacy_holdings_to_transactions",
+	"_extract_transaction_id_from_sell_proceeds_reason",
+	"_backfill_holding_transaction_cash_settlements",
+	"_backfill_cash_ledger_entries",
+	"engine",
+]

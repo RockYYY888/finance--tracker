@@ -1,56 +1,29 @@
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
-import fcntl
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import event, inspect
-from sqlalchemy.engine import make_url
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.settings import get_settings
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DEFAULT_LOCAL_DATABASE_URL = f"sqlite:///{DATA_DIR / 'asset_tracker.db'}"
+DEFAULT_LOCAL_DATABASE_URL = (
+	"postgresql+psycopg://asset_tracker:asset_tracker@127.0.0.1:5433/asset_tracker"
+)
 DATABASE_URL = get_settings().database_url_value() or DEFAULT_LOCAL_DATABASE_URL
 ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
 ALEMBIC_VERSION_TABLE = "alembic_version"
 ALEMBIC_BASELINE_REVISION = "20260310_01"
-MIGRATION_LOCK_PATH = DATA_DIR / ".migration.lock"
-
-
-def _is_sqlite_database_url(database_url: str) -> bool:
-	return make_url(database_url).get_backend_name() == "sqlite"
+MIGRATION_ADVISORY_LOCK_ID = 88290045133101
 
 
 def _build_engine(database_url: str):
-	connect_args: dict[str, object] = {}
-	if _is_sqlite_database_url(database_url):
-		connect_args = {
-			"check_same_thread": False,
-			"timeout": 30,
-		}
-
 	engine = create_engine(
 		database_url,
-		connect_args=connect_args,
-		# SQLite is still accessed through a pooled SQLAlchemy engine in local/runtime
-		# deployments, so stale pooled connections must be pre-pinged the same way as
-		# network databases. Otherwise one poisoned connection can turn every request
-		# into a 500 until the process restarts.
 		pool_pre_ping=True,
 	)
-	if _is_sqlite_database_url(database_url):
-		@event.listens_for(engine, "connect")
-		def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
-			cursor = dbapi_connection.cursor()
-			cursor.execute("PRAGMA foreign_keys=ON")
-			cursor.execute("PRAGMA journal_mode=WAL")
-			cursor.execute("PRAGMA busy_timeout=30000")
-			cursor.close()
-
 	return engine
 
 
@@ -66,13 +39,18 @@ def _build_alembic_config() -> Config:
 
 @contextmanager
 def _migration_lock() -> Iterator[None]:
-	MIGRATION_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-	with MIGRATION_LOCK_PATH.open("a+b") as lock_file:
-		fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+	with engine.connect() as connection:
+		connection.execute(
+			text("SELECT pg_advisory_lock(:lock_id)"),
+			{"lock_id": MIGRATION_ADVISORY_LOCK_ID},
+		)
 		try:
 			yield
 		finally:
-			fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+			connection.execute(
+				text("SELECT pg_advisory_unlock(:lock_id)"),
+				{"lock_id": MIGRATION_ADVISORY_LOCK_ID},
+			)
 
 
 def _has_legacy_schema_without_alembic_version() -> bool:

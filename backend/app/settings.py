@@ -103,11 +103,11 @@ class Settings(BaseSettings):
 		url = self.database_url.strip()
 		return url or None
 
-	def database_uses_sqlite(self) -> bool:
+	def database_uses_postgresql(self) -> bool:
 		database_url = self.database_url_value()
 		if database_url is None:
 			return False
-		return urlparse(database_url).scheme.lower() == "sqlite"
+		return urlparse(database_url).scheme.lower().startswith("postgresql")
 
 	def email_pepper_value(self) -> str:
 		configured_secret = self._configured_session_secret_value()
@@ -149,6 +149,8 @@ class Settings(BaseSettings):
 		return normalized_origin in self.cors_origins()
 
 	def validate_runtime(self) -> None:
+		database_url = self.database_url_value()
+
 		if self.is_production and not (self.public_origin or self.allowed_origins or self.allowed_hosts):
 			raise ValueError(
 				"Production mode requires ASSET_TRACKER_PUBLIC_ORIGIN, "
@@ -159,10 +161,10 @@ class Settings(BaseSettings):
 			raise ValueError("Production mode requires ASSET_TRACKER_SESSION_SECRET.")
 		if self.is_production and not self.redis_url_value():
 			raise ValueError("Production mode requires ASSET_TRACKER_REDIS_URL.")
-		if self.is_production and not self.database_url_value():
+		if self.is_production and not database_url:
 			raise ValueError("Production mode requires ASSET_TRACKER_DATABASE_URL.")
-		if self.is_production and self.database_uses_sqlite():
-			raise ValueError("Production mode requires ASSET_TRACKER_DATABASE_URL to use a server database.")
+		if database_url and not self.database_uses_postgresql():
+			raise ValueError("Asset Tracker only supports PostgreSQL database URLs.")
 
 
 @lru_cache

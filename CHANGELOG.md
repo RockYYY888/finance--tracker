@@ -3,8 +3,8 @@
 ## v0.7.0 - 2026-03-24
 
 - Legacy server migration and production hardening
-- Added a one-command first-server migration script that backs up .env and legacy SQLite files, rewrites production env settings, provisions Redis and Postgres, imports overlapping legacy data, and rebuilds the stack.
-- Switched production deployment to a Redis + Postgres + Alembic model, with explicit non-SQLite enforcement and startup-time schema upgrades.
+- Added a one-command first-server migration script that backs up .env and legacy database files, rewrites production env settings, provisions Redis and Postgres, imports overlapping legacy data, and rebuilds the stack.
+- Switched production deployment to a Redis + Postgres + Alembic model, with explicit PostgreSQL enforcement and startup-time schema upgrades.
 - Added nginx proxy rollout, agent registration and actor-source audit support, plus multi-user concurrency and cache hardening.
 - Fixed analytics timeline alignment, workspace state regressions, and several asset-management UI issues.
 - GitHub Release: https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.0

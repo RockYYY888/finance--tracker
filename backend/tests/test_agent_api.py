@@ -2,11 +2,10 @@ import asyncio
 from collections.abc import Iterator
 from datetime import date, datetime, timezone
 import json
-from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, select
 from starlette.requests import Request
 
 import app.database as database
@@ -114,12 +113,8 @@ def _reset_async_runtime_state() -> None:
 
 
 @pytest.fixture
-def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
-	engine = create_engine(
-		f"sqlite:///{tmp_path / 'agent-api-test.db'}",
-		connect_args={"check_same_thread": False},
-	)
-	SQLModel.metadata.create_all(engine)
+def session(postgres_engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
+	engine = postgres_engine
 	monkeypatch.setattr(database, "engine", engine)
 	monkeypatch.setattr(job_service, "engine", engine)
 	monkeypatch.setattr(legacy_service, "engine", engine)

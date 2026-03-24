@@ -1,9 +1,8 @@
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, select
 
 from app.main import (
 	classify_feedback_for_admin,
@@ -29,13 +28,8 @@ from app.schemas import (
 
 
 @pytest.fixture
-def session(tmp_path: Path) -> Iterator[Session]:
-	engine = create_engine(
-		f"sqlite:///{tmp_path / 'feedback-test.db'}",
-		connect_args={"check_same_thread": False},
-	)
-	SQLModel.metadata.create_all(engine)
-
+def session(postgres_engine) -> Iterator[Session]:
+	engine = postgres_engine
 	with Session(engine) as db_session:
 		yield db_session
 

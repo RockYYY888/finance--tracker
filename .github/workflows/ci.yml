@@ -11,6 +11,19 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: asset_tracker
+          POSTGRES_USER: asset_tracker
+          POSTGRES_PASSWORD: asset_tracker
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U asset_tracker -d asset_tracker"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
       redis:
         image: redis:7.4-alpine
         ports:
@@ -21,7 +34,10 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
+      ASSET_TRACKER_DATABASE_URL: postgresql+psycopg://asset_tracker:asset_tracker@127.0.0.1:5432/asset_tracker
       ASSET_TRACKER_REDIS_URL: redis://127.0.0.1:6379/0
+      ASSET_TRACKER_TEST_DATABASE_URL: postgresql+psycopg://asset_tracker:asset_tracker@127.0.0.1:5432/asset_tracker_test
+      ASSET_TRACKER_TEST_DATABASE_ADMIN_URL: postgresql+psycopg://asset_tracker:asset_tracker@127.0.0.1:5432/postgres
     defaults:
       run:
         working-directory: backend

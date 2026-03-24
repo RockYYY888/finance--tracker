@@ -104,17 +104,17 @@ def test_settings_require_database_url_in_production(monkeypatch: pytest.MonkeyP
 		settings.validate_runtime()
 
 
-def test_settings_reject_sqlite_database_url_in_production(
+def test_settings_reject_non_postgres_database_url_in_production(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
 	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "https://finance.example.com/")
 	monkeypatch.setenv("ASSET_TRACKER_REDIS_URL", "redis://redis:6379/0")
 	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
-	monkeypatch.setenv("ASSET_TRACKER_DATABASE_URL", "sqlite:////tmp/asset-tracker.db")
+	monkeypatch.setenv("ASSET_TRACKER_DATABASE_URL", "mysql+pymysql://user:pass@127.0.0.1:3306/asset_tracker")
 	settings = get_settings()
 
-	with pytest.raises(ValueError, match="server database"):
+	with pytest.raises(ValueError, match="PostgreSQL"):
 		settings.validate_runtime()
 
 

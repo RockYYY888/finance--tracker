@@ -44,7 +44,7 @@ def upgrade() -> None:
 			unique=False,
 		)
 
-	if bind.dialect.name != "sqlite":
+	if "actor_source" in column_names:
 		op.alter_column("assetmutationaudit", "actor_source", server_default=None)
 
 

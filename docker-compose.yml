@@ -1,4 +1,25 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}
+      POSTGRES_USER: ${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}
+      POSTGRES_PASSWORD: ${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${ASSET_TRACKER_POSTGRES_USER:-asset_tracker} -d ${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "127.0.0.1:${ASSET_TRACKER_HOST_POSTGRES_PORT:-5433}:5432"
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
@@ -15,6 +36,8 @@ services:
     build:
       context: ./backend
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -32,15 +55,13 @@ services:
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
-      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-}
+      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-postgresql+psycopg://${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}:${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}@postgres:5432/${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}}
       ASSET_TRACKER_PUBLIC_ORIGIN: ${ASSET_TRACKER_PUBLIC_ORIGIN}
       ASSET_TRACKER_ALLOWED_ORIGINS: ${ASSET_TRACKER_ALLOWED_ORIGINS:-}
       ASSET_TRACKER_ALLOWED_HOSTS: ${ASSET_TRACKER_ALLOWED_HOSTS:-}
       ASSET_TRACKER_REDIS_URL: ${ASSET_TRACKER_REDIS_URL:-redis://redis:6379/0}
       ASSET_TRACKER_SESSION_SECRET: ${ASSET_TRACKER_SESSION_SECRET}
     restart: unless-stopped
-    volumes:
-      - ./backend/data:/app/data
 
   worker:
     build:
@@ -49,20 +70,20 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
-      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-}
+      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-postgresql+psycopg://${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}:${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}@postgres:5432/${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}}
       ASSET_TRACKER_PUBLIC_ORIGIN: ${ASSET_TRACKER_PUBLIC_ORIGIN}
       ASSET_TRACKER_ALLOWED_ORIGINS: ${ASSET_TRACKER_ALLOWED_ORIGINS:-}
       ASSET_TRACKER_ALLOWED_HOSTS: ${ASSET_TRACKER_ALLOWED_HOSTS:-}
       ASSET_TRACKER_REDIS_URL: ${ASSET_TRACKER_REDIS_URL:-redis://redis:6379/0}
       ASSET_TRACKER_SESSION_SECRET: ${ASSET_TRACKER_SESSION_SECRET}
     restart: unless-stopped
-    volumes:
-      - ./backend/data:/app/data
 
   frontend:
     build:
@@ -85,3 +106,6 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+
+volumes:
+  postgres_data:

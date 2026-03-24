@@ -1,12 +1,11 @@
 import asyncio
 from collections.abc import Iterator
 from datetime import date, timedelta
-from pathlib import Path
 import threading
 
 import pytest
 from sqlalchemy import text
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, select
 
 import app.database as database
 from app import runtime_state
@@ -16,7 +15,7 @@ from app.main import create_holding_transaction
 from app.models import HOLDING_HISTORY_SYNC_STATUSES, HoldingHistorySyncRequest, OutboxJob, UserAccount, utc_now
 from app.schemas import SecurityHoldingTransactionCreate
 from app.security import hash_password
-from app.services import dashboard_service, history_service, job_service, legacy_service, service_context
+from app.services import dashboard_service, history_service, job_service, service_context
 
 
 class StaticDashboardMarketDataClient:
@@ -111,15 +110,10 @@ def _reset_snapshot_runtime_state() -> None:
 
 
 @pytest.fixture
-def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
-	engine = create_engine(
-		f"sqlite:///{tmp_path / 'app-modularization-test.db'}",
-		connect_args={"check_same_thread": False},
-	)
-	SQLModel.metadata.create_all(engine)
+def session(postgres_engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
+	engine = postgres_engine
 	monkeypatch.setattr(database, "engine", engine)
 	monkeypatch.setattr(job_service, "engine", engine)
-	monkeypatch.setattr(legacy_service, "engine", engine)
 
 	with Session(engine) as db_session:
 		yield db_session
@@ -161,20 +155,8 @@ def test_api_lifespan_only_initializes_db(
 	def fake_init_db() -> None:
 		call_order.append("init_db")
 
-	def fail_heavy_startup(*_args, **_kwargs) -> None:
-		raise AssertionError("Legacy startup backfill should not run during app lifespan.")
-
 	monkeypatch.setattr(main, "init_db", fake_init_db)
 	monkeypatch.setattr(main, "validate_runtime_redis_connection", fake_validate_runtime_redis_connection)
-	monkeypatch.setattr(legacy_service, "_ensure_legacy_schema", fail_heavy_startup)
-	monkeypatch.setattr(legacy_service, "_migrate_legacy_holdings_to_transactions", fail_heavy_startup)
-	monkeypatch.setattr(
-		legacy_service,
-		"_backfill_holding_transaction_cash_settlements",
-		fail_heavy_startup,
-	)
-	monkeypatch.setattr(legacy_service, "_backfill_cash_ledger_entries", fail_heavy_startup)
-	monkeypatch.setattr(legacy_service, "_audit_legacy_user_ownership", fail_heavy_startup)
 	monkeypatch.setattr(
 		main,
 		"settings",
@@ -195,8 +177,10 @@ def test_api_lifespan_only_initializes_db(
 	]
 
 
-def test_sqlite_engine_recovers_from_closed_pooled_connection(tmp_path: Path) -> None:
-	engine = database._build_engine(f"sqlite:///{tmp_path / 'pool-pre-ping.db'}")
+def test_engine_recovers_from_closed_pooled_connection(
+	postgres_database_url: str,
+) -> None:
+	engine = database._build_engine(postgres_database_url)
 
 	with Session(engine) as session:
 		assert session.exec(text("select 1")).one() == (1,)

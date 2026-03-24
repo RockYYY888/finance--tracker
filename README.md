@@ -13,8 +13,10 @@ docker compose up -d --build --remove-orphans
 ```
 
 Open `http://127.0.0.1:8080`.
-This starts `backend`, `worker`, `frontend`, `nginx`, and `redis`.
+This starts `backend`, `worker`, `frontend`, `nginx`, `postgres`, and `redis`.
+The local Postgres endpoint is also published at `127.0.0.1:5433` for direct host-side testing.
 The local Redis endpoint is also published at `127.0.0.1:6380` for direct host-side testing.
+Local app data lives in the persistent Postgres database `asset_tracker`.
 
 Local nginx verification:
 
@@ -29,12 +31,14 @@ and `nginx` can bind `127.0.0.1:8080` cleanly.
 ### Local Redis Connectivity Check
 
 ```bash
-docker compose up -d redis
+docker compose up -d postgres redis
 cd backend
 uv run pytest tests/test_runtime_redis.py
 ```
 
-The Redis connectivity check exercises the real Redis container instead of a fake fallback.
+The runtime connectivity check exercises the real Postgres and Redis containers instead of local fallbacks.
+Backend tests use a persistent local Postgres test database named `asset_tracker_test`; the database is
+kept, while test runs recreate its schema before each test for isolation.
 
 ### Server Or Proxy Build
 
@@ -55,12 +59,12 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-
 `backend` and `worker` now run Alembic migrations automatically on startup. Schema changes must ship
 as Alembic revisions; `create_all()` is no longer the runtime source of truth.
 
-Production compose now provisions `postgres` and `redis` inside the stack. Set
+Compose now provisions `postgres` and `redis` inside the stack. Set
 `ASSET_TRACKER_POSTGRES_PASSWORD`, `ASSET_TRACKER_SESSION_SECRET`, and `ASSET_TRACKER_PUBLIC_ORIGIN`
 before the first server deployment.
 
-Production data now lives in Postgres (`postgres_data`). `backend/data/asset_tracker.db` is only the
-local/development SQLite file and should not be treated as the production database.
+Application data now lives in Postgres (`postgres_data`) for both local compose and production.
+Redis only stores runtime cache, queue, and lock state.
 
 ## Schema Migrations
 

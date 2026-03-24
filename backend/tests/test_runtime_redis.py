@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 from redis import Redis
@@ -30,20 +29,15 @@ def test_validate_runtime_redis_connection_raises_when_ping_fails(
 
 
 def test_init_db_stamps_legacy_schema_without_version_table(
-	tmp_path: Path,
+	empty_postgres_engine,
+	postgres_database_url: str,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	db_path = tmp_path / "legacy-schema.db"
-	engine = database.create_engine(
-		f"sqlite:///{db_path}",
-		connect_args={"check_same_thread": False},
-	)
+	engine = empty_postgres_engine
 	database.SQLModel.metadata.create_all(engine)
 
-	monkeypatch.setattr(database, "DATA_DIR", tmp_path)
-	monkeypatch.setattr(database, "DATABASE_URL", f"sqlite:///{db_path}")
+	monkeypatch.setattr(database, "DATABASE_URL", postgres_database_url)
 	monkeypatch.setattr(database, "engine", engine)
-	monkeypatch.setattr(database, "MIGRATION_LOCK_PATH", tmp_path / ".migration.lock")
 
 	database.init_db()
 
@@ -54,40 +48,30 @@ def test_init_db_stamps_legacy_schema_without_version_table(
 
 
 def test_init_db_rejects_partial_legacy_schema_without_version_table(
-	tmp_path: Path,
+	empty_postgres_engine,
+	postgres_database_url: str,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	db_path = tmp_path / "partial-legacy-schema.db"
-	engine = database.create_engine(
-		f"sqlite:///{db_path}",
-		connect_args={"check_same_thread": False},
-	)
+	engine = empty_postgres_engine
 	with engine.begin() as connection:
 		connection.execute(text("CREATE TABLE useraccount (username TEXT PRIMARY KEY)"))
 
-	monkeypatch.setattr(database, "DATA_DIR", tmp_path)
-	monkeypatch.setattr(database, "DATABASE_URL", f"sqlite:///{db_path}")
+	monkeypatch.setattr(database, "DATABASE_URL", postgres_database_url)
 	monkeypatch.setattr(database, "engine", engine)
-	monkeypatch.setattr(database, "MIGRATION_LOCK_PATH", tmp_path / ".migration.lock")
 
 	with pytest.raises(RuntimeError, match="Missing tables"):
 		database.init_db()
 
 
 def test_init_db_applies_migrations_to_empty_database(
-	tmp_path: Path,
+	empty_postgres_engine,
+	postgres_database_url: str,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	db_path = tmp_path / "empty-schema.db"
-	engine = database.create_engine(
-		f"sqlite:///{db_path}",
-		connect_args={"check_same_thread": False},
-	)
+	engine = empty_postgres_engine
 
-	monkeypatch.setattr(database, "DATA_DIR", tmp_path)
-	monkeypatch.setattr(database, "DATABASE_URL", f"sqlite:///{db_path}")
+	monkeypatch.setattr(database, "DATABASE_URL", postgres_database_url)
 	monkeypatch.setattr(database, "engine", engine)
-	monkeypatch.setattr(database, "MIGRATION_LOCK_PATH", tmp_path / ".migration.lock")
 
 	database.init_db()
 
