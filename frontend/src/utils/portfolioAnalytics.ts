@@ -537,8 +537,9 @@ export function buildSelectableTimelinePoints(
 			return selectablePoints;
 		}
 
+		const timestampKey = point.timestamp_utc?.trim();
 		selectablePoints.push({
-			key: point.timestamp_utc?.trim() || `${point.label}::${index}`,
+			key: timestampKey ? `${timestampKey}::${index}` : `${point.label}::${index}`,
 			label: formatTimelinePointLabel(point, `时间点 ${index + 1}`),
 			point,
 			index,

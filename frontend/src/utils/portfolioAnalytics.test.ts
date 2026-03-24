@@ -266,7 +266,7 @@ describe("buildSelectableTimelinePoints", () => {
 
 		expect(selectablePoints).toEqual([
 			{
-				key: "2026-03-24T03:00:00Z",
+				key: "2026-03-24T03:00:00Z::0",
 				label: "03-24 11:00",
 				point: {
 					label: "03-24 11:00",
@@ -276,7 +276,7 @@ describe("buildSelectableTimelinePoints", () => {
 				index: 0,
 			},
 			{
-				key: "2026-03-24T08:00:00Z",
+				key: "2026-03-24T08:00:00Z::2",
 				label: "03-24 16:00",
 				point: {
 					label: "03-24 16:00",
@@ -285,6 +285,26 @@ describe("buildSelectableTimelinePoints", () => {
 				},
 				index: 2,
 			},
+		]);
+	});
+
+	it("builds unique selection keys when timeline points share a timestamp", () => {
+		const selectablePoints = buildSelectableTimelinePoints([
+			{
+				label: "03-24 16:00",
+				value: 5.8,
+				timestamp_utc: "2026-03-24T08:00:00Z",
+			},
+			{
+				label: "03-24 16:00 修正",
+				value: 6.1,
+				timestamp_utc: "2026-03-24T08:00:00Z",
+			},
+		]);
+
+		expect(selectablePoints.map((point) => point.key)).toEqual([
+			"2026-03-24T08:00:00Z::0",
+			"2026-03-24T08:00:00Z::1",
 		]);
 	});
 });

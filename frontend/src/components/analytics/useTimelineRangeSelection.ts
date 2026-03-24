@@ -37,6 +37,19 @@ function findSelectablePointIndex(
 	return matchedIndex >= 0 ? matchedIndex : fallbackIndex;
 }
 
+function resolveSelectablePointKey(
+	selectablePoints: TimelineSelectablePoint[],
+	key: string | null,
+	fallbackIndex: number,
+): string | null {
+	const resolvedIndex = findSelectablePointIndex(
+		selectablePoints,
+		key,
+		fallbackIndex,
+	);
+	return resolvedIndex === null ? null : (selectablePoints[resolvedIndex]?.key ?? null);
+}
+
 export function useTimelineRangeSelection(
 	series: TimelinePoint[],
 ): TimelineRangeSelection {
@@ -44,38 +57,45 @@ export function useTimelineRangeSelection(
 		() => buildSelectableTimelinePoints(series),
 		[series],
 	);
-	const [startKey, setStartKey] = useState<string | null>(null);
-	const [endKey, setEndKey] = useState<string | null>(null);
 	const lastSelectablePoint = selectablePoints[selectablePoints.length - 1] ?? null;
+	const [startKey, setStartKey] = useState<string | null>(
+		() => selectablePoints[0]?.key ?? null,
+	);
+	const [endKey, setEndKey] = useState<string | null>(
+		() => lastSelectablePoint?.key ?? null,
+	);
+	const resolvedStartKey = resolveSelectablePointKey(selectablePoints, startKey, 0);
+	const resolvedEndKey = resolveSelectablePointKey(
+		selectablePoints,
+		endKey,
+		Math.max(selectablePoints.length - 1, 0),
+	);
 
 	useEffect(() => {
-		const firstKey = selectablePoints[0]?.key ?? null;
-		const lastKey = lastSelectablePoint?.key ?? null;
-
 		setStartKey((currentKey) =>
-			currentKey && selectablePoints.some((point) => point.key === currentKey)
-				? currentKey
-				: firstKey,
+			resolveSelectablePointKey(selectablePoints, currentKey, 0),
 		);
 		setEndKey((currentKey) =>
-			currentKey && selectablePoints.some((point) => point.key === currentKey)
-				? currentKey
-				: lastKey,
+			resolveSelectablePointKey(
+				selectablePoints,
+				currentKey,
+				Math.max(selectablePoints.length - 1, 0),
+			),
 		);
-	}, [lastSelectablePoint?.key, selectablePoints]);
+	}, [selectablePoints]);
 
 	const startIndex = useMemo(
-		() => findSelectablePointIndex(selectablePoints, startKey, 0),
-		[selectablePoints, startKey],
+		() => findSelectablePointIndex(selectablePoints, resolvedStartKey, 0),
+		[resolvedStartKey, selectablePoints],
 	);
 	const endIndex = useMemo(
 		() =>
 			findSelectablePointIndex(
 				selectablePoints,
-				endKey,
+				resolvedEndKey,
 				Math.max(selectablePoints.length - 1, 0),
 			),
-		[selectablePoints, endKey],
+		[resolvedEndKey, selectablePoints],
 	);
 	const startPoint =
 		startIndex === null ? null : (selectablePoints[startIndex] ?? null);
@@ -103,7 +123,7 @@ export function useTimelineRangeSelection(
 
 		const currentEndIndex = findSelectablePointIndex(
 			selectablePoints,
-			endKey,
+			resolvedEndKey,
 			Math.max(selectablePoints.length - 1, 0),
 		);
 		if (currentEndIndex === null || nextIndex >= currentEndIndex) {
@@ -119,7 +139,11 @@ export function useTimelineRangeSelection(
 			return;
 		}
 
-		const currentStartIndex = findSelectablePointIndex(selectablePoints, startKey, 0);
+		const currentStartIndex = findSelectablePointIndex(
+			selectablePoints,
+			resolvedStartKey,
+			0,
+		);
 		if (currentStartIndex === null || nextIndex <= currentStartIndex) {
 			return;
 		}
@@ -134,8 +158,8 @@ export function useTimelineRangeSelection(
 
 	return {
 		selectablePoints,
-		startKey,
-		endKey,
+		startKey: resolvedStartKey,
+		endKey: resolvedEndKey,
 		startPoint,
 		endPoint,
 		intervalPoints,

@@ -126,6 +126,12 @@ describe("timeline range summaries", () => {
 			/>,
 		);
 
+		expect(
+			screen.getByRole("button", { name: "选择起点时间点" }).textContent,
+		).toContain("03-01");
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("03-03");
 		expectPillToContain("终点净值", "¥150.00");
 		expectPillToContain("03-01→03-03", "增加¥50.00 / +50.00%", 0);
 		expectPillToContain("区间内日均环比", "+22.47%");
@@ -174,13 +180,23 @@ describe("timeline range summaries", () => {
 							{ label: "03-02", value: 12 },
 							{ label: "03-03", value: 15 },
 						],
-						[],
+						[
+							{ label: "2026-01", value: 8 },
+							{ label: "2026-02", value: 9 },
+							{ label: "2026-03", value: 11 },
+						],
 						[],
 					),
 				]}
 			/>,
 		);
 
+		expect(
+			screen.getByRole("button", { name: "选择起点时间点" }).textContent,
+		).toContain("03-01");
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("03-03");
 		expectPillToContain("终点收益率", "15.00%");
 		expectPillToContain("03-01→03-03", "+5.00%");
 		expectPillToContain("区间内日均变动", "+2.50%");
@@ -209,5 +225,17 @@ describe("timeline range summaries", () => {
 		});
 		expectPillToContain("03-01→03-03", "+5.00%");
 		expectPillToContain("区间内日均变动", "+2.50%");
+
+		fireEvent.click(screen.getByRole("button", { name: "年" }));
+
+		expect(
+			screen.getByRole("button", { name: "选择起点时间点" }).textContent,
+		).toContain("2026-01");
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("2026-03");
+		expectPillToContain("终点收益率", "11.00%");
+		expectPillToContain("2026-01→2026-03", "+3.00%");
+		expectPillToContain("区间内月均变动", "+1.50%");
 	});
 });

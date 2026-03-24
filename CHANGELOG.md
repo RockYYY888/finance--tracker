@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.1 - 2026-03-24
+
+- Fixed timeline comparison defaults so both trend charts populate the full-range start and end points immediately, and duplicate timepoints no longer destabilize interval selection.
+- Rewrote the agent API reference in a formal contract style and documented every bearer-token-compatible backend operation with parameter tables, examples, and route coverage checks.
+
 ## v0.7.0 - 2026-03-24
 
 - Legacy server migration and production hardening
