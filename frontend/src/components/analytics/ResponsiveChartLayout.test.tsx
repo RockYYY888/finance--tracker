@@ -17,6 +17,7 @@ const rechartsState = vi.hoisted(() => ({
 		width?: string | number;
 		height?: string | number;
 	}>,
+	tooltips: [] as Array<Record<string, unknown>>,
 	lines: [] as Array<Record<string, unknown>>,
 	areas: [] as Array<Record<string, unknown>>,
 	xAxes: [] as Array<Record<string, unknown>>,
@@ -45,7 +46,10 @@ vi.mock("recharts", () => ({
 		rechartsState.cartesianGrids.push(props);
 		return null;
 	},
-	Tooltip: () => null,
+	Tooltip: (props: Record<string, unknown>) => {
+		rechartsState.tooltips.push(props);
+		return null;
+	},
 	ReferenceLine: (props: Record<string, unknown>) => {
 		rechartsState.referenceLines.push(props);
 		return null;
@@ -127,6 +131,7 @@ class MockResizeObserver {
 describe("analytics charts responsive layout", () => {
 	beforeEach(() => {
 		rechartsState.responsiveContainers.length = 0;
+		rechartsState.tooltips.length = 0;
 		rechartsState.lines.length = 0;
 		rechartsState.areas.length = 0;
 		rechartsState.xAxes.length = 0;
@@ -619,6 +624,142 @@ describe("analytics charts responsive layout", () => {
 		expect(positiveCrossing?.xValue).toBeGreaterThan(startXValue);
 		expect(positiveCrossing?.xValue).toBeLessThan(endXValue);
 		expect(negativeCrossing?.xValue).toBe(positiveCrossing?.xValue);
+	});
+
+	it("does not surface tooltip content for zero-crossing helper points", async () => {
+		render(
+			<ReturnTrendChart
+				defaultRange="hour"
+				title="收益趋势"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"组合",
+						[
+							{
+								label: "03-23 22:00",
+								value: -5.1,
+								timestamp_utc: "2026-03-23T14:00:00Z",
+							},
+							{
+								label: "03-24 16:00",
+								value: 0.29,
+								timestamp_utc: "2026-03-24T08:00:00Z",
+							},
+						],
+						[],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.tooltips.length).toBeGreaterThan(0);
+			expect(rechartsState.areas.length).toBeGreaterThanOrEqual(2);
+		});
+
+		const tooltipProps = getLastRecordedProps(rechartsState.tooltips) as {
+			content: (props: {
+				active?: boolean;
+				payload?: Array<Record<string, unknown>>;
+				label?: string | number;
+			}) => ReactNode;
+		};
+		const positiveAreaProps = rechartsState.areas[rechartsState.areas.length - 2] as {
+			data: Array<{ xValue: number; crossingPoint?: boolean; value: number }>;
+			tooltipType?: string;
+		};
+		const crossingPoint = positiveAreaProps.data.find((point) => point.crossingPoint);
+
+		expect(positiveAreaProps.tooltipType).toBe("none");
+		expect(
+			tooltipProps.content({
+				active: true,
+				label: crossingPoint?.xValue ?? 0,
+				payload: [
+					{
+						dataKey: "positiveValue",
+						value: 0,
+						payload: crossingPoint,
+					},
+				],
+			}),
+		).toBeNull();
+	});
+
+	it("does not surface tooltip content for baseline-crossing helper points in portfolio charts", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{
+						label: "03-23",
+						value: 100_000,
+						timestamp_utc: "2026-03-22T16:00:00Z",
+					},
+					{
+						label: "03-24",
+						value: 95_000,
+						timestamp_utc: "2026-03-23T16:00:00Z",
+					},
+				]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[]}
+				holdings_return_day_series={[
+					{
+						label: "03-23",
+						value: 2.5,
+						timestamp_utc: "2026-03-22T16:00:00Z",
+					},
+					{
+						label: "03-24",
+						value: -1.2,
+						timestamp_utc: "2026-03-23T16:00:00Z",
+					},
+				]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+			/>,
+		);
+
+		screen.getByRole("button", { name: "投资类收益率" }).click();
+
+		await waitFor(() => {
+			expect(rechartsState.tooltips.length).toBeGreaterThan(0);
+			expect(rechartsState.areas.length).toBeGreaterThanOrEqual(2);
+		});
+
+		const tooltipProps = getLastRecordedProps(rechartsState.tooltips) as {
+			content: (props: {
+				active?: boolean;
+				payload?: Array<Record<string, unknown>>;
+				label?: string | number;
+			}) => ReactNode;
+		};
+		const positiveAreaProps = rechartsState.areas[rechartsState.areas.length - 2] as {
+			data: Array<{ xValue: number; crossingPoint?: boolean; value: number }>;
+			tooltipType?: string;
+		};
+		const crossingPoint = positiveAreaProps.data.find((point) => point.crossingPoint);
+
+		expect(positiveAreaProps.tooltipType).toBe("none");
+		expect(
+			tooltipProps.content({
+				active: true,
+				label: crossingPoint?.xValue ?? 0,
+				payload: [
+					{
+						dataKey: "positiveValue",
+						value: 0,
+						payload: crossingPoint,
+					},
+				],
+			}),
+		).toBeNull();
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {

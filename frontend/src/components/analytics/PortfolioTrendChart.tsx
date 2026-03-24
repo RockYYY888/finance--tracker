@@ -564,7 +564,7 @@ export function PortfolioTrendChart({
 								stroke={activeMetricConfig.referenceLineStroke}
 							/>
 							<Tooltip
-								content={({ active, payload, label }) => {
+								content={({ active, payload }) => {
 									if (!active || !payload || payload.length === 0) {
 										return null;
 									}
@@ -573,16 +573,26 @@ export function PortfolioTrendChart({
 									const primaryEntry = entries.find(
 										(entry) => entry.dataKey === "value",
 									);
-									const rawValue = Number(
-										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
-									);
 									const sourcePoint = primaryEntry?.payload as
 										| PortfolioTrendRenderablePoint
 										| undefined;
-									if (!isInteractiveTrendPoint(sourcePoint)) {
+									if (
+										primaryEntry === undefined ||
+										sourcePoint === undefined ||
+										!isInteractiveTrendPoint(sourcePoint)
+									) {
 										return null;
 									}
-									const periodLabel = sourcePoint?.label?.trim() || String(label ?? "");
+									const rawValue = Number(
+										primaryEntry.value ?? sourcePoint.value ?? 0,
+									);
+									const periodLabel =
+										sourcePoint.label?.trim() ||
+										xAxisLabelByValue.get(sourcePoint.xValue) ||
+										"";
+									if (!periodLabel) {
+										return null;
+									}
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
@@ -609,6 +619,7 @@ export function PortfolioTrendChart({
 								stroke="none"
 								fill={POSITIVE_TREND_FILL}
 								baseValue={axisLayout.referenceValue}
+								tooltipType="none"
 								connectNulls
 							/>
 							<Area
@@ -618,6 +629,7 @@ export function PortfolioTrendChart({
 								stroke="none"
 								fill={NEGATIVE_TREND_FILL}
 								baseValue={axisLayout.referenceValue}
+								tooltipType="none"
 								connectNulls
 							/>
 							<Line

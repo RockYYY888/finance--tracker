@@ -466,23 +466,33 @@ export function ReturnTrendChart({
 								stroke="rgba(0, 155, 193, 0.65)"
 							/>
 							<Tooltip
-								content={({ active, payload, label }) => {
+								content={({ active, payload }) => {
 									if (!active || !payload || payload.length === 0) {
 										return null;
 									}
 
 									const entries = payload as TooltipPayloadEntry[];
 									const primaryEntry = entries.find((entry) => entry.dataKey === "value");
-									const rawValue = Number(
-										primaryEntry?.value ?? primaryEntry?.payload?.value ?? 0,
-									);
 									const sourcePoint = primaryEntry?.payload as
 										| ReturnTrendRenderablePoint
 										| undefined;
-									if (!isInteractiveTrendPoint(sourcePoint)) {
+									if (
+										primaryEntry === undefined ||
+										sourcePoint === undefined ||
+										!isInteractiveTrendPoint(sourcePoint)
+									) {
 										return null;
 									}
-									const periodLabel = sourcePoint?.label?.trim() || String(label ?? "");
+									const rawValue = Number(
+										primaryEntry.value ?? sourcePoint.value ?? 0,
+									);
+									const periodLabel =
+										sourcePoint.label?.trim() ||
+										xAxisLabelByValue.get(sourcePoint.xValue) ||
+										"";
+									if (!periodLabel) {
+										return null;
+									}
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
@@ -509,6 +519,7 @@ export function ReturnTrendChart({
 								stroke="none"
 								fill={POSITIVE_RETURN_FILL}
 								baseValue={ZERO_RETURN_THRESHOLD}
+								tooltipType="none"
 								connectNulls
 							/>
 							<Area
@@ -518,6 +529,7 @@ export function ReturnTrendChart({
 								stroke="none"
 								fill={NEGATIVE_RETURN_FILL}
 								baseValue={ZERO_RETURN_THRESHOLD}
+								tooltipType="none"
 								connectNulls
 							/>
 							<Line
