@@ -979,7 +979,7 @@ function App() {
 			setAdminReleaseNotes(releaseNotes);
 		} catch (error) {
 			setAdminReleaseNotesErrorMessage(
-				error instanceof Error ? error.message : "Failed to load release notes. Please try again.",
+				error instanceof Error ? error.message : "更新日志加载失败，请稍后再试。",
 			);
 		} finally {
 			setIsLoadingAdminReleaseNotes(false);
@@ -1134,7 +1134,7 @@ function App() {
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminReleaseNotesErrorMessage(
-				error instanceof Error ? error.message : "Failed to create the release note. Please try again.",
+				error instanceof Error ? error.message : "创建更新日志失败，请稍后再试。",
 			);
 		} finally {
 			setIsLoadingAdminReleaseNotes(false);
@@ -1155,7 +1155,7 @@ function App() {
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminReleaseNotesErrorMessage(
-				error instanceof Error ? error.message : "Failed to publish the release note. Please try again.",
+				error instanceof Error ? error.message : "发布更新日志失败，请稍后再试。",
 			);
 		} finally {
 			setIsLoadingAdminReleaseNotes(false);
@@ -1492,11 +1492,11 @@ function App() {
 							<button
 								type="button"
 								className="hero-note hero-note--action"
-								onClick={() => void openAdminReleaseNotes()}
-								disabled={isLoadingAdminReleaseNotes}
-							>
-								Release Notes
-							</button>
+							onClick={() => void openAdminReleaseNotes()}
+							disabled={isLoadingAdminReleaseNotes}
+						>
+							更新日志
+						</button>
 						) : null}
 						<button
 							type="button"

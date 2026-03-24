@@ -380,6 +380,20 @@ describe("App session restore", () => {
 		expect(screen.getByText("¥3.07万")).not.toBeNull();
 	});
 
+	it("shows the admin release notes entry in chinese", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "admin", email: null });
+		dashboardApiMocks.getDashboard.mockResolvedValue({ ...EMPTY_DASHBOARD });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，admin")).not.toBeNull();
+		});
+
+		expect(screen.getByRole("button", { name: "更新日志" })).not.toBeNull();
+		expect(screen.queryByRole("button", { name: "Release Notes" })).toBeNull();
+	});
+
 	it("shows placeholders instead of zero totals while remembered data is still loading", () => {
 		const pendingSession = createDeferredPromise<{ user_id: string; email: string | null }>();
 		authApiMocks.getAuthSession.mockReturnValue(pendingSession.promise);

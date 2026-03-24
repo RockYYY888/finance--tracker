@@ -196,7 +196,7 @@ export function UserFeedbackInboxDialog({
 				<div className="admin-feedback-list">
 					{visibleReleaseNotes.length === 0 && visibleFeedbackItems.length === 0 ? (
 						<div className="banner info">
-							<p>No messages right now.</p>
+							<p>当前没有消息。</p>
 						</div>
 					) : (
 						<>
@@ -212,32 +212,32 @@ export function UserFeedbackInboxDialog({
 										onClick={() =>
 											handleRequestDismiss(
 												`release-note:${releaseNote.delivery_id}`,
-												`Version v${releaseNote.version}`,
+												`版本 v${releaseNote.version}`,
 												"RELEASE_NOTE",
 												releaseNote.delivery_id,
 											)
 										}
-										aria-label={`Dismiss release note v${releaseNote.version} from this list`}
-										title="Dismiss from this list"
+										aria-label={`从当前列表移除版本消息 v${releaseNote.version}`}
+										title="从当前列表移除"
 									>
 										×
 									</button>
 									<div className="admin-feedback-card__head">
 										<div>
-											<strong>Version v{releaseNote.version}</strong>
-											<p>Published: {formatTimestamp(releaseNote.published_at)}</p>
+											<strong>版本 v{releaseNote.version}</strong>
+											<p>发布：{formatTimestamp(releaseNote.published_at)}</p>
 										</div>
 									</div>
 									<p className="admin-feedback-card__message">{releaseNote.title}</p>
 									<div className="admin-feedback-card__detail">
 										<div className="admin-feedback-card__reply-history">
-											<strong>Release Notes</strong>
+											<strong>更新内容</strong>
 											<p>{releaseNote.content}</p>
 										</div>
 										{releaseNote.source_feedback_ids.length > 0 ? (
 											<div className="admin-feedback-card__footer">
 												<span>
-													Linked feedback: #
+													关联反馈：#
 													{releaseNote.source_feedback_ids.join(", #")}
 												</span>
 											</div>

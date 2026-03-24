@@ -2,8 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AdminFeedbackDialog } from "./AdminFeedbackDialog";
+import { AdminReleaseNotesDialog } from "./AdminReleaseNotesDialog";
 import { UserFeedbackInboxDialog } from "./UserFeedbackInboxDialog";
-import type { AdminFeedbackRecord } from "../../types/feedback";
+import type { AdminFeedbackRecord, ReleaseNoteDeliveryRecord, ReleaseNoteRecord } from "../../types/feedback";
 
 function createFeedbackRecord(
 	overrides: Partial<AdminFeedbackRecord> = {},
@@ -35,6 +36,40 @@ function createFeedbackRecord(
 		dedupe_window_minutes: null,
 		occurrence_count: 1,
 		last_seen_at: null,
+		...overrides,
+	};
+}
+
+function createReleaseNoteRecord(
+	overrides: Partial<ReleaseNoteRecord> = {},
+): ReleaseNoteRecord {
+	return {
+		id: 1,
+		version: "0.2.0",
+		title: "图表可读性与修正能力更新",
+		content: "支持任意两个有效时间点对比。",
+		source_feedback_ids: [3, 5],
+		created_by: "admin",
+		created_at: "2026-03-05T10:00:00Z",
+		published_at: null,
+		delivery_count: 0,
+		...overrides,
+	};
+}
+
+function createReleaseNoteDeliveryRecord(
+	overrides: Partial<ReleaseNoteDeliveryRecord> = {},
+): ReleaseNoteDeliveryRecord {
+	return {
+		delivery_id: 8,
+		release_note_id: 1,
+		version: "0.2.0",
+		title: "图表可读性与修正能力更新",
+		content: "支持任意两个有效时间点对比。",
+		source_feedback_ids: [3, 5],
+		published_at: "2026-03-06T10:00:00Z",
+		delivered_at: "2026-03-06T10:01:00Z",
+		seen_at: null,
 		...overrides,
 	};
 }
@@ -106,6 +141,49 @@ describe("Feedback dialogs policy rendering", () => {
 
 		expect(within(view.container).getByText("用户提交")).not.toBeNull();
 		expect(within(view.container).queryByText("高优先级")).toBeNull();
+	});
+
+	it("keeps release note surfaces in chinese for admin and user inbox dialogs", () => {
+		const releaseNote = createReleaseNoteRecord();
+		const delivery = createReleaseNoteDeliveryRecord();
+
+		const adminView = render(
+			<AdminReleaseNotesDialog
+				open
+				busy={false}
+				releaseNotes={[releaseNote]}
+				errorMessage={null}
+				onClose={vi.fn()}
+				onCreateReleaseNote={vi.fn().mockResolvedValue(undefined)}
+				onPublishReleaseNote={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		expect(within(adminView.container).getByRole("heading", { name: "版本更新日志" })).not.toBeNull();
+		expect(within(adminView.container).getByText("发布中心")).not.toBeNull();
+		expect(within(adminView.container).getByRole("button", { name: "创建草稿" })).not.toBeNull();
+		expect(within(adminView.container).queryByText("Release Notes")).toBeNull();
+
+		adminView.unmount();
+
+		const userView = render(
+			<UserFeedbackInboxDialog
+				open
+				busy={false}
+				viewerUserId="alice"
+				items={[]}
+				releaseNotes={[delivery]}
+				errorMessage={null}
+				onClose={vi.fn()}
+				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
+				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		expect(within(userView.container).getByText("版本 v0.2.0")).not.toBeNull();
+		expect(within(userView.container).getByText("更新内容")).not.toBeNull();
+		expect(within(userView.container).getByText("关联反馈：#3, #5")).not.toBeNull();
+		expect(within(userView.container).queryByText("Published:")).toBeNull();
 	});
 
 	it("removes a message from current list after dismiss confirmation", async () => {
