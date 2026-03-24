@@ -2541,7 +2541,7 @@ def test_process_pending_holding_history_sync_uses_transaction_state_per_period(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	current_user = make_user(session, "holding_history_transaction_source_user")
+	current_user = make_user(session, "holding_history_source_user")
 	fixed_now = datetime(2026, 3, 5, 10, 0, tzinfo=timezone.utc)
 	first_bucket = datetime(2026, 3, 3, 16, 0, tzinfo=timezone.utc)
 	second_trade_bucket = datetime(2026, 3, 4, 16, 0, tzinfo=timezone.utc)
