@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 import re
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
@@ -579,6 +580,23 @@ class ReleaseNoteCreate(BaseModel):
 		if any(item <= 0 for item in normalized_ids):
 			raise ValueError("source_feedback_ids must contain positive integers only.")
 		return normalized_ids
+
+
+class ReleaseNotePublishChangelogCreate(ReleaseNoteCreate):
+	release_url: str | None = Field(default=None, max_length=500)
+
+	@field_validator("release_url", mode="before")
+	@classmethod
+	def normalize_release_url(cls, value: str | None) -> str | None:
+		normalized = _normalize_optional_text(value)
+		if normalized is None:
+			return None
+
+		parsed = urlparse(normalized)
+		if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+			raise ValueError("release_url must be a valid http or https URL.")
+
+		return normalized
 
 
 class ReleaseNoteRead(UtcTimestampResponseModel):

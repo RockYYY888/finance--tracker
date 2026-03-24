@@ -87,6 +87,19 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-
 
 Routine server updates should use the command above.
 
+After a versioned production deploy passes health checks, push the same changelog version into the
+in-app release-note stream from local:
+
+```bash
+python3 scripts/push_release_note_from_changelog.py \
+  --origin https://your-server-origin \
+  --admin-password 'your-admin-password' \
+  --api-token 'your-api-token'
+```
+
+The script verifies the local `CHANGELOG.md` version against the published GitHub release `vX.Y.Z`
+before sending the release note. Re-running the same version is safe.
+
 If the update touches `backend/alembic/versions/`, `backend/app/models.py`,
 `backend/app/database.py`, `backend/app/settings.py`, `backend/pyproject.toml`, or any
 `docker-compose*.yml` file, back up `.env` and Postgres before deploying.
@@ -97,4 +110,5 @@ If your remote host or external reverse proxy referenced the old `caddy` service
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
 change is required beyond pulling the latest code and rebuilding the compose stack.
 
-For Codex-assisted deploys, use `$asset-tracker-server-update-sop`.
+For Codex-assisted deploys, use `$asset-tracker-server-update-sop`. For the post-deploy changelog
+push, use `$asset-tracker-changelog-push-sop`.

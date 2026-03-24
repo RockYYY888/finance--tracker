@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 import json
+from typing import Final
 
 from fastapi import HTTPException
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from app.models import ReleaseNote, ReleaseNoteDelivery, UserAccount, utc_now
-from app.schemas import ActionMessageRead, ReleaseNoteCreate, ReleaseNoteDeliveryRead, ReleaseNoteRead
+from app.schemas import (
+	ActionMessageRead,
+	ReleaseNoteCreate,
+	ReleaseNoteDeliveryRead,
+	ReleaseNotePublishChangelogCreate,
+	ReleaseNoteRead,
+)
 from app.services.auth_service import CurrentUserDependency, TokenDependency
 from app.services.common_service import FEEDBACK_TIMEZONE, _require_admin_user
 from app.services.inbox_service import _load_hidden_message_ids
 from app.services.service_context import SessionDependency
+
+GITHUB_RELEASE_LABEL: Final[str] = "GitHub Release:"
+
 
 def _encode_source_feedback_ids(source_feedback_ids: list[int]) -> str | None:
 	if not source_feedback_ids:
@@ -99,6 +109,32 @@ def _get_latest_published_release_note(session: Session) -> ReleaseNote | None:
 		.where(ReleaseNote.published_at.is_not(None))
 		.order_by(ReleaseNote.published_at.desc(), ReleaseNote.id.desc()),
 	).first()
+
+
+def _parse_semver(version: str) -> tuple[int, int, int]:
+	major, minor, patch = version.split(".")
+	return int(major), int(minor), int(patch)
+
+
+def _build_release_note_content(content: str, release_url: str | None) -> str:
+	normalized_content = content.strip()
+	if release_url is None or release_url in normalized_content:
+		return normalized_content
+	return f"{normalized_content}\n\n{GITHUB_RELEASE_LABEL} {release_url}"
+
+
+def _assert_release_note_version_is_not_older_than_latest_published(
+	session: Session,
+	version: str,
+) -> None:
+	latest_release_note = _get_latest_published_release_note(session)
+	if latest_release_note is None:
+		return
+	if _parse_semver(version) < _parse_semver(latest_release_note.version):
+		raise HTTPException(
+			status_code=409,
+			detail="版本号不能早于当前已发布的更新日志版本。",
+		)
 
 def _format_release_note_stream_content(release_notes: list[ReleaseNote]) -> str:
 	if not release_notes:
@@ -196,6 +232,39 @@ def _ensure_release_note_deliveries_for_user(session: Session, user_id: str) -> 
 	):
 		session.commit()
 
+
+def _publish_release_note(
+	session: SessionDependency,
+	*,
+	release_note: ReleaseNote,
+	current_user: UserAccount,
+) -> ReleaseNote:
+	if release_note.published_at is None:
+		release_note.published_at = utc_now()
+		session.add(release_note)
+		session.commit()
+		session.refresh(release_note)
+
+	recipient_ids = list(
+		session.exec(
+			select(UserAccount.username).where(UserAccount.username != current_user.username),
+		),
+	)
+	updated_delivery = False
+	for recipient_id in recipient_ids:
+		if _upsert_release_note_stream_delivery(
+			session,
+			user_id=recipient_id,
+			release_note=release_note,
+			reset_seen=True,
+		):
+			updated_delivery = True
+
+	if updated_delivery:
+		session.commit()
+
+	return release_note
+
 def list_release_notes_for_admin(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
@@ -232,6 +301,66 @@ def create_release_note_for_admin(
 	session.add(release_note)
 	session.commit()
 	session.refresh(release_note)
+	return _to_release_note_read(session, release_note)
+
+
+def publish_changelog_release_note_for_admin(
+	payload: ReleaseNotePublishChangelogCreate,
+	current_user: CurrentUserDependency,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> ReleaseNoteRead:
+	_require_admin_user(current_user)
+	encoded_source_feedback_ids = _encode_source_feedback_ids(payload.source_feedback_ids)
+	normalized_content = _build_release_note_content(payload.content, payload.release_url)
+
+	release_note = session.exec(
+		select(ReleaseNote).where(ReleaseNote.version == payload.version),
+	).first()
+	if release_note is None:
+		_assert_release_note_version_is_not_older_than_latest_published(session, payload.version)
+		release_note = ReleaseNote(
+			version=payload.version,
+			title=payload.title,
+			content=normalized_content,
+			source_feedback_ids_json=encoded_source_feedback_ids,
+			created_by=current_user.username,
+		)
+		session.add(release_note)
+		session.commit()
+		session.refresh(release_note)
+	else:
+		if release_note.published_at is None:
+			_assert_release_note_version_is_not_older_than_latest_published(
+				session,
+				payload.version,
+			)
+
+		existing_payload_matches = (
+			release_note.title == payload.title
+			and release_note.content == normalized_content
+			and release_note.source_feedback_ids_json == encoded_source_feedback_ids
+		)
+		if release_note.published_at is not None:
+			if not existing_payload_matches:
+				raise HTTPException(
+					status_code=409,
+					detail="该版本号已发布，且现有内容与本次 changelog 不一致。",
+				)
+			return _to_release_note_read(session, release_note)
+
+		release_note.title = payload.title
+		release_note.content = normalized_content
+		release_note.source_feedback_ids_json = encoded_source_feedback_ids
+		session.add(release_note)
+		session.commit()
+		session.refresh(release_note)
+
+	_publish_release_note(
+		session,
+		release_note=release_note,
+		current_user=current_user,
+	)
 	return _to_release_note_read(session, release_note)
 
 def list_release_notes_for_current_user(
@@ -324,30 +453,11 @@ def publish_release_note_for_admin(
 	if release_note is None:
 		raise HTTPException(status_code=404, detail="更新日志不存在。")
 
-	if release_note.published_at is None:
-		release_note.published_at = utc_now()
-		session.add(release_note)
-		session.commit()
-		session.refresh(release_note)
-
-	recipient_ids = list(
-		session.exec(
-			select(UserAccount.username).where(UserAccount.username != current_user.username),
-		),
+	_publish_release_note(
+		session,
+		release_note=release_note,
+		current_user=current_user,
 	)
-	updated_delivery = False
-	for recipient_id in recipient_ids:
-		if _upsert_release_note_stream_delivery(
-			session,
-			user_id=recipient_id,
-			release_note=release_note,
-			reset_seen=True,
-		):
-			updated_delivery = True
-
-	if updated_delivery:
-		session.commit()
-
 	return _to_release_note_read(session, release_note)
 
-__all__ = ['_encode_source_feedback_ids', '_decode_source_feedback_ids', '_count_release_note_deliveries', '_to_release_note_read', '_to_release_note_delivery_read', '_list_published_release_notes_desc', '_get_latest_published_release_note', '_format_release_note_stream_content', '_upsert_release_note_stream_delivery', '_ensure_release_note_deliveries_for_user', 'list_release_notes_for_admin', 'create_release_note_for_admin', 'list_release_notes_for_current_user', 'mark_release_notes_seen_for_current_user', 'publish_release_note_for_admin']
+__all__ = ['_encode_source_feedback_ids', '_decode_source_feedback_ids', '_count_release_note_deliveries', '_to_release_note_read', '_to_release_note_delivery_read', '_list_published_release_notes_desc', '_get_latest_published_release_note', '_parse_semver', '_build_release_note_content', '_assert_release_note_version_is_not_older_than_latest_published', '_format_release_note_stream_content', '_upsert_release_note_stream_delivery', '_ensure_release_note_deliveries_for_user', '_publish_release_note', 'list_release_notes_for_admin', 'create_release_note_for_admin', 'publish_changelog_release_note_for_admin', 'list_release_notes_for_current_user', 'mark_release_notes_seen_for_current_user', 'publish_release_note_for_admin']

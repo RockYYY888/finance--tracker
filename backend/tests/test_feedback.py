@@ -14,6 +14,7 @@ from app.main import (
 	list_release_notes_for_current_user,
 	mark_feedback_seen_for_current_user,
 	mark_release_notes_seen_for_current_user,
+	publish_changelog_release_note_for_admin,
 	publish_release_note_for_admin,
 	reply_to_feedback_for_admin,
 	submit_feedback,
@@ -23,6 +24,7 @@ from app.schemas import (
 	AdminFeedbackClassifyUpdate,
 	AdminFeedbackReplyUpdate,
 	ReleaseNoteCreate,
+	ReleaseNotePublishChangelogCreate,
 	UserFeedbackCreate,
 )
 
@@ -456,6 +458,143 @@ def test_release_note_version_must_be_unique(session: Session) -> None:
 				version="0.3.0",
 				title="重复版本号日志",
 				content="重复版本号不应允许创建。",
+			),
+			admin_user,
+			session,
+			None,
+		)
+
+
+def test_publish_changelog_release_note_creates_and_pushes_stream_message(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "changelog_user")
+
+	published_release_note = publish_changelog_release_note_for_admin(
+		ReleaseNotePublishChangelogCreate(
+			version="0.7.1",
+			title="服务端更新流程标准化",
+			content="- 服务端更新流程标准化\n- 新增 changelog 推送入口",
+			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.1",
+		),
+		admin_user,
+		session,
+		None,
+	)
+
+	assert published_release_note.version == "0.7.1"
+	assert published_release_note.published_at is not None
+	assert published_release_note.delivery_count == 1
+	assert "GitHub Release:" in published_release_note.content
+
+	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
+	assert len(user_release_notes) == 1
+	assert user_release_notes[0].version == "0.7.1"
+	assert "v0.7.1" in user_release_notes[0].content
+
+
+def test_publish_changelog_release_note_is_idempotent_for_same_payload(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "repeat_user")
+	payload = ReleaseNotePublishChangelogCreate(
+		version="0.7.2",
+		title="版本推送幂等化",
+		content="- 统一版本推送入口\n- 避免重复通知",
+		release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.2",
+	)
+
+	first_release_note = publish_changelog_release_note_for_admin(
+		payload,
+		admin_user,
+		session,
+		None,
+	)
+	second_release_note = publish_changelog_release_note_for_admin(
+		payload,
+		admin_user,
+		session,
+		None,
+	)
+
+	assert second_release_note.id == first_release_note.id
+	deliveries = list(
+		session.exec(
+			select(ReleaseNoteDelivery).where(ReleaseNoteDelivery.user_id == normal_user.username),
+		),
+	)
+	assert len(deliveries) == 1
+
+
+def test_publish_changelog_release_note_rejects_older_than_latest_published_version(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+	make_user(session, "older_version_user")
+
+	publish_changelog_release_note_for_admin(
+		ReleaseNotePublishChangelogCreate(
+			version="0.8.0",
+			title="先发布的新版本",
+			content="- 已发布 0.8.0",
+			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.8.0",
+		),
+		admin_user,
+		session,
+		None,
+	)
+
+	with pytest.raises(HTTPException, match="版本号不能早于当前已发布的更新日志版本"):
+		publish_changelog_release_note_for_admin(
+			ReleaseNotePublishChangelogCreate(
+				version="0.7.9",
+				title="回退版本号",
+				content="- 这个版本号不应该通过",
+				release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.9",
+			),
+			admin_user,
+			session,
+			None,
+		)
+
+
+def test_publish_changelog_release_note_rejects_unpublished_older_draft_version(
+	session: Session,
+) -> None:
+	admin_user = make_user(session, "admin")
+	make_user(session, "draft_guard_user")
+
+	create_release_note_for_admin(
+		ReleaseNoteCreate(
+			version="0.7.9",
+			title="旧草稿",
+			content="- 旧版本草稿",
+		),
+		admin_user,
+		session,
+		None,
+	)
+	publish_changelog_release_note_for_admin(
+		ReleaseNotePublishChangelogCreate(
+			version="0.8.0",
+			title="先发布的新版本",
+			content="- 已发布 0.8.0",
+			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.8.0",
+		),
+		admin_user,
+		session,
+		None,
+	)
+
+	with pytest.raises(HTTPException, match="版本号不能早于当前已发布的更新日志版本"):
+		publish_changelog_release_note_for_admin(
+			ReleaseNotePublishChangelogCreate(
+				version="0.7.9",
+				title="旧草稿改成推送",
+				content="- 这个旧版本草稿不应该被重新发布",
+				release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.9",
 			),
 			admin_user,
 			session,

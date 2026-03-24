@@ -50,6 +50,7 @@ EXPECTED_API_ROUTE_METHODS = {
 	("POST", "/api/admin/feedback/{feedback_id}/close"),
 	("POST", "/api/admin/feedback/{feedback_id}/reply"),
 	("POST", "/api/admin/release-notes"),
+	("POST", "/api/admin/release-notes/publish-changelog"),
 	("POST", "/api/admin/release-notes/{release_note_id}/publish"),
 	("POST", "/api/agent/tasks"),
 	("POST", "/api/agent/tokens"),
@@ -87,7 +88,7 @@ def test_api_route_contract_is_stable() -> None:
 	}
 
 	assert actual_routes == EXPECTED_API_ROUTE_METHODS
-	assert len(actual_routes) == 73
+	assert len(actual_routes) == 74
 
 
 def test_openapi_paths_match_route_contract() -> None:

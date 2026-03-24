@@ -6,6 +6,7 @@ from app.services.release_note_service import (
 	list_release_notes_for_admin,
 	list_release_notes_for_current_user,
 	mark_release_notes_seen_for_current_user,
+	publish_changelog_release_note_for_admin,
 	publish_release_note_for_admin,
 )
 
@@ -23,6 +24,12 @@ router.add_api_route(
 	methods=["POST"],
 	response_model=ReleaseNoteRead,
 	status_code=201,
+)
+router.add_api_route(
+	"/api/admin/release-notes/publish-changelog",
+	publish_changelog_release_note_for_admin,
+	methods=["POST"],
+	response_model=ReleaseNoteRead,
 )
 router.add_api_route(
 	"/api/release-notes",
