@@ -1,6 +1,8 @@
 services:
   backend:
     build:
+      extra_hosts:
+        - "host.docker.internal=host-gateway"
       args:
         http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
         https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
@@ -20,6 +22,8 @@ services:
 
   worker:
     build:
+      extra_hosts:
+        - "host.docker.internal=host-gateway"
       args:
         http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
         https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
@@ -39,6 +43,8 @@ services:
 
   frontend:
     build:
+      extra_hosts:
+        - "host.docker.internal=host-gateway"
       args:
         http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
         https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
