@@ -1,5 +1,13 @@
 services:
   backend:
+    build:
+      args:
+        http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
+        https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
+        HTTP_PROXY: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
+        HTTPS_PROXY: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
+        no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
+        NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -7,10 +15,18 @@ services:
       https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
       HTTP_PROXY: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
       HTTPS_PROXY: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
-      no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis}
-      NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis}
+      no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
+      NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
 
   worker:
+    build:
+      args:
+        http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
+        https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
+        HTTP_PROXY: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
+        HTTPS_PROXY: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
+        no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
+        NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -18,5 +34,15 @@ services:
       https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
       HTTP_PROXY: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
       HTTPS_PROXY: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
-      no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis}
-      NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis}
+      no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
+      NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
+
+  frontend:
+    build:
+      args:
+        http_proxy: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
+        https_proxy: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
+        HTTP_PROXY: ${ASSET_TRACKER_HTTP_PROXY:-http://host.docker.internal:7890}
+        HTTPS_PROXY: ${ASSET_TRACKER_HTTPS_PROXY:-http://host.docker.internal:7890}
+        no_proxy: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}
+        NO_PROXY: ${ASSET_TRACKER_NO_PROXY:-localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres}

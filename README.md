@@ -55,6 +55,10 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-
 `backend` and `worker` now run Alembic migrations automatically on startup. Schema changes must ship
 as Alembic revisions; `create_all()` is no longer the runtime source of truth.
 
+Production compose now provisions `postgres` and `redis` inside the stack. Set
+`ASSET_TRACKER_POSTGRES_PASSWORD`, `ASSET_TRACKER_SESSION_SECRET`, and `ASSET_TRACKER_PUBLIC_ORIGIN`
+before the first server deployment.
+
 ## Schema Migrations
 
 When `backend/app/models.py` changes:
@@ -74,6 +78,22 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-
 ```
 
 Deploy startup automatically runs `alembic upgrade head`.
+
+## First Server Migration From Legacy SQLite
+
+Keep the old `backend/data/asset_tracker.db` file, then run:
+
+```bash
+git pull
+cp backend/data/asset_tracker.db "backend/data/asset_tracker.db.bak.$(date +%Y%m%d-%H%M%S)"
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d postgres redis
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml run --rm backend \
+  python -m app.scripts.import_sqlite_to_database --source /app/data/asset_tracker.db
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
+```
+
+The import script migrates the target schema to `head`, copies overlapping rows from the legacy SQLite
+file into Postgres, and leaves new tables empty when no legacy source table exists yet.
 
 If your remote host or external reverse proxy referenced the old `caddy` service by name, update it to
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route

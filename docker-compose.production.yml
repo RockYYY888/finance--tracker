@@ -1,12 +1,44 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}
+      POSTGRES_USER: ${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}
+      POSTGRES_PASSWORD: ${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${ASSET_TRACKER_POSTGRES_USER:-asset_tracker} -d ${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       ASSET_TRACKER_APP_ENV: production
-      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL}
+      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-postgresql+psycopg://${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}:${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}@postgres:5432/${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}}
       ASSET_TRACKER_REDIS_URL: ${ASSET_TRACKER_REDIS_URL:-redis://redis:6379/0}
 
   worker:
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       ASSET_TRACKER_APP_ENV: production
-      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL}
+      ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-postgresql+psycopg://${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}:${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}@postgres:5432/${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}}
       ASSET_TRACKER_REDIS_URL: ${ASSET_TRACKER_REDIS_URL:-redis://redis:6379/0}
+
+volumes:
+  postgres_data:
