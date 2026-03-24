@@ -20,7 +20,7 @@ from app.runtime_state import (
 	login_attempt_states,
 	validate_runtime_redis_connection,
 )
-from app.services import core_support, dashboard_service, history_service, legacy_service, service_context
+from app.services import core_support, dashboard_service, history_service, service_context
 
 logger = logging.getLogger(__name__)
 settings = service_context.settings

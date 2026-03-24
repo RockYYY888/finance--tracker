@@ -59,6 +59,9 @@ Production compose now provisions `postgres` and `redis` inside the stack. Set
 `ASSET_TRACKER_POSTGRES_PASSWORD`, `ASSET_TRACKER_SESSION_SECRET`, and `ASSET_TRACKER_PUBLIC_ORIGIN`
 before the first server deployment.
 
+Production data now lives in Postgres (`postgres_data`). `backend/data/asset_tracker.db` is only the
+local/development SQLite file and should not be treated as the production database.
+
 ## Schema Migrations
 
 When `backend/app/models.py` changes:
@@ -78,11 +81,16 @@ git pull --ff-only origin main
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
 ```
 
-After the completed SQLite-to-Postgres production migration, this is the only server update command you
-need for normal releases.
+Routine server updates should use the command above.
+
+If the update touches `backend/alembic/versions/`, `backend/app/models.py`,
+`backend/app/database.py`, `backend/app/settings.py`, `backend/pyproject.toml`, or any
+`docker-compose*.yml` file, back up `.env` and Postgres before deploying.
 
 Deploy startup automatically runs `alembic upgrade head`.
 
 If your remote host or external reverse proxy referenced the old `caddy` service by name, update it to
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
 change is required beyond pulling the latest code and rebuilding the compose stack.
+
+For Codex-assisted deploys, use `$asset-tracker-server-update-sop`.
