@@ -6,12 +6,45 @@ cd "$ROOT_DIR"
 
 export PATH="/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
 
-HOST_PROXY_URL="${ASSET_TRACKER_HOST_PROXY:-http://127.0.0.1:10808}"
+HOST_PROXY_URL="${ASSET_TRACKER_HOST_PROXY:-}"
+CONTAINER_PROXY_URL="${ASSET_TRACKER_CONTAINER_PROXY:-}"
 
-export http_proxy="$HOST_PROXY_URL"
-export https_proxy="$HOST_PROXY_URL"
-export HTTP_PROXY="$HOST_PROXY_URL"
-export HTTPS_PROXY="$HOST_PROXY_URL"
+detect_default_host_proxy() {
+	python3 - <<'PY'
+from __future__ import annotations
+
+import socket
+
+for port in (10808, 7890):
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+		sock.settimeout(0.5)
+		if sock.connect_ex(("127.0.0.1", port)) == 0:
+			print(f"http://127.0.0.1:{port}")
+			raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+if [[ -z "$HOST_PROXY_URL" ]]; then
+	if detected_host_proxy="$(detect_default_host_proxy)"; then
+		HOST_PROXY_URL="$detected_host_proxy"
+	fi
+fi
+
+if [[ -z "$CONTAINER_PROXY_URL" && -n "$HOST_PROXY_URL" ]]; then
+	host_proxy_port="${HOST_PROXY_URL##*:}"
+	CONTAINER_PROXY_URL="http://host.docker.internal:${host_proxy_port}"
+fi
+
+if [[ -n "$HOST_PROXY_URL" ]]; then
+	export http_proxy="$HOST_PROXY_URL"
+	export https_proxy="$HOST_PROXY_URL"
+	export HTTP_PROXY="$HOST_PROXY_URL"
+	export HTTPS_PROXY="$HOST_PROXY_URL"
+else
+	unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
+fi
 export no_proxy="127.0.0.1,localhost"
 export NO_PROXY="127.0.0.1,localhost"
 
@@ -19,7 +52,6 @@ compose=(
 	docker compose
 	-f docker-compose.yml
 	-f docker-compose.production.yml
-	-f docker-compose.proxy.yml
 )
 
 require_command() {
@@ -66,6 +98,27 @@ if [[ ! -f backend/data/asset_tracker.db ]]; then
 	exit 1
 fi
 
+existing_container_proxy="$(python3 - <<'PY'
+from pathlib import Path
+
+env_path = Path(".env")
+if not env_path.exists():
+	raise SystemExit(0)
+
+for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+	if raw_line.startswith("ASSET_TRACKER_HTTP_PROXY=") or raw_line.startswith("ASSET_TRACKER_HTTPS_PROXY="):
+		_, value = raw_line.split("=", 1)
+		value = value.strip()
+		if value:
+			print(value)
+			break
+PY
+)"
+
+if [[ -n "$CONTAINER_PROXY_URL" || -n "$existing_container_proxy" ]]; then
+	compose+=(-f docker-compose.proxy.yml)
+fi
+
 tracked_changes="$(git status --porcelain --untracked-files=no)"
 if [[ -n "$tracked_changes" ]]; then
 	echo "Tracked git changes detected. Commit or stash them before running this migration." >&2
@@ -87,9 +140,12 @@ for file in backend/data/asset_tracker.db backend/data/asset_tracker.db-wal back
 	fi
 done
 
+export SCRIPT_CONTAINER_PROXY_URL="$CONTAINER_PROXY_URL"
+
 python3 - <<'PY'
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import quote, urlparse
 import secrets
@@ -131,6 +187,13 @@ def ensure_value(key: str, value: str) -> None:
 	set_value(key, value)
 
 
+def remove_value(key: str) -> None:
+	values.pop(key, None)
+	if key not in index_by_key:
+		return
+	entries[index_by_key[key]] = ("", "")
+
+
 public_origin = values.get("ASSET_TRACKER_PUBLIC_ORIGIN", "").strip()
 domain = values.get("ASSET_TRACKER_DOMAIN", "").strip()
 if not public_origin:
@@ -162,24 +225,25 @@ set_value(
 	f"postgresql+psycopg://{postgres_user}:{encoded_password}@postgres:5432/{postgres_db}",
 )
 set_value("ASSET_TRACKER_REDIS_URL", "redis://redis:6379/0")
-set_value(
-	"ASSET_TRACKER_HTTP_PROXY",
-	values.get("ASSET_TRACKER_HTTP_PROXY") or "http://host.docker.internal:10808",
-)
-set_value(
-	"ASSET_TRACKER_HTTPS_PROXY",
-	values.get("ASSET_TRACKER_HTTPS_PROXY") or "http://host.docker.internal:10808",
-)
-set_value(
-	"ASSET_TRACKER_NO_PROXY",
-	values.get("ASSET_TRACKER_NO_PROXY")
-	or "localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres",
-)
+
+container_proxy_url = os.environ.get("SCRIPT_CONTAINER_PROXY_URL", "").strip()
+if container_proxy_url:
+	set_value("ASSET_TRACKER_HTTP_PROXY", container_proxy_url)
+	set_value("ASSET_TRACKER_HTTPS_PROXY", container_proxy_url)
+	set_value(
+		"ASSET_TRACKER_NO_PROXY",
+		values.get("ASSET_TRACKER_NO_PROXY")
+		or "localhost,127.0.0.1,backend,worker,frontend,nginx,redis,postgres",
+	)
+else:
+	remove_value("ASSET_TRACKER_HTTP_PROXY")
+	remove_value("ASSET_TRACKER_HTTPS_PROXY")
 
 rendered_lines: list[str] = []
 for key, value in entries:
 	if not key:
-		rendered_lines.append(value)
+		if value:
+			rendered_lines.append(value)
 		continue
 	rendered_lines.append(f"{key}={values[key]}")
 

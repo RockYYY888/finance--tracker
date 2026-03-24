@@ -90,6 +90,9 @@ bash scripts/first_server_sqlite_migration.sh
 The script backs up `.env` and the SQLite file, flips runtime config to production Redis + Postgres,
 imports overlapping legacy rows into Postgres, then rebuilds the full proxy-backed stack.
 
+If your host proxy is not exposed on `127.0.0.1:10808` or `127.0.0.1:7890`, prefix the command with
+`ASSET_TRACKER_HOST_PROXY=...` and `ASSET_TRACKER_CONTAINER_PROXY=...`.
+
 If your remote host or external reverse proxy referenced the old `caddy` service by name, update it to
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
 change is required beyond pulling the latest code and rebuilding the compose stack.
