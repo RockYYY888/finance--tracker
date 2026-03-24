@@ -84,16 +84,11 @@ Deploy startup automatically runs `alembic upgrade head`.
 Keep the old `backend/data/asset_tracker.db` file, then run:
 
 ```bash
-git pull
-cp backend/data/asset_tracker.db "backend/data/asset_tracker.db.bak.$(date +%Y%m%d-%H%M%S)"
-docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d postgres redis
-docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml run --rm backend \
-  python -m app.scripts.import_sqlite_to_database --source /app/data/asset_tracker.db
-docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.proxy.yml up -d --build --remove-orphans
+bash scripts/first_server_sqlite_migration.sh
 ```
 
-The import script migrates the target schema to `head`, copies overlapping rows from the legacy SQLite
-file into Postgres, and leaves new tables empty when no legacy source table exists yet.
+The script backs up `.env` and the SQLite file, flips runtime config to production Redis + Postgres,
+imports overlapping legacy rows into Postgres, then rebuilds the full proxy-backed stack.
 
 If your remote host or external reverse proxy referenced the old `caddy` service by name, update it to
 the new `nginx` service. If the host only forwarded traffic to port `8080`, no extra host-level route
