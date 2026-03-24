@@ -48,10 +48,10 @@ describe("global layout styles", () => {
 			/\.workspace-switch__button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
 		);
 		expect(globalStylesheet).toMatch(
-			/\.workspace-switch__button\s*\{[\s\S]*border:\s*1px\s+solid\s+rgba\(255,\s*255,\s*255,\s*0\.22\)\s*;[\s\S]*box-shadow:\s*[\s\S]*0\s+0\s+0\s+1px\s+rgba\(255,\s*255,\s*255,\s*0\.06\)\s*;/,
+			/\.workspace-switch__button\s*\{[\s\S]*border:\s*1\.5px\s+solid\s+rgba\(255,\s*255,\s*255,\s*0\.24\)\s*;[\s\S]*box-shadow:\s*[\s\S]*0\s+0\s+0\s+1\.5px\s+rgba\(255,\s*255,\s*255,\s*0\.08\)\s*;/,
 		);
 		expect(globalStylesheet).toMatch(
-			/\.workspace-switch__button:hover\s*\{[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.34\)\s*;/,
+			/\.workspace-switch__button:hover\s*\{[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.4\)\s*;/,
 		);
 		expect(globalStylesheet).toMatch(
 			/\.feedback-modal__panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*720px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
