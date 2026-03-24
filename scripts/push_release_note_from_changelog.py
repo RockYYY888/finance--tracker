@@ -17,6 +17,13 @@ def _normalize_origin(origin: str) -> str:
 	return origin.rstrip("/")
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+	if value is None:
+		return None
+	normalized = value.strip()
+	return normalized or None
+
+
 def _normalize_version(version: str | None) -> str | None:
 	if version is None:
 		return None
@@ -220,6 +227,14 @@ def main() -> None:
 		help="Optional release-note title override. Defaults to the GitHub release name or first changelog bullet.",
 	)
 	parser.add_argument(
+		"--content",
+		default=None,
+		help=(
+			"Optional release-note content override. "
+			"Use this for a shorter user-facing summary than the full changelog body."
+		),
+	)
+	parser.add_argument(
 		"--changelog",
 		type=Path,
 		default=Path(__file__).resolve().parents[1] / "CHANGELOG.md",
@@ -241,10 +256,11 @@ def main() -> None:
 		release_payload.get("name"),
 		entry["version"],
 	)
+	content = _normalize_optional_text(args.content) or entry["body"]
 	payload = {
 		"version": entry["version"],
 		"title": title,
-		"content": entry["body"],
+		"content": content,
 		"release_url": release_payload.get("url"),
 		"source_feedback_ids": [],
 	}
@@ -255,6 +271,7 @@ def main() -> None:
 				"origin": _normalize_origin(args.origin),
 				"version": payload["version"],
 				"title": payload["title"],
+				"content": payload["content"],
 				"release_url": payload["release_url"],
 				"dry_run": args.dry_run,
 			},

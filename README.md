@@ -93,12 +93,15 @@ in-app release-note stream from local:
 ```bash
 python3 scripts/push_release_note_from_changelog.py \
   --origin https://your-server-origin \
+  --title '稳定性与体验更新' \
+  --content $'- 第一条用户可见变化\n- 第二条用户可见变化' \
   --admin-password 'your-admin-password' \
   --api-token 'your-api-token'
 ```
 
 The script verifies the local `CHANGELOG.md` version against the published GitHub release `vX.Y.Z`
-before sending the release note. Re-running the same version is safe.
+before sending the release note. Prefer a short user-facing summary here instead of the full
+technical changelog body. Re-running the same version is safe.
 
 If the update touches `backend/alembic/versions/`, `backend/app/models.py`,
 `backend/app/database.py`, `backend/app/settings.py`, `backend/pyproject.toml`, or any
