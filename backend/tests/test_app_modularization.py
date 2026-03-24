@@ -212,13 +212,10 @@ def test_sqlite_engine_recovers_from_closed_pooled_connection(tmp_path: Path) ->
 	engine.dispose()
 
 
-def test_worker_lifecycle_initializes_db_and_background_job_worker(
+def test_worker_lifecycle_starts_background_job_worker_after_runtime_checks(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	call_order: list[str] = []
-
-	def fake_init_db() -> None:
-		call_order.append("init_db")
 
 	def fake_validate_runtime() -> None:
 		call_order.append("validate_runtime")
@@ -242,7 +239,6 @@ def test_worker_lifecycle_initializes_db_and_background_job_worker(
 		def validate_runtime(self) -> None:
 			fake_validate_runtime()
 
-	monkeypatch.setattr(worker, "init_db", fake_init_db)
 	monkeypatch.setattr(worker, "settings", FakeSettings())
 	monkeypatch.setattr(worker, "validate_runtime_redis_connection", fake_validate_runtime_redis_connection)
 	monkeypatch.setattr(worker, "start_background_job_worker", fake_start_background_job_worker)
@@ -254,7 +250,6 @@ def test_worker_lifecycle_initializes_db_and_background_job_worker(
 	assert call_order == [
 		"validate_runtime",
 		"validate_runtime_redis_connection",
-		"init_db",
 		"add_signal_handler",
 		"add_signal_handler",
 		"start_background_job_worker",

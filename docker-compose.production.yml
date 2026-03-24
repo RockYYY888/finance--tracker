@@ -31,6 +31,8 @@ services:
 
   worker:
     depends_on:
+      backend:
+        condition: service_healthy
       redis:
         condition: service_healthy
       postgres:

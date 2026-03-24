@@ -17,6 +17,18 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
@@ -35,6 +47,8 @@ services:
       context: ./backend
     command: ["python", "-m", "app.worker"]
     depends_on:
+      backend:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
@@ -62,8 +76,10 @@ services:
     build:
       context: ./nginx
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     environment:
       ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
     ports:
