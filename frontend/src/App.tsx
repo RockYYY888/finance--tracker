@@ -513,6 +513,7 @@ function App() {
 	const [isAdminReleaseNotesOpen, setIsAdminReleaseNotesOpen] = useState(false);
 	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
 	const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
+	const [isAdminInboxShowingDismissed, setIsAdminInboxShowingDismissed] = useState(false);
 	const [isLoadingAdminReleaseNotes, setIsLoadingAdminReleaseNotes] = useState(false);
 	const [adminInboxErrorMessage, setAdminInboxErrorMessage] = useState<string | null>(null);
 	const [adminReleaseNotesErrorMessage, setAdminReleaseNotesErrorMessage] = useState<string | null>(
@@ -932,18 +933,23 @@ function App() {
 		}
 	}
 
-	async function openAdminInbox(): Promise<void> {
+	async function loadAdminInbox(includeHidden: boolean, openDialog = true): Promise<void> {
 		if (authStatus !== "authenticated" || currentUserId !== "admin") {
 			return;
 		}
 
 		setAdminInboxErrorMessage(null);
-		setIsAdminInboxOpen(true);
+		setIsAdminInboxShowingDismissed(includeHidden);
+		if (openDialog) {
+			setIsAdminInboxOpen(true);
+		}
 		setIsLoadingAdminInbox(true);
 
 		try {
-			const userFeedbackItems = await listUserFeedbackForAdmin();
-			const systemFeedbackItems = await listSystemFeedbackForAdmin();
+			const [userFeedbackItems, systemFeedbackItems] = await Promise.all([
+				listUserFeedbackForAdmin(includeHidden),
+				listSystemFeedbackForAdmin(includeHidden),
+			]);
 			setAdminUserFeedbackItems(userFeedbackItems.items);
 			setAdminSystemFeedbackItems(systemFeedbackItems.items);
 			await refreshFeedbackSummary();
@@ -956,13 +962,22 @@ function App() {
 		}
 	}
 
+	async function openAdminInbox(): Promise<void> {
+		await loadAdminInbox(false);
+	}
+
 	function closeAdminInbox(): void {
 		if (isLoadingAdminInbox) {
 			return;
 		}
 
 		setAdminInboxErrorMessage(null);
+		setIsAdminInboxShowingDismissed(false);
 		setIsAdminInboxOpen(false);
+	}
+
+	async function handleAdminInboxShowDismissedChange(showDismissed: boolean): Promise<void> {
+		await loadAdminInbox(showDismissed, false);
 	}
 
 	async function openAdminReleaseNotes(): Promise<void> {
@@ -1108,12 +1123,21 @@ function App() {
 				message_kind: "FEEDBACK",
 				message_id: feedbackId,
 			});
-			setAdminUserFeedbackItems((currentItems) =>
-				removeRecordById(currentItems, feedbackId),
-			);
-			setAdminSystemFeedbackItems((currentItems) =>
-				removeRecordById(currentItems, feedbackId),
-			);
+			if (isAdminInboxShowingDismissed) {
+				const [userFeedbackItems, systemFeedbackItems] = await Promise.all([
+					listUserFeedbackForAdmin(true),
+					listSystemFeedbackForAdmin(true),
+				]);
+				setAdminUserFeedbackItems(userFeedbackItems.items);
+				setAdminSystemFeedbackItems(systemFeedbackItems.items);
+			} else {
+				setAdminUserFeedbackItems((currentItems) =>
+					removeRecordById(currentItems, feedbackId),
+				);
+				setAdminSystemFeedbackItems((currentItems) =>
+					removeRecordById(currentItems, feedbackId),
+				);
+			}
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
@@ -1178,48 +1202,6 @@ function App() {
 			);
 		} finally {
 			setIsSubmittingEmail(false);
-		}
-	}
-
-	async function handleHideUserFeedbackItem(feedbackId: number): Promise<void> {
-		setIsLoadingUserInbox(true);
-		setUserInboxErrorMessage(null);
-
-		try {
-			await hideInboxMessageForCurrentUser({
-				message_kind: "FEEDBACK",
-				message_id: feedbackId,
-			});
-			setUserFeedbackItems((currentItems) => removeRecordById(currentItems, feedbackId));
-			await refreshFeedbackSummary();
-		} catch (error) {
-			setUserInboxErrorMessage(
-				error instanceof Error ? error.message : "移除消息失败，请稍后再试。",
-			);
-		} finally {
-			setIsLoadingUserInbox(false);
-		}
-	}
-
-	async function handleHideUserReleaseNote(deliveryId: number): Promise<void> {
-		setIsLoadingUserInbox(true);
-		setUserInboxErrorMessage(null);
-
-		try {
-			await hideInboxMessageForCurrentUser({
-				message_kind: "RELEASE_NOTE",
-				message_id: deliveryId,
-			});
-			setUserReleaseNotes((currentItems) =>
-				currentItems.filter((item) => item.delivery_id !== deliveryId),
-			);
-			await refreshFeedbackSummary();
-		} catch (error) {
-			setUserInboxErrorMessage(
-				error instanceof Error ? error.message : "移除消息失败，请稍后再试。",
-			);
-		} finally {
-			setIsLoadingUserInbox(false);
 		}
 	}
 
@@ -1753,8 +1735,10 @@ function App() {
 				viewerUserId={currentUserId ?? "anonymous"}
 				userItems={adminUserFeedbackItems}
 				systemItems={adminSystemFeedbackItems}
+				showDismissed={isAdminInboxShowingDismissed}
 				errorMessage={adminInboxErrorMessage}
 				onClose={closeAdminInbox}
+				onShowDismissedChange={handleAdminInboxShowDismissedChange}
 				onHideItem={handleHideAdminFeedbackItem}
 				onCloseItem={handleCloseFeedbackItem}
 				onReplyItem={handleReplyFeedbackItem}
@@ -1776,8 +1760,6 @@ function App() {
 				releaseNotes={userReleaseNotes}
 				errorMessage={userInboxErrorMessage}
 				onClose={closeUserInbox}
-				onHideFeedbackItem={handleHideUserFeedbackItem}
-				onHideReleaseNote={handleHideUserReleaseNote}
 			/>
 			<EmailDialog
 				open={isEmailDialogOpen}

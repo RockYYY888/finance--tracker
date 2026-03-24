@@ -23,8 +23,10 @@ export interface AdminFeedbackDialogProps {
 	viewerUserId: string;
 	userItems: AdminFeedbackRecord[];
 	systemItems: AdminFeedbackRecord[];
+	showDismissed?: boolean;
 	errorMessage?: string | null;
 	onClose: () => void;
+	onShowDismissedChange: (showDismissed: boolean) => void | Promise<void>;
 	onHideItem: (feedbackId: number) => Promise<void>;
 	onCloseItem: (feedbackId: number) => Promise<void>;
 	onReplyItem: (feedbackId: number, replyMessage: string, close: boolean) => Promise<void>;
@@ -45,8 +47,10 @@ export function AdminFeedbackDialog({
 	viewerUserId,
 	userItems,
 	systemItems,
+	showDismissed = false,
 	errorMessage = null,
 	onClose,
+	onShowDismissedChange,
 	onHideItem,
 	onCloseItem,
 	onReplyItem,
@@ -201,7 +205,7 @@ export function AdminFeedbackDialog({
 		const isExpanded = expandedId === item.id;
 
 		return (
-			<article key={item.id} className="admin-feedback-card panel">
+			<article key={item.id} className="admin-feedback-card admin-feedback-card--dismissible panel">
 				<button
 					type="button"
 					className="message-dismiss-button"
@@ -213,7 +217,7 @@ export function AdminFeedbackDialog({
 					×
 				</button>
 				<div className="admin-feedback-card__head">
-					<div>
+					<div className="admin-feedback-card__meta">
 						<strong>{item.user_id}</strong>
 						<div className="feedback-badge-row" aria-label="工单属性标签">
 							<span className={`feedback-badge feedback-badge--${statusMeta.tone}`}>
@@ -342,14 +346,24 @@ export function AdminFeedbackDialog({
 							仅管理员可见：展开后可查看详情，用户工单支持回复，系统工单仅支持关闭与分类。
 						</p>
 					</div>
-					<button
-						type="button"
-						className="hero-note hero-note--action"
-						onClick={onClose}
-						disabled={busy}
-					>
-						关闭
-					</button>
+					<div className="feedback-modal__head-actions">
+						<button
+							type="button"
+							className="hero-note hero-note--action"
+							onClick={() => void onShowDismissedChange(!showDismissed)}
+							disabled={busy}
+						>
+							{showDismissed ? "仅看当前" : "显示已移除"}
+						</button>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
+							onClick={onClose}
+							disabled={busy}
+						>
+							关闭
+						</button>
+					</div>
 				</div>
 
 				{errorMessage ? (

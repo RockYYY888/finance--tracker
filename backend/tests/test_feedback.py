@@ -9,8 +9,11 @@ from app.main import (
 	close_feedback_for_admin,
 	create_release_note_for_admin,
 	get_feedback_summary,
+	hide_inbox_message_for_current_user,
 	list_feedback_for_admin,
 	list_feedback_for_current_user,
+	list_system_feedback_for_admin,
+	list_user_feedback_for_admin,
 	list_release_notes_for_current_user,
 	mark_feedback_seen_for_current_user,
 	mark_release_notes_seen_for_current_user,
@@ -23,6 +26,7 @@ from app.models import ReleaseNoteDelivery, UserAccount, UserFeedback
 from app.schemas import (
 	AdminFeedbackClassifyUpdate,
 	AdminFeedbackReplyUpdate,
+	InboxMessageHideCreate,
 	ReleaseNoteCreate,
 	ReleaseNotePublishChangelogCreate,
 	UserFeedbackCreate,
@@ -344,6 +348,86 @@ def test_feedback_summary_counts_pending_items_for_admin_and_user(session: Sessi
 	assert user_summary_before_reply.inbox_count == 0
 	assert user_summary_after_reply.inbox_count == 1
 	assert user_summary_after_seen.inbox_count == 0
+
+
+def test_admin_feedback_lists_can_include_previously_hidden_items(session: Session) -> None:
+	admin_user = make_user(session, "admin")
+	normal_user = make_user(session, "hidden_feedback_user")
+
+	user_feedback = submit_feedback(
+		UserFeedbackCreate(message="这是一条会被管理员隐藏后再重新查看的用户工单。"),
+		normal_user,
+		session,
+	)
+	system_feedback = submit_feedback(
+		UserFeedbackCreate(
+			message="系统告警：模拟隐藏后仍可在已移除列表中查看。",
+			category="SYSTEM_ALERT",
+			priority="HIGH",
+			source="API_MONITOR",
+		),
+		admin_user,
+		session,
+	)
+
+	hide_inbox_message_for_current_user(
+		InboxMessageHideCreate(message_kind="FEEDBACK", message_id=user_feedback.id),
+		admin_user,
+		session,
+		None,
+	)
+	hide_inbox_message_for_current_user(
+		InboxMessageHideCreate(message_kind="FEEDBACK", message_id=system_feedback.id),
+		admin_user,
+		session,
+		None,
+	)
+
+	visible_user_items = list_user_feedback_for_admin(
+		admin_user,
+		session,
+		None,
+		page=1,
+		page_size=50,
+		status=None,
+		priority=None,
+		include_hidden=False,
+	)
+	visible_system_items = list_system_feedback_for_admin(
+		admin_user,
+		session,
+		None,
+		page=1,
+		page_size=50,
+		status=None,
+		priority=None,
+		include_hidden=False,
+	)
+	all_user_items = list_user_feedback_for_admin(
+		admin_user,
+		session,
+		None,
+		page=1,
+		page_size=50,
+		status=None,
+		priority=None,
+		include_hidden=True,
+	)
+	all_system_items = list_system_feedback_for_admin(
+		admin_user,
+		session,
+		None,
+		page=1,
+		page_size=50,
+		status=None,
+		priority=None,
+		include_hidden=True,
+	)
+
+	assert all(item.id != user_feedback.id for item in visible_user_items.items)
+	assert all(item.id != system_feedback.id for item in visible_system_items.items)
+	assert any(item.id == user_feedback.id for item in all_user_items.items)
+	assert any(item.id == system_feedback.id for item in all_system_items.items)
 
 
 def test_release_note_publish_pushes_station_message_to_users(session: Session) -> None:

@@ -43,19 +43,33 @@ export async function listFeedbackForAdmin(): Promise<UserFeedbackRecord[]> {
 	return feedbackApiClient.request<UserFeedbackRecord[]>("/api/admin/feedback");
 }
 
-function buildAdminFeedbackListPath(scope: "user" | "system"): string {
-	return `/api/admin/feedback/${scope}?page=1&page_size=200`;
+function buildAdminFeedbackListPath(
+	scope: "user" | "system",
+	includeHidden = false,
+): string {
+	const searchParams = new URLSearchParams({
+		page: "1",
+		page_size: "200",
+	});
+	if (includeHidden) {
+		searchParams.set("include_hidden", "1");
+	}
+	return `/api/admin/feedback/${scope}?${searchParams.toString()}`;
 }
 
-export async function listUserFeedbackForAdmin(): Promise<AdminFeedbackListResponse> {
+export async function listUserFeedbackForAdmin(
+	includeHidden = false,
+): Promise<AdminFeedbackListResponse> {
 	return feedbackApiClient.request<AdminFeedbackListResponse>(
-		buildAdminFeedbackListPath("user"),
+		buildAdminFeedbackListPath("user", includeHidden),
 	);
 }
 
-export async function listSystemFeedbackForAdmin(): Promise<AdminFeedbackListResponse> {
+export async function listSystemFeedbackForAdmin(
+	includeHidden = false,
+): Promise<AdminFeedbackListResponse> {
 	return feedbackApiClient.request<AdminFeedbackListResponse>(
-		buildAdminFeedbackListPath("system"),
+		buildAdminFeedbackListPath("system", includeHidden),
 	);
 }
 

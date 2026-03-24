@@ -63,7 +63,13 @@ describe("global layout styles", () => {
 			/\.feedback-modal__panel--list-layout\s*\{[\s\S]*display:\s*flex\s*;[\s\S]*overflow:\s*hidden\s*;/,
 		);
 		expect(globalStylesheet).toMatch(
+			/\.feedback-modal__head-actions\s*\{[\s\S]*display:\s*flex\s*;/,
+		);
+		expect(globalStylesheet).toMatch(
 			/\.admin-feedback-list\s*\{[\s\S]*overflow-y:\s*auto\s*;[\s\S]*overscroll-behavior:\s*contain\s*;/,
+		);
+		expect(globalStylesheet).toMatch(
+			/\.admin-feedback-card__head\s*\{[\s\S]*display:\s*grid\s*;[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s*;/,
 		);
 		expect(globalStylesheet).toMatch(
 			/\.feedback-modal__backdrop\s*\{[\s\S]*border-radius:\s*0\s*;[\s\S]*box-shadow:\s*none\s*;/,

@@ -66,6 +66,7 @@ def list_user_feedback_for_admin(
 	page_size: int = Query(default=50, ge=1, le=200),
 	status: str | None = Query(default=None),
 	priority: str | None = Query(default=None),
+	include_hidden: bool = Query(default=False),
 ) -> AdminFeedbackListRead:
 	_require_admin_user(current_user)
 	status_filter = _parse_feedback_filter_values(
@@ -78,11 +79,13 @@ def list_user_feedback_for_admin(
 		allowed_values=FEEDBACK_PRIORITIES,
 		field_name="priority",
 	)
-	hidden_feedback_ids = _load_hidden_message_ids(
-		session,
-		user_id=current_user.username,
-		message_kind="FEEDBACK",
-	)
+	hidden_feedback_ids = set[int]()
+	if not include_hidden:
+		hidden_feedback_ids = _load_hidden_message_ids(
+			session,
+			user_id=current_user.username,
+			message_kind="FEEDBACK",
+		)
 	feedback_items = [
 		feedback
 		for feedback in session.exec(select(UserFeedback))
@@ -104,6 +107,7 @@ def list_system_feedback_for_admin(
 	page_size: int = Query(default=50, ge=1, le=200),
 	status: str | None = Query(default=None),
 	priority: str | None = Query(default=None),
+	include_hidden: bool = Query(default=False),
 ) -> AdminFeedbackListRead:
 	_require_admin_user(current_user)
 	status_filter = _parse_feedback_filter_values(
@@ -116,11 +120,13 @@ def list_system_feedback_for_admin(
 		allowed_values=FEEDBACK_PRIORITIES,
 		field_name="priority",
 	)
-	hidden_feedback_ids = _load_hidden_message_ids(
-		session,
-		user_id=current_user.username,
-		message_kind="FEEDBACK",
-	)
+	hidden_feedback_ids = set[int]()
+	if not include_hidden:
+		hidden_feedback_ids = _load_hidden_message_ids(
+			session,
+			user_id=current_user.username,
+			message_kind="FEEDBACK",
+		)
 	feedback_items = [
 		feedback
 		for feedback in session.exec(select(UserFeedback))

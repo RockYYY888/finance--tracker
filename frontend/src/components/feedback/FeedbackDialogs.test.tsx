@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AdminFeedbackDialog } from "./AdminFeedbackDialog";
@@ -103,9 +103,11 @@ describe("Feedback dialogs policy rendering", () => {
 				viewerUserId="admin"
 				userItems={[]}
 				systemItems={[systemItem]}
+				showDismissed={false}
 				errorMessage={null}
 				onHideItem={vi.fn().mockResolvedValue(undefined)}
 				onClose={vi.fn()}
+				onShowDismissedChange={vi.fn()}
 				onCloseItem={vi.fn().mockResolvedValue(undefined)}
 				onReplyItem={vi.fn().mockResolvedValue(undefined)}
 			/>,
@@ -134,13 +136,37 @@ describe("Feedback dialogs policy rendering", () => {
 				releaseNotes={[]}
 				errorMessage={null}
 				onClose={vi.fn()}
-				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
-				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
 			/>,
 		);
 
 		expect(within(view.container).getByText("用户提交")).not.toBeNull();
 		expect(within(view.container).queryByText("高优先级")).toBeNull();
+		expect(within(view.container).queryByRole("button", { name: /从当前列表移除/ })).toBeNull();
+	});
+
+	it("shows a top-right toggle for previously dismissed admin messages", () => {
+		const onShowDismissedChange = vi.fn();
+
+		render(
+			<AdminFeedbackDialog
+				open
+				busy={false}
+				viewerUserId="admin"
+				userItems={[createFeedbackRecord({ id: 21, user_id: "alice" })]}
+				systemItems={[]}
+				showDismissed={false}
+				errorMessage={null}
+				onHideItem={vi.fn().mockResolvedValue(undefined)}
+				onClose={vi.fn()}
+				onShowDismissedChange={onShowDismissedChange}
+				onCloseItem={vi.fn().mockResolvedValue(undefined)}
+				onReplyItem={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "显示已移除" }));
+
+		expect(onShowDismissedChange).toHaveBeenCalledWith(true);
 	});
 
 	it("keeps release note surfaces in chinese for admin and user inbox dialogs", () => {
@@ -175,8 +201,6 @@ describe("Feedback dialogs policy rendering", () => {
 				releaseNotes={[delivery]}
 				errorMessage={null}
 				onClose={vi.fn()}
-				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
-				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
 			/>,
 		);
 
@@ -186,12 +210,11 @@ describe("Feedback dialogs policy rendering", () => {
 		expect(within(userView.container).queryByText("Published:")).toBeNull();
 	});
 
-	it("removes a message from current list after dismiss confirmation", async () => {
+	it("keeps dismiss buttons out of the non-admin inbox", () => {
 		const userItem = createFeedbackRecord({
 			id: 12,
-			message: "这条消息会被前端移除",
+			message: "这条消息会保留在用户消息列表里",
 		});
-		const onHideFeedbackItem = vi.fn().mockResolvedValue(undefined);
 
 		render(
 			<UserFeedbackInboxDialog
@@ -199,24 +222,14 @@ describe("Feedback dialogs policy rendering", () => {
 				busy={false}
 				viewerUserId="alice"
 				items={[userItem]}
-				releaseNotes={[]}
+				releaseNotes={[createReleaseNoteDeliveryRecord()]}
 				errorMessage={null}
 				onClose={vi.fn()}
-				onHideFeedbackItem={onHideFeedbackItem}
-				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
 			/>,
 		);
 
-		fireEvent.click(screen.getByLabelText("从当前列表移除消息 #12"));
-		expect(screen.getByRole("heading", { name: "移除消息" })).not.toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "移除消息" }));
-
-		await waitFor(() => {
-			expect(onHideFeedbackItem).toHaveBeenCalledWith(12);
-		});
-		await waitFor(() => {
-			expect(screen.queryByText("这条消息会被前端移除")).toBeNull();
-		});
+		expect(screen.queryByLabelText("从当前列表移除消息 #12")).toBeNull();
+		expect(screen.queryByLabelText("从当前列表移除版本消息 v0.2.0")).toBeNull();
 	});
 
 	it("locks page scrolling while inbox dialog is open and uses a fixed panel shell", () => {
@@ -229,8 +242,6 @@ describe("Feedback dialogs policy rendering", () => {
 				releaseNotes={[]}
 				errorMessage={null}
 				onClose={vi.fn()}
-				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
-				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
 			/>,
 		);
 
@@ -251,8 +262,6 @@ describe("Feedback dialogs policy rendering", () => {
 				releaseNotes={[]}
 				errorMessage={null}
 				onClose={vi.fn()}
-				onHideFeedbackItem={vi.fn().mockResolvedValue(undefined)}
-				onHideReleaseNote={vi.fn().mockResolvedValue(undefined)}
 			/>,
 		);
 
