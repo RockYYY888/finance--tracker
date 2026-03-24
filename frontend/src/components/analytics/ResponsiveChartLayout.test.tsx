@@ -456,7 +456,7 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
 	});
 
-	it("does not render active dots for synthetic timeline points", async () => {
+	it("renders active dots for timeline buckets, including carried-forward ones", async () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="hour"
@@ -489,7 +489,7 @@ describe("analytics charts responsive layout", () => {
 					negativeValue: 100_000,
 				},
 			}),
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			lineProps.activeDot?.({
 				cx: 12,
@@ -599,10 +599,10 @@ describe("analytics charts responsive layout", () => {
 		};
 		expect(xAxisProps.type).toBe("number");
 		expect(xAxisProps.dataKey).toBe("xValue");
-		expect(xAxisProps.ticks).toEqual([
-			Date.parse("2026-03-23T07:00:00Z"),
+		expect(xAxisProps.ticks[0]).toBe(Date.parse("2026-03-23T07:00:00Z"));
+		expect(xAxisProps.ticks[xAxisProps.ticks.length - 1]).toBe(
 			Date.parse("2026-03-24T07:00:00Z"),
-		]);
+		);
 		expect(xAxisProps.tickFormatter(xAxisProps.ticks[0]!)).toBe("15:00");
 
 		const positiveAreaProps = rechartsState.areas[rechartsState.areas.length - 2] as {

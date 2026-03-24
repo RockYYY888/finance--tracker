@@ -259,7 +259,7 @@ describe("timeline hover summaries", () => {
 		});
 	});
 
-	it("ignores synthetic window boundary points when hovering timeline intersections", async () => {
+	it("allows hovering the carried opening bucket in sparse 24H timelines", async () => {
 		render(
 			<ReturnTrendChart
 				title="收益趋势"
@@ -305,8 +305,51 @@ describe("timeline hover summaries", () => {
 		});
 
 		await waitFor(() => {
-			expectPillToContain("当前收益率", "-7.56%");
+			expectPillToContain("所选收益率", "-6.82%");
 		});
-		expect(screen.queryByText("所选收益率")).toBeNull();
+		expectPillToContain("03-13 21:00→03-13 21:00", "0.00%");
+	});
+
+	it("applies the same carried-opening hover behavior to portfolio value timelines", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="hour"
+				hour_series={[
+					{
+						label: "03-14 21:00",
+						value: 257_000,
+						timestamp_utc: "2026-03-14T13:00:00Z",
+					},
+				]}
+				day_series={[
+					{
+						label: "03-13",
+						value: 250_000,
+						timestamp_utc: "2026-03-12T16:00:00Z",
+					},
+					{
+						label: "03-14",
+						value: 252_000,
+						timestamp_utc: "2026-03-13T16:00:00Z",
+					},
+				]}
+				month_series={[]}
+				year_series={[]}
+			/>,
+		);
+
+		const { onMouseMove } = getLatestChartHandlers();
+
+		act(() => {
+			onMouseMove?.({
+				isTooltipActive: true,
+				activeTooltipIndex: 0,
+			});
+		});
+
+		await waitFor(() => {
+			expectPillToContain("所选净值", "¥250,000.00");
+		});
+		expectPillToContain("03-13 21:00→03-13 21:00", "变化¥0.00 / 0.00%");
 	});
 });

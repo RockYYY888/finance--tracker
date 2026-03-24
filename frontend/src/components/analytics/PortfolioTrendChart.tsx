@@ -31,7 +31,6 @@ import {
 	getAdaptiveYAxisWidth,
 	getFirstRenderableTimelineRange,
 	getTimelineChartTickIndices,
-	isSyntheticTimelinePoint,
 	summarizeAverageStepDelta,
 	summarizeCompoundedValueStepRate,
 	summarizeTimeline,
@@ -234,7 +233,7 @@ function getChangeDirection(changeValue: number): string {
 function isInteractiveTrendPoint(
 	point: Pick<ThresholdSegmentedPoint, "crossingPoint" | "synthetic"> | null | undefined,
 ): boolean {
-	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
+	return !isThresholdSegmentedCrossingPoint(point);
 }
 
 export function PortfolioTrendChart({

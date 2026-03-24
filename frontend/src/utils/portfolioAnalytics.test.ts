@@ -163,11 +163,62 @@ describe("buildDisplayTimelineSeriesByRange", () => {
 			[],
 		);
 
-		expect(seriesByRange.hour.length).toBe(3);
+		expect(seriesByRange.hour.length).toBe(25);
 		expect(seriesByRange.hour[0]?.label).toBe("03-13 21:00");
 		expect(seriesByRange.hour[0]?.value).toBe(-6.82);
 		expect(seriesByRange.hour[0]?.synthetic).toBe(true);
-		expect(seriesByRange.hour[2]?.label).toBe("03-14 21:00");
+		expect(seriesByRange.hour[3]?.label).toBe("03-14 00:00");
+		expect(seriesByRange.hour[3]?.value).toBe(-7.12);
+		expect(seriesByRange.hour[4]?.synthetic).toBe(true);
+		expect(seriesByRange.hour[24]?.label).toBe("03-14 21:00");
+	});
+
+	it("forward-fills missing hourly buckets and keeps the latest duplicate in each bucket", () => {
+		const seriesByRange = buildDisplayTimelineSeriesByRange(
+			[
+				{
+					label: "03-24 11:00",
+					value: 1.2,
+					timestamp_utc: "2026-03-24T03:00:00Z",
+				},
+				{
+					label: "03-24 12:00",
+					value: 2.1,
+					timestamp_utc: "2026-03-24T04:00:00Z",
+				},
+				{
+					label: "03-24 12:00",
+					value: 2.4,
+					timestamp_utc: "2026-03-24T04:00:00Z",
+				},
+				{
+					label: "03-24 16:00",
+					value: 5.8,
+					timestamp_utc: "2026-03-24T08:00:00Z",
+				},
+				{
+					label: "03-24 17:00",
+					value: 6.2,
+					timestamp_utc: "2026-03-24T09:00:00Z",
+				},
+			],
+			[],
+			[],
+			[],
+		);
+
+		const visibleHours = seriesByRange.hour.slice(-7);
+		expect(visibleHours.map((point) => point.label)).toEqual([
+			"03-24 11:00",
+			"03-24 12:00",
+			"03-24 13:00",
+			"03-24 14:00",
+			"03-24 15:00",
+			"03-24 16:00",
+			"03-24 17:00",
+		]);
+		expect(visibleHours.map((point) => point.value)).toEqual([1.2, 2.4, 2.4, 2.4, 2.4, 5.8, 6.2]);
+		expect(visibleHours.slice(2, 5).every((point) => point.synthetic)).toBe(true);
 	});
 
 	it("builds week and month windows from the same daily history", () => {

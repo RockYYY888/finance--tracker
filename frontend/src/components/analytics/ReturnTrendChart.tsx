@@ -30,7 +30,6 @@ import {
 	getTimelineChartTickIndices,
 	formatCompactPercentMetric,
 	formatPercentMetric,
-	isSyntheticTimelinePoint,
 	summarizeAverageStepDelta,
 	summarizeTimeline,
 } from "../../utils/portfolioAnalytics";
@@ -153,7 +152,7 @@ function findPointIndex(
 function isInteractiveTrendPoint(
 	point: Pick<ThresholdSegmentedPoint, "crossingPoint" | "synthetic"> | null | undefined,
 ): boolean {
-	return !isThresholdSegmentedCrossingPoint(point) && !isSyntheticTimelinePoint(point);
+	return !isThresholdSegmentedCrossingPoint(point);
 }
 
 function formatHoldingSelectorLabel(item: HoldingReturnSeries): string {

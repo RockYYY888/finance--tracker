@@ -29,10 +29,8 @@ const CHART_COLORS = [
 	"#7ecbff",
 ];
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
-const HOUR_WINDOW_MS = 24 * 60 * 60 * 1000;
-const WEEK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const MONTH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const YEAR_WINDOW_MS = 366 * 24 * 60 * 60 * 1000;
+const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+type TimelineBucketGranularity = "hour" | "day" | "month" | "year";
 
 export const ANALYTICS_TOOLTIP_STYLE = {
 	backgroundColor: "rgba(8, 18, 34, 0.96)",
@@ -176,11 +174,11 @@ function formatDisplayDatePart(
 	}).format(new Date(timestampMs));
 }
 
-function formatWindowBoundaryLabel(
+function formatTimelineBucketLabel(
 	timestampMs: number,
-	range: TimelineRange,
+	granularity: TimelineBucketGranularity,
 ): string {
-	if (range === "hour") {
+	if (granularity === "hour") {
 		return formatDisplayDatePart(timestampMs, {
 			month: "2-digit",
 			day: "2-digit",
@@ -190,11 +188,17 @@ function formatWindowBoundaryLabel(
 		}).replace("/", "-");
 	}
 
-	if (range === "year") {
+	if (granularity === "month") {
 		return formatDisplayDatePart(timestampMs, {
 			year: "numeric",
 			month: "2-digit",
 		}).replace("/", "-");
+	}
+
+	if (granularity === "year") {
+		return formatDisplayDatePart(timestampMs, {
+			year: "numeric",
+		});
 	}
 
 	return formatDisplayDatePart(timestampMs, {
@@ -218,10 +222,85 @@ function mergeTimelineSeries(...seriesGroups: TimelinePoint[][]): TimelinePoint[
 	return prepareTimelineSeries([...mergedLookup.values()]);
 }
 
-function buildWindowedTimelineSeries(
+function toShanghaiShiftedDate(timestampMs: number): Date {
+	return new Date(timestampMs + SHANGHAI_UTC_OFFSET_MS);
+}
+
+function fromShanghaiShiftedDate(date: Date): number {
+	return date.getTime() - SHANGHAI_UTC_OFFSET_MS;
+}
+
+function bucketStartTimestampMs(
+	timestampMs: number,
+	granularity: TimelineBucketGranularity,
+): number {
+	const localDate = toShanghaiShiftedDate(timestampMs);
+
+	if (granularity === "hour") {
+		localDate.setUTCMinutes(0, 0, 0);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	if (granularity === "day") {
+		localDate.setUTCHours(0, 0, 0, 0);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	if (granularity === "month") {
+		localDate.setUTCDate(1);
+		localDate.setUTCHours(0, 0, 0, 0);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	localDate.setUTCMonth(0, 1);
+	localDate.setUTCHours(0, 0, 0, 0);
+	return fromShanghaiShiftedDate(localDate);
+}
+
+function addBucketSteps(
+	timestampMs: number,
+	granularity: TimelineBucketGranularity,
+	stepCount: number,
+): number {
+	const localDate = toShanghaiShiftedDate(timestampMs);
+
+	if (granularity === "hour") {
+		localDate.setUTCHours(localDate.getUTCHours() + stepCount);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	if (granularity === "day") {
+		localDate.setUTCDate(localDate.getUTCDate() + stepCount);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	if (granularity === "month") {
+		localDate.setUTCMonth(localDate.getUTCMonth() + stepCount);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	localDate.setUTCFullYear(localDate.getUTCFullYear() + stepCount);
+	return fromShanghaiShiftedDate(localDate);
+}
+
+function buildTimelinePointAtBucket(
+	point: TimelinePoint,
+	bucketStartMs: number,
+	granularity: TimelineBucketGranularity,
+	synthetic: boolean,
+): TimelinePoint {
+	return {
+		...point,
+		label: formatTimelineBucketLabel(bucketStartMs, granularity),
+		timestamp_utc: new Date(bucketStartMs).toISOString(),
+		synthetic,
+	};
+}
+
+function buildRegularizedWindowedTimelineSeries(
 	series: TimelinePoint[],
-	range: TimelineRange,
-	lookbackWindowMs: number,
+	granularity: TimelineBucketGranularity,
+	lookbackBucketSteps: number,
 ): TimelinePoint[] {
 	const preparedSeries = prepareTimelineSeries(series);
 	if (preparedSeries.length < 2) {
@@ -236,43 +315,86 @@ function buildWindowedTimelineSeries(
 		return preparedSeries;
 	}
 
-	const latestTimestampMs =
-		timestampedSeries[timestampedSeries.length - 1]?.timestampMs ?? null;
-	if (latestTimestampMs === null) {
+	const bucketLookup = new Map<number, TimelinePoint>();
+	const sortedBucketStarts: number[] = [];
+
+	for (const entry of timestampedSeries) {
+		const bucketStartMs = bucketStartTimestampMs(entry.timestampMs ?? 0, granularity);
+		if (!bucketLookup.has(bucketStartMs)) {
+			sortedBucketStarts.push(bucketStartMs);
+		}
+		bucketLookup.set(
+			bucketStartMs,
+			buildTimelinePointAtBucket(entry.point, bucketStartMs, granularity, false),
+		);
+	}
+
+	sortedBucketStarts.sort((left, right) => left - right);
+	const latestBucketStartMs = sortedBucketStarts[sortedBucketStarts.length - 1] ?? null;
+	if (latestBucketStartMs === null) {
 		return preparedSeries;
 	}
 
-	const cutoffTimestampMs = latestTimestampMs - lookbackWindowMs;
-	const visibleSeries: TimelinePoint[] = [];
-	let lastPointBeforeWindow: TimelinePoint | null = null;
+	const desiredStartBucketMs = addBucketSteps(
+		latestBucketStartMs,
+		granularity,
+		-Math.max(1, lookbackBucketSteps),
+	);
+	let lastKnownPoint: TimelinePoint | null = null;
+	let resolvedStartBucketMs: number | null = null;
 
-	for (const entry of timestampedSeries) {
-		if ((entry.timestampMs ?? latestTimestampMs) < cutoffTimestampMs) {
-			lastPointBeforeWindow = entry.point;
+	for (const bucketStartMs of sortedBucketStarts) {
+		const bucketPoint = bucketLookup.get(bucketStartMs) ?? null;
+		if (bucketStartMs < desiredStartBucketMs) {
+			lastKnownPoint = bucketPoint;
 			continue;
 		}
 
-		visibleSeries.push(entry.point);
+		if (resolvedStartBucketMs === null) {
+			resolvedStartBucketMs = lastKnownPoint ? desiredStartBucketMs : bucketStartMs;
+		}
+		break;
 	}
 
-	if (!lastPointBeforeWindow || visibleSeries.length === 0) {
-		return visibleSeries.length > 0 ? visibleSeries : preparedSeries;
+	if (resolvedStartBucketMs === null) {
+		return lastKnownPoint
+			? [
+					buildTimelinePointAtBucket(
+						lastKnownPoint,
+						desiredStartBucketMs,
+						granularity,
+						true,
+					),
+				]
+			: preparedSeries;
 	}
 
-	const firstVisibleTimestampMs = toTimestampMs(visibleSeries[0]);
-	if (firstVisibleTimestampMs !== null && firstVisibleTimestampMs <= cutoffTimestampMs) {
-		return visibleSeries;
+	const regularizedSeries: TimelinePoint[] = [];
+	for (
+		let bucketStartMs = resolvedStartBucketMs;
+		bucketStartMs <= latestBucketStartMs;
+		bucketStartMs = addBucketSteps(bucketStartMs, granularity, 1)
+	) {
+		const bucketPoint = bucketLookup.get(bucketStartMs) ?? null;
+		if (bucketPoint) {
+			regularizedSeries.push(bucketPoint);
+			lastKnownPoint = bucketPoint;
+			continue;
+		}
+
+		if (lastKnownPoint) {
+			regularizedSeries.push(
+				buildTimelinePointAtBucket(
+					lastKnownPoint,
+					bucketStartMs,
+					granularity,
+					true,
+				),
+			);
+		}
 	}
 
-	return [
-		{
-			...lastPointBeforeWindow,
-			label: formatWindowBoundaryLabel(cutoffTimestampMs, range),
-			timestamp_utc: new Date(cutoffTimestampMs).toISOString(),
-			synthetic: true,
-		},
-		...visibleSeries,
-	];
+	return regularizedSeries;
 }
 
 function trimLeadingInactivePoints(series: TimelinePoint[]): TimelinePoint[] {
@@ -367,18 +489,24 @@ export function buildDisplayTimelineSeriesByRange(
 	const preparedDaySeries = prepareTimelineSeries(daySeries);
 	const preparedMonthSeries = prepareTimelineSeries(monthSeries);
 	const preparedYearSeries = prepareTimelineSeries(yearSeries);
-	const yearSourceSeries =
-		preparedMonthSeries.length >= 2 ? preparedMonthSeries : preparedYearSeries;
+	const yearUsesMonthlyBuckets = preparedMonthSeries.length >= 2;
+	const yearSourceSeries = yearUsesMonthlyBuckets
+		? preparedMonthSeries
+		: preparedYearSeries;
 
 	return {
-		hour: buildWindowedTimelineSeries(
-			mergeTimelineSeries(hourSeries, daySeries),
+		hour: buildRegularizedWindowedTimelineSeries(
+			mergeTimelineSeries(daySeries, hourSeries),
 			"hour",
-			HOUR_WINDOW_MS,
+			24,
 		),
-		day: buildWindowedTimelineSeries(preparedDaySeries, "day", WEEK_WINDOW_MS),
-		month: buildWindowedTimelineSeries(preparedDaySeries, "month", MONTH_WINDOW_MS),
-		year: buildWindowedTimelineSeries(yearSourceSeries, "year", YEAR_WINDOW_MS),
+		day: buildRegularizedWindowedTimelineSeries(preparedDaySeries, "day", 7),
+		month: buildRegularizedWindowedTimelineSeries(preparedDaySeries, "day", 30),
+		year: buildRegularizedWindowedTimelineSeries(
+			yearSourceSeries,
+			yearUsesMonthlyBuckets ? "month" : "year",
+			yearUsesMonthlyBuckets ? 12 : 1,
+		),
 	};
 }
 
