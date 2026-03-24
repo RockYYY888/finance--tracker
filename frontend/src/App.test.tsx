@@ -222,8 +222,8 @@ describe("App session restore", () => {
 		feedbackApiMocks.createReleaseNoteForAdmin.mockResolvedValue({
 			id: 1,
 			version: "0.2.0",
-			title: "更新日志",
-			content: "内容",
+			title: "Release Notes",
+			content: "Content",
 			source_feedback_ids: [],
 			created_by: "admin",
 			created_at: new Date().toISOString(),
@@ -233,8 +233,8 @@ describe("App session restore", () => {
 		feedbackApiMocks.publishReleaseNoteForAdmin.mockResolvedValue({
 			id: 1,
 			version: "0.2.0",
-			title: "更新日志",
-			content: "内容",
+			title: "Release Notes",
+			content: "Content",
 			source_feedback_ids: [],
 			created_by: "admin",
 			created_at: new Date().toISOString(),

@@ -353,8 +353,8 @@ def test_release_note_publish_pushes_station_message_to_users(session: Session) 
 	created_release_note = create_release_note_for_admin(
 		ReleaseNoteCreate(
 			version="0.2.0",
-			title="收益图可读性优化",
-			content="新增零轴分区与图例，提升正负收益辨识度。",
+			title="Chart readability improvements",
+			content="Added zero-axis segmentation and clearer legends for positive and negative returns.",
 			source_feedback_ids=[5, 6],
 		),
 		admin_user,
@@ -395,8 +395,8 @@ def test_release_note_stream_keeps_single_user_message_after_multiple_publishes(
 	first_note = create_release_note_for_admin(
 		ReleaseNoteCreate(
 			version="0.4.0",
-			title="第一批优化",
-			content="修复趋势图的动态中线逻辑。",
+			title="First wave of improvements",
+			content="Fixed dynamic midline behavior in trend charts.",
 			source_feedback_ids=[4],
 		),
 		admin_user,
@@ -409,8 +409,8 @@ def test_release_note_stream_keeps_single_user_message_after_multiple_publishes(
 	second_note = create_release_note_for_admin(
 		ReleaseNoteCreate(
 			version="0.5.0",
-			title="第二批优化",
-			content="统一更新日志推送为单条流式消息。",
+			title="Second wave of improvements",
+			content="Unified release-note delivery into a single rolling message stream.",
 			source_feedback_ids=[5],
 		),
 		admin_user,
@@ -422,7 +422,7 @@ def test_release_note_stream_keeps_single_user_message_after_multiple_publishes(
 	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
 	assert len(user_release_notes) == 1
 	assert user_release_notes[0].version == "0.5.0"
-	assert user_release_notes[0].title == "产品更新日志（持续更新）"
+	assert user_release_notes[0].title == "Product Updates"
 	assert "## v0.5.0" in user_release_notes[0].content
 	assert "## v0.4.0" in user_release_notes[0].content
 	assert user_release_notes[0].seen_at is None
@@ -444,20 +444,20 @@ def test_release_note_version_must_be_unique(session: Session) -> None:
 	create_release_note_for_admin(
 		ReleaseNoteCreate(
 			version="0.3.0",
-			title="第一版日志",
-			content="第一版更新内容",
+			title="Initial release note",
+			content="Initial release note content.",
 		),
 		admin_user,
 		session,
 		None,
 	)
 
-	with pytest.raises(HTTPException, match="该版本号已存在"):
+	with pytest.raises(HTTPException, match="This release note version already exists"):
 		create_release_note_for_admin(
 			ReleaseNoteCreate(
 				version="0.3.0",
-				title="重复版本号日志",
-				content="重复版本号不应允许创建。",
+				title="Duplicate release note",
+				content="Duplicate release note versions must be rejected.",
 			),
 			admin_user,
 			session,
@@ -474,8 +474,8 @@ def test_publish_changelog_release_note_creates_and_pushes_stream_message(
 	published_release_note = publish_changelog_release_note_for_admin(
 		ReleaseNotePublishChangelogCreate(
 			version="0.7.1",
-			title="服务端更新流程标准化",
-			content="- 服务端更新流程标准化\n- 新增 changelog 推送入口",
+			title="Stability and workflow updates",
+			content="- Standardized the production update flow\n- Added a changelog push entry point",
 			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.1",
 		),
 		admin_user,
@@ -501,8 +501,8 @@ def test_publish_changelog_release_note_is_idempotent_for_same_payload(
 	normal_user = make_user(session, "repeat_user")
 	payload = ReleaseNotePublishChangelogCreate(
 		version="0.7.2",
-		title="版本推送幂等化",
-		content="- 统一版本推送入口\n- 避免重复通知",
+		title="Reliable release-note delivery",
+		content="- Unified the release-note publish path\n- Avoided duplicate user notifications",
 		release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.2",
 	)
 
@@ -537,8 +537,8 @@ def test_publish_changelog_release_note_rejects_older_than_latest_published_vers
 	publish_changelog_release_note_for_admin(
 		ReleaseNotePublishChangelogCreate(
 			version="0.8.0",
-			title="先发布的新版本",
-			content="- 已发布 0.8.0",
+			title="Already published newer version",
+			content="- Version 0.8.0 is already published",
 			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.8.0",
 		),
 		admin_user,
@@ -546,12 +546,15 @@ def test_publish_changelog_release_note_rejects_older_than_latest_published_vers
 		None,
 	)
 
-	with pytest.raises(HTTPException, match="版本号不能早于当前已发布的更新日志版本"):
+	with pytest.raises(
+		HTTPException,
+		match="Release note version cannot be older than the latest published version",
+	):
 		publish_changelog_release_note_for_admin(
 			ReleaseNotePublishChangelogCreate(
 				version="0.7.9",
-				title="回退版本号",
-				content="- 这个版本号不应该通过",
+				title="Backdated version",
+				content="- This version should be rejected",
 				release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.9",
 			),
 			admin_user,
@@ -569,8 +572,8 @@ def test_publish_changelog_release_note_rejects_unpublished_older_draft_version(
 	create_release_note_for_admin(
 		ReleaseNoteCreate(
 			version="0.7.9",
-			title="旧草稿",
-			content="- 旧版本草稿",
+			title="Older draft",
+			content="- An older draft version",
 		),
 		admin_user,
 		session,
@@ -579,8 +582,8 @@ def test_publish_changelog_release_note_rejects_unpublished_older_draft_version(
 	publish_changelog_release_note_for_admin(
 		ReleaseNotePublishChangelogCreate(
 			version="0.8.0",
-			title="先发布的新版本",
-			content="- 已发布 0.8.0",
+			title="Already published newer version",
+			content="- Version 0.8.0 is already published",
 			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.8.0",
 		),
 		admin_user,
@@ -588,12 +591,15 @@ def test_publish_changelog_release_note_rejects_unpublished_older_draft_version(
 		None,
 	)
 
-	with pytest.raises(HTTPException, match="版本号不能早于当前已发布的更新日志版本"):
+	with pytest.raises(
+		HTTPException,
+		match="Release note version cannot be older than the latest published version",
+	):
 		publish_changelog_release_note_for_admin(
 			ReleaseNotePublishChangelogCreate(
 				version="0.7.9",
-				title="旧草稿改成推送",
-				content="- 这个旧版本草稿不应该被重新发布",
+				title="Republished old draft",
+				content="- This older draft should not be published again",
 				release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.9",
 			),
 			admin_user,

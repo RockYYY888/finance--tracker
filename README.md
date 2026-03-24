@@ -93,8 +93,8 @@ in-app release-note stream from local:
 ```bash
 python3 scripts/push_release_note_from_changelog.py \
   --origin https://your-server-origin \
-  --title '稳定性与体验更新' \
-  --content $'- 第一条用户可见变化\n- 第二条用户可见变化' \
+  --title 'Stability and Experience Updates' \
+  --content $'- Improved overall stability and sync reliability\n- Background tasks and caching are more robust\n- Login, data loading, and asset workflows feel smoother' \
   --admin-password 'your-admin-password' \
   --api-token 'your-api-token'
 ```

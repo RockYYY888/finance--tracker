@@ -17,11 +17,11 @@ export interface AdminReleaseNotesDialogProps {
 
 function formatTimestamp(value: string | null): string {
 	if (!value) {
-		return "暂无";
+		return "N/A";
 	}
 
 	const formattedValue = formatAssetTimestamp(value);
-	return formattedValue === "待更新" ? "暂无" : formattedValue;
+	return formattedValue === "待更新" ? "N/A" : formattedValue;
 }
 
 function parseSourceFeedbackIds(rawValue: string): number[] {
@@ -100,14 +100,16 @@ export function AdminReleaseNotesDialog({
 				type="button"
 				className="feedback-modal__backdrop"
 				onClick={busy ? undefined : onClose}
-				aria-label="关闭更新日志窗口"
+				aria-label="Close release notes dialog"
 			/>
 			<div className="feedback-modal__panel">
 				<div className="feedback-modal__head">
 					<div>
 						<p className="eyebrow">RELEASE NOTES</p>
-						<h2 id="admin-release-title">版本更新日志</h2>
-						<p className="feedback-modal__copy">仅管理员可见：创建草稿并发布为站内更新。</p>
+						<h2 id="admin-release-title">Release Notes</h2>
+						<p className="feedback-modal__copy">
+							Admin only: create drafts and publish them to the in-app update stream.
+						</p>
 					</div>
 					<button
 						type="button"
@@ -115,7 +117,7 @@ export function AdminReleaseNotesDialog({
 						onClick={onClose}
 						disabled={busy}
 					>
-						关闭
+						Close
 					</button>
 				</div>
 
@@ -127,43 +129,43 @@ export function AdminReleaseNotesDialog({
 
 				<div className="admin-release-note panel">
 					<div className="admin-release-note__head">
-						<strong>发布中心</strong>
-						<span>先创建草稿，再发布给用户。</span>
+						<strong>Publishing Center</strong>
+						<span>Create a draft first, then publish it to users.</span>
 					</div>
 					<div className="admin-release-note__form">
 						<label>
-							<span>版本号（x.y.z）</span>
+							<span>Version (x.y.z)</span>
 							<input
 								value={releaseVersion}
 								onChange={(event) => setReleaseVersion(event.target.value)}
-								placeholder="例如 0.2.0"
+								placeholder="For example 0.2.0"
 								disabled={busy}
 							/>
 						</label>
 						<label>
-							<span>标题</span>
+							<span>Title</span>
 							<input
 								value={releaseTitle}
 								onChange={(event) => setReleaseTitle(event.target.value)}
-								placeholder="例如 图表可读性与修正能力更新"
+								placeholder="For example Stability and experience updates"
 								disabled={busy}
 							/>
 						</label>
 						<label>
-							<span>关联反馈 ID（可选，逗号分隔）</span>
+							<span>Linked feedback IDs (optional, comma-separated)</span>
 							<input
 								value={releaseSourceFeedbackIds}
 								onChange={(event) => setReleaseSourceFeedbackIds(event.target.value)}
-								placeholder="例如 3,5,7"
+								placeholder="For example 3,5,7"
 								disabled={busy}
 							/>
 						</label>
 						<label>
-							<span>更新内容</span>
+							<span>Content</span>
 							<textarea
 								value={releaseContent}
 								onChange={(event) => setReleaseContent(event.target.value)}
-								placeholder="填写这次上线实际修改内容。"
+								placeholder="Describe the user-facing changes in this release."
 								disabled={busy}
 							/>
 						</label>
@@ -179,13 +181,13 @@ export function AdminReleaseNotesDialog({
 								}
 								onClick={() => void handleCreateReleaseNote()}
 							>
-								创建草稿
+								Create Draft
 							</button>
 						</div>
 					</div>
 					<div className="admin-release-note__list">
 						{releaseNotes.length === 0 ? (
-							<p className="admin-release-note__empty">暂无版本日志。</p>
+							<p className="admin-release-note__empty">No release notes yet.</p>
 						) : (
 							releaseNotes.map((releaseNote) => (
 								<div key={releaseNote.id} className="admin-release-note__item">
@@ -194,8 +196,8 @@ export function AdminReleaseNotesDialog({
 										<p>{releaseNote.title}</p>
 										<small>
 											{releaseNote.published_at
-												? `已发布：${formatTimestamp(releaseNote.published_at)} · 推送 ${releaseNote.delivery_count} 人`
-												: "草稿"}
+												? `Published: ${formatTimestamp(releaseNote.published_at)} · Delivered to ${releaseNote.delivery_count}`
+												: "Draft"}
 										</small>
 									</div>
 									<button
@@ -204,7 +206,7 @@ export function AdminReleaseNotesDialog({
 										disabled={busy || Boolean(releaseNote.published_at)}
 										onClick={() => void onPublishReleaseNote(releaseNote.id)}
 									>
-										{releaseNote.published_at ? "已发布" : "发布"}
+										{releaseNote.published_at ? "Published" : "Publish"}
 									</button>
 								</div>
 							))

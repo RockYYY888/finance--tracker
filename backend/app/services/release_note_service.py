@@ -133,7 +133,7 @@ def _assert_release_note_version_is_not_older_than_latest_published(
 	if _parse_semver(version) < _parse_semver(latest_release_note.version):
 		raise HTTPException(
 			status_code=409,
-			detail="版本号不能早于当前已发布的更新日志版本。",
+			detail="Release note version cannot be older than the latest published version.",
 		)
 
 def _format_release_note_stream_content(release_notes: list[ReleaseNote]) -> str:
@@ -149,7 +149,7 @@ def _format_release_note_stream_content(release_notes: list[ReleaseNote]) -> str
 		source_feedback_line = ""
 		if source_feedback_ids:
 			source_feedback_line = (
-				"\n关联反馈："
+				"\nLinked feedback: "
 				+ ", ".join(f"#{feedback_id}" for feedback_id in source_feedback_ids)
 			)
 
@@ -165,7 +165,7 @@ def _format_release_note_stream_content(release_notes: list[ReleaseNote]) -> str
 			).strip(),
 		)
 
-	return "# 更新日志\n\n" + "\n\n---\n\n".join(sections)
+	return "# Product Updates\n\n" + "\n\n---\n\n".join(sections)
 
 def _upsert_release_note_stream_delivery(
 	session: Session,
@@ -289,7 +289,7 @@ def create_release_note_for_admin(
 		select(ReleaseNote).where(ReleaseNote.version == payload.version),
 	).first()
 	if existing_release_note is not None:
-		raise HTTPException(status_code=409, detail="该版本号已存在。")
+		raise HTTPException(status_code=409, detail="This release note version already exists.")
 
 	release_note = ReleaseNote(
 		version=payload.version,
@@ -345,7 +345,10 @@ def publish_changelog_release_note_for_admin(
 			if not existing_payload_matches:
 				raise HTTPException(
 					status_code=409,
-					detail="该版本号已发布，且现有内容与本次 changelog 不一致。",
+					detail=(
+						"This release note version is already published and does not match "
+						"the submitted changelog content."
+					),
 				)
 			return _to_release_note_read(session, release_note)
 
@@ -404,7 +407,7 @@ def list_release_notes_for_current_user(
 		_to_release_note_delivery_read(
 			delivery,
 			latest_release_note,
-			title_override="产品更新日志（持续更新）",
+			title_override="Product Updates",
 			content_override=stream_content,
 		),
 	]
@@ -432,7 +435,7 @@ def mark_release_notes_seen_for_current_user(
 		item for item in pending_items if (item.id or 0) not in hidden_delivery_ids
 	]
 	if not pending_items:
-		return ActionMessageRead(message="没有新的更新日志。")
+		return ActionMessageRead(message="No new release notes.")
 
 	now = utc_now()
 	for delivery in pending_items:
@@ -440,7 +443,7 @@ def mark_release_notes_seen_for_current_user(
 		session.add(delivery)
 
 	session.commit()
-	return ActionMessageRead(message="更新日志已标记为已读。")
+	return ActionMessageRead(message="Release notes marked as seen.")
 
 def publish_release_note_for_admin(
 	release_note_id: int,
@@ -451,7 +454,7 @@ def publish_release_note_for_admin(
 	_require_admin_user(current_user)
 	release_note = session.get(ReleaseNote, release_note_id)
 	if release_note is None:
-		raise HTTPException(status_code=404, detail="更新日志不存在。")
+		raise HTTPException(status_code=404, detail="Release note not found.")
 
 	_publish_release_note(
 		session,

@@ -120,7 +120,7 @@ def _extract_default_title(body: str, release_name: str | None, version: str) ->
 		if stripped:
 			return stripped
 
-	return f"v{version} 更新"
+	return f"v{version} Update"
 
 
 def _run_gh_release_view(version: str) -> dict[str, Any]:
