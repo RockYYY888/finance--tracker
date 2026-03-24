@@ -549,7 +549,7 @@ h3 {
 }
 
 .workspace-switch__button {
-	border: 1px solid transparent;
+	border: 1px solid rgba(255, 255, 255, 0.22);
 	min-width: 0;
 	padding: clamp(0.72rem, 2vw, 0.9rem) clamp(0.72rem, 2.6vw, 1rem);
 	border-radius: 18px;
@@ -561,7 +561,9 @@ h3 {
 	font-size: clamp(0.88rem, 2vw, 0.98rem);
 	letter-spacing: 0.02em;
 	white-space: nowrap;
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 0 1px rgba(255, 255, 255, 0.06);
 	transition:
 		transform 0.18s ease,
 		border-color 0.18s ease,
@@ -572,8 +574,11 @@ h3 {
 
 .workspace-switch__button:hover {
 	transform: translateY(-1px);
-	border-color: var(--line-soft);
+	border-color: rgba(255, 255, 255, 0.34);
 	color: var(--text-soft);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.08),
+		0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .workspace-switch__button:focus-visible {
@@ -590,6 +595,7 @@ h3 {
 		linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.04)),
 		linear-gradient(135deg, rgba(99, 232, 255, 0.96), rgba(124, 245, 218, 0.94));
 	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.28),
 		0 14px 28px rgba(24, 130, 165, 0.18),
 		0 0 0 1px rgba(99, 232, 255, 0.08);
 }
