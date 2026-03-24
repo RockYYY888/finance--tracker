@@ -101,18 +101,16 @@ export function useTimelineRangeSelection(
 			return;
 		}
 
+		const currentEndIndex = findSelectablePointIndex(
+			selectablePoints,
+			endKey,
+			Math.max(selectablePoints.length - 1, 0),
+		);
+		if (currentEndIndex === null || nextIndex >= currentEndIndex) {
+			return;
+		}
+
 		setStartKey(nextKey);
-		setEndKey((currentKey) => {
-			const currentIndex = findSelectablePointIndex(
-				selectablePoints,
-				currentKey,
-				Math.max(selectablePoints.length - 1, 0),
-			);
-			if (currentIndex === null || nextIndex > currentIndex) {
-				return nextKey;
-			}
-			return currentKey;
-		});
 	}
 
 	function handleEndKeyChange(nextKey: string): void {
@@ -121,14 +119,12 @@ export function useTimelineRangeSelection(
 			return;
 		}
 
+		const currentStartIndex = findSelectablePointIndex(selectablePoints, startKey, 0);
+		if (currentStartIndex === null || nextIndex <= currentStartIndex) {
+			return;
+		}
+
 		setEndKey(nextKey);
-		setStartKey((currentKey) => {
-			const currentIndex = findSelectablePointIndex(selectablePoints, currentKey, 0);
-			if (currentIndex === null || nextIndex < currentIndex) {
-				return nextKey;
-			}
-			return currentKey;
-		});
 	}
 
 	function resetSelection(): void {

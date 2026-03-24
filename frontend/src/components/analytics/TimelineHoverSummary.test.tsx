@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -124,7 +131,9 @@ describe("timeline range summaries", () => {
 		expectPillToContain("区间内日均环比", "+22.47%");
 
 		fireEvent.click(screen.getByRole("button", { name: "选择起点时间点" }));
-		fireEvent.click(screen.getByRole("button", { name: "03-02" }));
+		const startDialog = screen.getByRole("dialog", { name: "选择起点时间点" });
+		expect(within(startDialog).queryByRole("button", { name: "03-03" })).toBeNull();
+		fireEvent.click(within(startDialog).getByRole("button", { name: "03-02" }));
 
 		await waitFor(() => {
 			expectPillToContain("03-02→03-03", "增加¥30.00 / +25.00%", 0);
@@ -133,21 +142,20 @@ describe("timeline range summaries", () => {
 		expectPillToContain("区间内日均环比", "+25.00%");
 
 		fireEvent.click(screen.getByRole("button", { name: "选择终点时间点" }));
-		fireEvent.click(screen.getByRole("button", { name: "03-02" }));
+		const endDialog = screen.getByRole("dialog", { name: "选择终点时间点" });
+		expect(within(endDialog).queryByRole("button", { name: "03-02" })).toBeNull();
+		expect(within(endDialog).getByRole("button", { name: "03-03" })).toBeDefined();
 
-		await waitFor(() => {
-			expectPillToContain("终点净值", "¥120.00");
-		});
-		expectPillToContain("03-02→03-02", "变化¥0.00 / 0.00%", 0);
-		expectPillToContain("区间内日均环比", "--");
+		expectPillToContain("03-02→03-03", "增加¥30.00 / +25.00%", 0);
+		expectPillToContain("区间内日均环比", "+25.00%");
 
 		fireEvent.click(screen.getByRole("button", { name: "投资类收益率" }));
 
 		await waitFor(() => {
-			expectPillToContain("终点投资类收益率", "12.00%");
+			expectPillToContain("终点投资类收益率", "15.00%");
 		});
-		expectPillToContain("03-02→03-02", "0.00%", 0);
-		expectPillToContain("区间内日均变动", "--");
+		expectPillToContain("03-02→03-03", "+3.00%", 0);
+		expectPillToContain("区间内日均变动", "+3.00%");
 	});
 
 	it("updates return trend summary pills when start and end selections move across each other", async () => {
@@ -178,7 +186,9 @@ describe("timeline range summaries", () => {
 		expectPillToContain("区间内日均变动", "+2.50%");
 
 		fireEvent.click(screen.getByRole("button", { name: "选择终点时间点" }));
-		fireEvent.click(screen.getByRole("button", { name: "03-02" }));
+		let endDialog = screen.getByRole("dialog", { name: "选择终点时间点" });
+		expect(within(endDialog).queryByRole("button", { name: "03-01" })).toBeNull();
+		fireEvent.click(within(endDialog).getByRole("button", { name: "03-02" }));
 
 		await waitFor(() => {
 			expectPillToContain("终点收益率", "12.00%");
@@ -187,12 +197,17 @@ describe("timeline range summaries", () => {
 		expectPillToContain("区间内日均变动", "+2.00%");
 
 		fireEvent.click(screen.getByRole("button", { name: "选择起点时间点" }));
-		fireEvent.click(screen.getByRole("button", { name: "03-03" }));
+		const startDialog = screen.getByRole("dialog", { name: "选择起点时间点" });
+		expect(within(startDialog).queryByRole("button", { name: "03-02" })).toBeNull();
+		expect(within(startDialog).queryByRole("button", { name: "03-03" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "选择终点时间点" }));
+		endDialog = screen.getByRole("dialog", { name: "选择终点时间点" });
+		fireEvent.click(within(endDialog).getByRole("button", { name: "03-03" }));
 
 		await waitFor(() => {
 			expectPillToContain("终点收益率", "15.00%");
 		});
-		expectPillToContain("03-03→03-03", "0.00%");
-		expectPillToContain("区间内日均变动", "--");
+		expectPillToContain("03-01→03-03", "+5.00%");
+		expectPillToContain("区间内日均变动", "+2.50%");
 	});
 });

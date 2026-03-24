@@ -271,7 +271,7 @@ describe("analytics charts responsive layout", () => {
 
 		expect(screen.getByText("基准线上方区域")).toBeTruthy();
 		expect(screen.queryByText("最新净值")).toBeNull();
-		expect(screen.getByText("当前投资类收益率")).toBeTruthy();
+		expect(screen.getByText("终点投资类收益率")).toBeTruthy();
 		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
 		expect(screen.getByText("+2.00%")).toBeTruthy();
 	});

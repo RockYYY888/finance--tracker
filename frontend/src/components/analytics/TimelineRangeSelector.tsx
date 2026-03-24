@@ -27,8 +27,16 @@ export function TimelineRangeSelector({
 		key: point.key,
 		label: point.label,
 	}));
-	const firstKey = selectablePoints[0]?.key ?? null;
-	const lastKey = selectablePoints[selectablePoints.length - 1]?.key ?? null;
+	const startIndex = selectablePoints.findIndex((point) => point.key === startKey);
+	const endIndex = selectablePoints.findIndex((point) => point.key === endKey);
+	const startOptions =
+		endIndex < 0 ? options : options.filter((_, index) => index < endIndex);
+	const endOptions =
+		startIndex < 0 ? options : options.filter((_, index) => index > startIndex);
+	const earliestStartKey = startOptions[0]?.key ?? null;
+	const latestStartKey = startOptions[startOptions.length - 1]?.key ?? null;
+	const earliestEndKey = endOptions[0]?.key ?? null;
+	const latestEndKey = endOptions[endOptions.length - 1]?.key ?? null;
 
 	return (
 		<div className="analytics-interval-selector">
@@ -48,12 +56,12 @@ export function TimelineRangeSelector({
 				<TimelinePointPicker
 					label="起点"
 					valueKey={startKey}
-					options={options}
+					options={startOptions}
 					onChange={onStartChange}
-					disabled={options.length === 0}
+					disabled={startOptions.length === 0}
 					quickActions={[
-						{ label: "最早", key: firstKey },
-						{ label: "最新", key: lastKey },
+						{ label: "最早", key: earliestStartKey },
+						{ label: "最晚", key: latestStartKey },
 					]}
 				/>
 				<span className="analytics-interval-selector__separator" aria-hidden="true">
@@ -62,13 +70,13 @@ export function TimelineRangeSelector({
 				<TimelinePointPicker
 					label="终点"
 					valueKey={endKey}
-					options={options}
+					options={endOptions}
 					onChange={onEndChange}
-					disabled={options.length === 0}
+					disabled={endOptions.length === 0}
 					align="end"
 					quickActions={[
-						{ label: "最早", key: firstKey },
-						{ label: "最新", key: lastKey },
+						{ label: "最早", key: earliestEndKey },
+						{ label: "最新", key: latestEndKey },
 					]}
 				/>
 			</div>
