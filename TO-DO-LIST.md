@@ -8,6 +8,7 @@
 
 ## Recent
 
+- [x] Replace trend-card summaries with arbitrary real-timepoint interval pickers, keep styling aligned with existing date pickers, and ignore synthetic fill points in interval math
 - [x] Standardize the steady-state server update SOP and keep normal production deploys on Postgres + Redis only
 - [x] Harden multi-user server paths by making job/history claims atomic across workers, moving shared runtime locks to Redis, and requiring PostgreSQL for runtime data
 - [x] Remove eager agent-workspace prefetch from login, hydrate asset manager directly from dashboard data, and fix summary tabs showing placeholders after sign-in

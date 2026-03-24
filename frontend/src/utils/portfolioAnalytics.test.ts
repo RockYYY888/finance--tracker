@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	buildSelectableTimelinePoints,
 	buildDisplayTimelineSeriesByRange,
 	calculateDynamicAxisLayout,
 	calculateTimelineReferenceAxisLayout,
@@ -239,6 +240,52 @@ describe("buildDisplayTimelineSeriesByRange", () => {
 		expect(seriesByRange.month).toHaveLength(11);
 		expect(seriesByRange.day[0]?.label).toBe("03-07");
 		expect(seriesByRange.month[0]?.label).toBe("03-04");
+	});
+});
+
+describe("buildSelectableTimelinePoints", () => {
+	it("keeps only real timeline points for explicit interval selection", () => {
+		const selectablePoints = buildSelectableTimelinePoints([
+			{
+				label: "03-24 11:00",
+				value: 1.2,
+				timestamp_utc: "2026-03-24T03:00:00Z",
+			},
+			{
+				label: "03-24 12:00",
+				value: 1.2,
+				timestamp_utc: "2026-03-24T04:00:00Z",
+				synthetic: true,
+			},
+			{
+				label: "03-24 16:00",
+				value: 5.8,
+				timestamp_utc: "2026-03-24T08:00:00Z",
+			},
+		]);
+
+		expect(selectablePoints).toEqual([
+			{
+				key: "2026-03-24T03:00:00Z",
+				label: "03-24 11:00",
+				point: {
+					label: "03-24 11:00",
+					value: 1.2,
+					timestamp_utc: "2026-03-24T03:00:00Z",
+				},
+				index: 0,
+			},
+			{
+				key: "2026-03-24T08:00:00Z",
+				label: "03-24 16:00",
+				point: {
+					label: "03-24 16:00",
+					value: 5.8,
+					timestamp_utc: "2026-03-24T08:00:00Z",
+				},
+				index: 2,
+			},
+		]);
 	});
 });
 

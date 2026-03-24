@@ -522,6 +522,43 @@ export function getFirstRenderableTimelineRange(
 	return null;
 }
 
+export type TimelineSelectablePoint = {
+	key: string;
+	label: string;
+	point: TimelinePoint;
+	index: number;
+};
+
+export function buildSelectableTimelinePoints(
+	series: TimelinePoint[],
+): TimelineSelectablePoint[] {
+	return series.reduce<TimelineSelectablePoint[]>((selectablePoints, point, index) => {
+		if (!Number.isFinite(point.value) || isSyntheticTimelinePoint(point)) {
+			return selectablePoints;
+		}
+
+		selectablePoints.push({
+			key: point.timestamp_utc?.trim() || `${point.label}::${index}`,
+			label: formatTimelinePointLabel(point, `时间点 ${index + 1}`),
+			point,
+			index,
+		});
+		return selectablePoints;
+	}, []);
+}
+
+export function getFirstSelectableTimelineRange(
+	seriesByRange: PreparedTimelineSeriesByRange,
+): TimelineRange | null {
+	for (const range of ["hour", "day", "month", "year"] satisfies TimelineRange[]) {
+		if (buildSelectableTimelinePoints(seriesByRange[range]).length >= 2) {
+			return range;
+		}
+	}
+
+	return null;
+}
+
 export function getBarChartHeight(itemCount: number): number {
 	return Math.max(260, itemCount * 52);
 }

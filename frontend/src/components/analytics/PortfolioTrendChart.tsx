@@ -29,7 +29,7 @@ import {
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
-	getFirstRenderableTimelineRange,
+	getFirstSelectableTimelineRange,
 	getTimelineChartTickIndices,
 	summarizeAverageStepDelta,
 	summarizeCompoundedValueStepRate,
@@ -44,8 +44,10 @@ import {
 	type ThresholdSegmentedCoordinatePoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
+import { TimelineRangeSelector } from "./TimelineRangeSelector";
 import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
+import { useTimelineRangeSelection } from "./useTimelineRangeSelection";
 
 type PortfolioTrendChartProps = {
 	hour_series: TimelinePoint[];
@@ -71,12 +73,6 @@ type TooltipPayloadEntry = {
 	dataKey?: string;
 	value?: number;
 	payload?: { value?: number };
-};
-
-type TimelineSummaryState = {
-	summary: ReturnType<typeof summarizeTimeline>;
-	periodLabel: string;
-	selected: boolean;
 };
 
 type TrendMetricConfig = {
@@ -163,63 +159,6 @@ function formatSignedRatio(ratio: number | null): string {
 	return `${prefix}${formatPercentage(ratio)}`;
 }
 
-function findPointIndexByLabel(
-	series: TimelinePoint[],
-	point: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
-): number | null {
-	if (!point) {
-		return null;
-	}
-
-	if (point.timestamp_utc) {
-		const matchedTimestampIndex = series.findIndex(
-			(candidate) => candidate.timestamp_utc === point.timestamp_utc,
-		);
-		if (matchedTimestampIndex >= 0) {
-			return matchedTimestampIndex;
-		}
-	}
-
-	if (!point.label) {
-		return null;
-	}
-
-	const matchedIndex = series.findIndex((candidate) => candidate.label === point.label);
-	return matchedIndex >= 0 ? matchedIndex : null;
-}
-
-function buildSummaryStateFromSeries(
-	series: TimelinePoint[],
-	activePoint: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
-	endFallbackLabel = "最新周期",
-): TimelineSummaryState {
-	const matchedIndex = findPointIndexByLabel(series, activePoint);
-	const visibleSeries =
-		matchedIndex === null ? series : series.slice(0, matchedIndex + 1);
-	const endPoint = visibleSeries[visibleSeries.length - 1] ?? null;
-
-	return {
-		summary: summarizeTimeline(visibleSeries),
-		periodLabel: formatTimelineRangeLabel(series[0], endPoint, endFallbackLabel),
-		selected: matchedIndex !== null,
-	};
-}
-
-function buildDerivedMetricState(
-	series: TimelinePoint[],
-	activePoint: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
-	summarize: (points: TimelinePoint[]) => number,
-): { value: number; selected: boolean } {
-	const matchedIndex = findPointIndexByLabel(series, activePoint);
-	const visibleSeries =
-		matchedIndex === null ? series : series.slice(0, matchedIndex + 1);
-
-	return {
-		value: summarize(visibleSeries),
-		selected: matchedIndex !== null,
-	};
-}
-
 function getChangeDirection(changeValue: number): string {
 	if (changeValue > 0) {
 		return "增加";
@@ -253,7 +192,6 @@ export function PortfolioTrendChart({
 	const [displayMode, setDisplayMode] =
 		useState<PortfolioTrendDisplayMode>("value");
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
-	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 	const lastAutoResolvedModeRef = useRef<PortfolioTrendDisplayMode | null>(null);
 
 	const valueSeriesByRange = useMemo(
@@ -283,8 +221,8 @@ export function PortfolioTrendChart({
 	);
 	const fallbackRangeByMode = useMemo(
 		() => ({
-			value: getFirstRenderableTimelineRange(valueSeriesByRange),
-			return: getFirstRenderableTimelineRange(returnSeriesByRange),
+			value: getFirstSelectableTimelineRange(valueSeriesByRange),
+			return: getFirstSelectableTimelineRange(returnSeriesByRange),
 		}),
 		[returnSeriesByRange, valueSeriesByRange],
 	);
@@ -293,9 +231,13 @@ export function PortfolioTrendChart({
 	const activeFallbackRange = fallbackRangeByMode[displayMode];
 	const activeRange = range;
 	const activeSeries = activeSeriesByRange[activeRange];
+	const intervalSelection = useTimelineRangeSelection(activeSeries);
 	const valueRangeSeries = valueSeriesByRange[activeRange];
 	const valueRangeSummary = summarizeTimeline(valueRangeSeries);
-	const valueBaseline = valueRangeSummary.startValue;
+	const valueBaseline =
+		displayMode === "value"
+			? (intervalSelection.startPoint?.point.value ?? valueRangeSummary.startValue)
+			: valueRangeSummary.startValue;
 	const valueSegmentedData = useMemo(
 		() => buildThresholdSegmentedCoordinateData(valueRangeSeries, valueBaseline),
 		[valueBaseline, valueRangeSeries],
@@ -313,28 +255,25 @@ export function PortfolioTrendChart({
 		displayMode === "value" ? valueChartData : returnChartData;
 	const activeAreaData =
 		displayMode === "value" ? valueAreaData : returnAreaData;
-	const activePoint =
-		activePointIndex === null
-			? null
-			: (activeChartData[activePointIndex] ?? null);
-	const selectedPoint = isInteractiveTrendPoint(activePoint) ? activePoint : null;
-	const activeSummaryState = buildSummaryStateFromSeries(
-		activeSeries,
-		selectedPoint,
-		"最新周期",
-	);
-	const valueStepRateState = buildDerivedMetricState(
-		valueRangeSeries,
-		displayMode === "value" ? selectedPoint : null,
-		summarizeCompoundedValueStepRate,
-	);
-	const returnStepDeltaState = buildDerivedMetricState(
-		returnRangeSeries,
-		displayMode === "return" ? selectedPoint : null,
-		summarizeAverageStepDelta,
-	);
-	const hasActiveSummaryData = activeSeries.length >= 1;
-	const hasActiveStepMetric = activeSeries.length >= 2;
+	const intervalSummary =
+		intervalSelection.intervalPoints.length > 0
+			? summarizeTimeline(intervalSelection.intervalPoints)
+			: null;
+	const activePeriodLabel =
+		intervalSelection.startPoint && intervalSelection.endPoint
+			? formatTimelineRangeLabel(
+					intervalSelection.startPoint.point,
+					intervalSelection.endPoint.point,
+					"终点",
+				)
+			: displayMode === "value"
+				? "暂无净值数据"
+				: "暂无投资类收益率数据";
+	const hasActiveSummaryData = intervalSummary !== null;
+	const hasActiveStepMetric = intervalSelection.intervalPoints.length >= 2;
+	const intervalLatestValue = intervalSummary?.latestValue ?? 0;
+	const intervalChangeValue = intervalSummary?.changeValue ?? 0;
+	const intervalChangeRatio = intervalSummary?.changeRatio ?? null;
 
 	const activeMetricConfig: TrendMetricConfig =
 		displayMode === "value"
@@ -344,10 +283,10 @@ export function PortfolioTrendChart({
 					valueFormatter: formatCny,
 					compactValueFormatter: formatCompactCny,
 					tooltipLabel: "资产总额",
-					referenceLabel: "期初资产",
+					referenceLabel: "区间起点",
 					referenceLineStroke: "rgba(214, 212, 203, 0.38)",
-					positiveLegend: "期初资产上方区域",
-					negativeLegend: "期初资产下方区域",
+					positiveLegend: "区间起点上方区域",
+					negativeLegend: "区间起点下方区域",
 				}
 			: {
 					referenceMode: "zero",
@@ -364,14 +303,22 @@ export function PortfolioTrendChart({
 		() =>
 			calculateTimelineReferenceAxisLayout(activeSeries, {
 				referenceMode: activeMetricConfig.referenceMode,
+				referenceValue:
+					displayMode === "value" ? valueBaseline : ZERO_RETURN_THRESHOLD,
 				minSpan: activeMetricConfig.minSpan,
 			}),
-		[activeMetricConfig.minSpan, activeMetricConfig.referenceMode, activeSeries],
+		[
+			activeMetricConfig.minSpan,
+			activeMetricConfig.referenceMode,
+			activeSeries,
+			displayMode,
+			valueBaseline,
+		],
 	);
 	const { chartContainerRef, chartWidth, compactAxisMode } =
 		useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
-	const hasData = activeSeries.length >= 2;
+	const hasData = intervalSelection.hasSelectableRange;
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
 			activeMetricConfig.compactValueFormatter(axisLayout.minValue),
@@ -396,7 +343,6 @@ export function PortfolioTrendChart({
 		() => buildNumericXAxisDomain(activeChartData),
 		[activeChartData],
 	);
-	const chartDataKey = `${displayMode}:${activeRange}:${activeChartData.length}:${activeChartData[0]?.label ?? ""}:${activeChartData[activeChartData.length - 1]?.label ?? ""}`;
 
 	useEffect(() => {
 		if (
@@ -413,14 +359,10 @@ export function PortfolioTrendChart({
 		}
 		lastAutoResolvedModeRef.current = displayMode;
 
-		if (activeFallbackRange !== null && activeSeriesByRange[range].length < 2) {
+		if (activeFallbackRange !== null && !intervalSelection.hasSelectableRange) {
 			setRange(activeFallbackRange);
 		}
-	}, [activeFallbackRange, activeSeriesByRange, displayMode, range]);
-
-	useEffect(() => {
-		setActivePointIndex(null);
-	}, [chartDataKey]);
+	}, [activeFallbackRange, displayMode, intervalSelection.hasSelectableRange, range]);
 
 	function renderActiveDot(props: {
 		cx?: number;
@@ -450,32 +392,30 @@ export function PortfolioTrendChart({
 
 	const activeValueLabel =
 		displayMode === "value"
-			? activeSummaryState.selected
-				? "所选净值"
-				: "最新净值"
-			: activeSummaryState.selected
-				? "所选投资类收益率"
-				: "当前投资类收益率";
+			? "终点净值"
+			: "终点投资类收益率";
 	const activePeriodValue =
 		!hasActiveSummaryData
 			? "--"
 			: displayMode === "value"
-				? `${getChangeDirection(activeSummaryState.summary.changeValue)}${formatCny(Math.abs(activeSummaryState.summary.changeValue))} / ${formatSignedRatio(activeSummaryState.summary.changeRatio)}`
-				: formatPercentMetric(activeSummaryState.summary.changeValue, true);
+				? `${getChangeDirection(intervalChangeValue)}${formatCny(Math.abs(intervalChangeValue))} / ${formatSignedRatio(intervalChangeRatio)}`
+				: formatPercentMetric(intervalChangeValue, true);
 	const activeStepMetricLabel =
 		displayMode === "value"
-			? valueStepRateState.selected
-				? `至该点${VALUE_STEP_LABELS[activeRange]}`
-				: VALUE_STEP_LABELS[activeRange]
-			: returnStepDeltaState.selected
-				? `至该点${RETURN_STEP_LABELS[activeRange]}`
-				: RETURN_STEP_LABELS[activeRange];
+			? `区间内${VALUE_STEP_LABELS[activeRange]}`
+			: `区间内${RETURN_STEP_LABELS[activeRange]}`;
 	const activeStepMetricValue =
 		!hasActiveStepMetric
 			? "--"
 			: displayMode === "value"
-				? formatPercentMetric(valueStepRateState.value, true)
-				: formatPercentMetric(returnStepDeltaState.value, true);
+				? formatPercentMetric(
+						summarizeCompoundedValueStepRate(intervalSelection.intervalPoints),
+						true,
+					)
+				: formatPercentMetric(
+						summarizeAverageStepDelta(intervalSelection.intervalPoints),
+						true,
+					);
 
 	return (
 		<section className="analytics-card">
@@ -523,30 +463,37 @@ export function PortfolioTrendChart({
 						</button>
 					))}
 				</div>
-				<div className="analytics-card__meta analytics-card__meta--trend">
-					<div className="analytics-pill">
-						<span>{activeValueLabel}</span>
-						<strong>
-							{displayMode === "value"
-								? formatCny(activeSummaryState.summary.latestValue)
-								: hasActiveSummaryData
-									? formatPercentMetric(activeSummaryState.summary.latestValue)
-									: "--"}
-						</strong>
-					</div>
-					<div className="analytics-pill">
-						<span>
-							{hasActiveSummaryData
-								? activeSummaryState.periodLabel
-								: displayMode === "value"
-									? "暂无净值数据"
-									: "暂无投资类收益率数据"}
-						</span>
-						<strong>{activePeriodValue}</strong>
-					</div>
-					<div className="analytics-pill">
-						<span>{activeStepMetricLabel}</span>
-						<strong>{activeStepMetricValue}</strong>
+				<div className="portfolio-trend-card__summary-body">
+					<TimelineRangeSelector
+						selectablePoints={intervalSelection.selectablePoints}
+						startKey={intervalSelection.startKey}
+						endKey={intervalSelection.endKey}
+						isFullRangeSelected={intervalSelection.isFullRangeSelected}
+						onStartChange={intervalSelection.handleStartKeyChange}
+						onEndChange={intervalSelection.handleEndKeyChange}
+						onReset={intervalSelection.resetSelection}
+					/>
+					<div className="analytics-card__meta analytics-card__meta--trend">
+						<div className="analytics-pill">
+							<span>{activeValueLabel}</span>
+							<strong>
+								{displayMode === "value"
+									? hasActiveSummaryData
+										? formatCny(intervalLatestValue)
+										: "--"
+									: hasActiveSummaryData
+										? formatPercentMetric(intervalLatestValue)
+										: "--"}
+							</strong>
+						</div>
+						<div className="analytics-pill">
+							<span>{activePeriodLabel}</span>
+							<strong>{activePeriodValue}</strong>
+						</div>
+						<div className="analytics-pill">
+							<span>{activeStepMetricLabel}</span>
+							<strong>{activeStepMetricValue}</strong>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -568,22 +515,6 @@ export function PortfolioTrendChart({
 					<ResponsiveContainer width="100%" height={320}>
 						<ComposedChart
 							data={activeChartData}
-							onMouseMove={({ activeTooltipIndex, isTooltipActive }) => {
-								if (!isTooltipActive || typeof activeTooltipIndex !== "number") {
-									setActivePointIndex(null);
-									return;
-								}
-
-								if (
-									!isInteractiveTrendPoint(activeChartData[activeTooltipIndex])
-								) {
-									setActivePointIndex(null);
-									return;
-								}
-
-								setActivePointIndex(activeTooltipIndex);
-							}}
-							onMouseLeave={() => setActivePointIndex(null)}
 							margin={{
 								top: 18,
 								right: compactAxisMode ? 28 : 20,

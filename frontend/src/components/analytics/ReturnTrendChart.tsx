@@ -26,7 +26,7 @@ import {
 	formatTimelineAxisLabel,
 	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
-	getFirstRenderableTimelineRange,
+	getFirstSelectableTimelineRange,
 	getTimelineChartTickIndices,
 	formatCompactPercentMetric,
 	formatPercentMetric,
@@ -42,8 +42,10 @@ import {
 	type ThresholdSegmentedCoordinatePoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
+import { TimelineRangeSelector } from "./TimelineRangeSelector";
 import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
+import { useTimelineRangeSelection } from "./useTimelineRangeSelection";
 
 type ReturnTrendSeriesOption = {
 	key: string;
@@ -124,31 +126,6 @@ type TooltipPayloadEntry = {
 	payload?: { value?: number };
 };
 
-function findPointIndex(
-	series: TimelinePoint[],
-	point: Pick<TimelinePoint, "label" | "timestamp_utc"> | null,
-): number | null {
-	if (!point) {
-		return null;
-	}
-
-	if (point.timestamp_utc) {
-		const matchedTimestampIndex = series.findIndex(
-			(candidate) => candidate.timestamp_utc === point.timestamp_utc,
-		);
-		if (matchedTimestampIndex >= 0) {
-			return matchedTimestampIndex;
-		}
-	}
-
-	if (!point.label) {
-		return null;
-	}
-
-	const matchedIndex = series.findIndex((candidate) => candidate.label === point.label);
-	return matchedIndex >= 0 ? matchedIndex : null;
-}
-
 function isInteractiveTrendPoint(
 	point: Pick<ThresholdSegmentedPoint, "crossingPoint" | "synthetic"> | null | undefined,
 ): boolean {
@@ -206,7 +183,6 @@ export function ReturnTrendChart({
 }: ReturnTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [selectedKey, setSelectedKey] = useState(seriesOptions[0]?.key ?? "");
-	const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 	const lastAutoResolvedSeriesKeyRef = useRef<string | null>(null);
 
 	const selectedOption = useMemo(() => {
@@ -246,13 +222,11 @@ export function ReturnTrendChart({
 		[selectedOption],
 	);
 	const fallbackRange = useMemo(
-		() => getFirstRenderableTimelineRange(seriesByRange),
+		() => getFirstSelectableTimelineRange(seriesByRange),
 		[seriesByRange],
 	);
 	const activeRange = range;
 	const series = seriesByRange[activeRange];
-	const rangeSummary = summarizeTimeline(series);
-	const rangeStepDelta = summarizeAverageStepDelta(series);
 	const axisLayout = useMemo(
 		() =>
 			calculateTimelineReferenceAxisLayout(series, {
@@ -267,23 +241,25 @@ export function ReturnTrendChart({
 	);
 	const { chartContainerRef, chartWidth, compactAxisMode } = useResponsiveChartFrame();
 	const { chartInteractionHandlers } = useChartInteractionLock();
-	const activePoint = activePointIndex === null ? null : chartData[activePointIndex] ?? null;
-	const selectedPoint = isInteractiveTrendPoint(activePoint) ? activePoint : null;
-	const selectedSeriesIndex = findPointIndex(series, selectedPoint);
-	const visibleSeries =
-		selectedSeriesIndex === null ? series : series.slice(0, selectedSeriesIndex + 1);
-	const hasData = series.length >= 2;
-	const visibleSummary =
-		selectedSeriesIndex === null ? rangeSummary : summarizeTimeline(visibleSeries);
-	const periodLabel = formatTimelineRangeLabel(
-		series[0],
-		visibleSeries[visibleSeries.length - 1] ?? series[series.length - 1],
-		"最新周期",
-	);
-	const visibleCompoundedStepRate =
-		selectedSeriesIndex === null
-			? rangeStepDelta
-			: summarizeAverageStepDelta(visibleSeries);
+	const intervalSelection = useTimelineRangeSelection(series);
+	const hasData = intervalSelection.hasSelectableRange;
+	const intervalSummary =
+		intervalSelection.intervalPoints.length > 0
+			? summarizeTimeline(intervalSelection.intervalPoints)
+			: null;
+	const periodLabel =
+		intervalSelection.startPoint && intervalSelection.endPoint
+			? formatTimelineRangeLabel(
+					intervalSelection.startPoint.point,
+					intervalSelection.endPoint.point,
+					"终点",
+				)
+			: "暂无收益率数据";
+	const intervalLatestValue = intervalSummary?.latestValue ?? 0;
+	const intervalChangeValue = intervalSummary?.changeValue ?? 0;
+	const visibleCompoundedStepRate = hasData
+		? summarizeAverageStepDelta(intervalSelection.intervalPoints)
+		: 0;
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
 			formatCompactPercentMetric(axisLayout.minValue),
@@ -305,7 +281,6 @@ export function ReturnTrendChart({
 		[chartData],
 	);
 	const xAxisDomain = useMemo(() => buildNumericXAxisDomain(chartData), [chartData]);
-	const chartDataKey = `${selectedOption?.key ?? "none"}:${activeRange}:${chartData.length}:${chartData[0]?.label ?? ""}:${chartData[chartData.length - 1]?.label ?? ""}`;
 	const resolvedEmptyMessage =
 		emptyMessage.trim().length > 0
 			? `${emptyMessage} 当前所选周期的数据会在累计后补齐。`
@@ -317,14 +292,10 @@ export function ReturnTrendChart({
 		}
 		lastAutoResolvedSeriesKeyRef.current = selectedOption?.key ?? null;
 
-		if (fallbackRange !== null && seriesByRange[range].length < 2) {
+		if (fallbackRange !== null && !intervalSelection.hasSelectableRange) {
 			setRange(fallbackRange);
 		}
-	}, [fallbackRange, range, selectedOption?.key, seriesByRange]);
-
-	useEffect(() => {
-		setActivePointIndex(null);
-	}, [chartDataKey]);
+	}, [fallbackRange, intervalSelection.hasSelectableRange, selectedOption?.key]);
 
 	function renderActiveDot(props: {
 		cx?: number;
@@ -390,29 +361,48 @@ export function ReturnTrendChart({
 				</label>
 			) : null}
 
-			<div className="analytics-card__meta">
-				<div className="analytics-pill">
-					<span>{selectorLabel}</span>
-					<strong>{selectedOption?.label ?? "未选择"}</strong>
-				</div>
-				<div className="analytics-pill">
-					<span>{selectedPoint ? "所选收益率" : "当前收益率"}</span>
-					<strong>{formatPercentMetric(visibleSummary.latestValue)}</strong>
-				</div>
-				<div className="analytics-pill">
-					<span>{periodLabel}</span>
-					<strong>{formatPercentMetric(visibleSummary.changeValue, true)}</strong>
-				</div>
-				{showCompoundedStepRate ? (
+			<div className="analytics-card__meta analytics-card__meta--stacked">
+				<TimelineRangeSelector
+					selectablePoints={intervalSelection.selectablePoints}
+					startKey={intervalSelection.startKey}
+					endKey={intervalSelection.endKey}
+					isFullRangeSelected={intervalSelection.isFullRangeSelected}
+					onStartChange={intervalSelection.handleStartKeyChange}
+					onEndChange={intervalSelection.handleEndKeyChange}
+					onReset={intervalSelection.resetSelection}
+				/>
+				<div className="analytics-card__meta">
 					<div className="analytics-pill">
-						<span>
-							{selectedPoint
-								? `至该点${STEP_DELTA_LABELS[activeRange]}`
-								: STEP_DELTA_LABELS[activeRange]}
-						</span>
-						<strong>{formatPercentMetric(visibleCompoundedStepRate, true)}</strong>
+						<span>{selectorLabel}</span>
+						<strong>{selectedOption?.label ?? "未选择"}</strong>
 					</div>
-				) : null}
+					<div className="analytics-pill">
+						<span>终点收益率</span>
+						<strong>
+							{intervalSummary
+								? formatPercentMetric(intervalLatestValue)
+								: "--"}
+						</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>{periodLabel}</span>
+						<strong>
+							{intervalSummary
+								? formatPercentMetric(intervalChangeValue, true)
+								: "--"}
+						</strong>
+					</div>
+					{showCompoundedStepRate ? (
+						<div className="analytics-pill">
+							<span>{`区间内${STEP_DELTA_LABELS[activeRange]}`}</span>
+							<strong>
+								{intervalSelection.intervalPoints.length >= 2
+									? formatPercentMetric(visibleCompoundedStepRate, true)
+									: "--"}
+							</strong>
+						</div>
+					) : null}
+				</div>
 			</div>
 
 			{loading ? (
@@ -428,22 +418,6 @@ export function ReturnTrendChart({
 					<ResponsiveContainer width="100%" height={300}>
 						<ComposedChart
 							data={chartData}
-							onMouseMove={({ activeTooltipIndex, isTooltipActive }) => {
-								if (!isTooltipActive || typeof activeTooltipIndex !== "number") {
-									setActivePointIndex(null);
-									return;
-								}
-
-								if (
-									!isInteractiveTrendPoint(chartData[activeTooltipIndex])
-								) {
-									setActivePointIndex(null);
-									return;
-								}
-
-								setActivePointIndex(activeTooltipIndex);
-							}}
-							onMouseLeave={() => setActivePointIndex(null)}
 							margin={{
 								top: 18,
 								right: compactAxisMode ? 28 : 20,
