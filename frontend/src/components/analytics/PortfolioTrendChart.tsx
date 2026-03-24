@@ -115,8 +115,6 @@ const RETURN_STEP_LABELS: Record<TimelineRange, string> = {
 	year: "月均变动",
 };
 
-const POSITIVE_TREND_COLOR = "#009BC1";
-const NEGATIVE_TREND_COLOR = "#D7336C";
 const POSITIVE_TREND_FILL = "rgba(0, 155, 193, 0.22)";
 const NEGATIVE_TREND_FILL = "rgba(215, 51, 108, 0.22)";
 const TREND_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
@@ -648,9 +646,8 @@ export function PortfolioTrendChart({
 								type="linear"
 								data={activeAreaData}
 								dataKey="positiveValue"
-								stroke={POSITIVE_TREND_COLOR}
+								stroke="none"
 								fill={POSITIVE_TREND_FILL}
-								strokeWidth={1.2}
 								baseValue={axisLayout.referenceValue}
 								connectNulls
 							/>
@@ -658,9 +655,8 @@ export function PortfolioTrendChart({
 								type="linear"
 								data={activeAreaData}
 								dataKey="negativeValue"
-								stroke={NEGATIVE_TREND_COLOR}
+								stroke="none"
 								fill={NEGATIVE_TREND_FILL}
-								strokeWidth={1.2}
 								baseValue={axisLayout.referenceValue}
 								connectNulls
 							/>

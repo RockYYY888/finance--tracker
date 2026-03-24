@@ -18,6 +18,7 @@ const rechartsState = vi.hoisted(() => ({
 		height?: string | number;
 	}>,
 	lines: [] as Array<Record<string, unknown>>,
+	areas: [] as Array<Record<string, unknown>>,
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
@@ -49,7 +50,10 @@ vi.mock("recharts", () => ({
 		rechartsState.referenceLines.push(props);
 		return null;
 	},
-	Area: () => null,
+	Area: (props: Record<string, unknown>) => {
+		rechartsState.areas.push(props);
+		return null;
+	},
 	Line: (props: Record<string, unknown>) => {
 		rechartsState.lines.push(props);
 		return null;
@@ -124,6 +128,7 @@ describe("analytics charts responsive layout", () => {
 	beforeEach(() => {
 		rechartsState.responsiveContainers.length = 0;
 		rechartsState.lines.length = 0;
+		rechartsState.areas.length = 0;
 		rechartsState.xAxes.length = 0;
 		rechartsState.yAxes.length = 0;
 		rechartsState.pies.length = 0;
@@ -489,6 +494,59 @@ describe("analytics charts responsive layout", () => {
 				},
 			}),
 		).not.toBeNull();
+	});
+
+	it("renders shaded timeline areas as fill-only layers and keeps the white line separate", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{ label: "03-23 15:00", value: 257_000 },
+					{ label: "03-24", value: 239_000 },
+					{ label: "03-24 15:00", value: 239_000, synthetic: true },
+				]}
+				month_series={[]}
+				year_series={[]}
+			/>,
+		);
+
+		render(
+			<ReturnTrendChart
+				defaultRange="day"
+				title="收益趋势"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"组合",
+						[],
+						[
+							{ label: "03-23 15:00", value: 2.5 },
+							{ label: "03-24", value: -4.1 },
+							{ label: "03-24 15:00", value: -4.1, synthetic: true },
+						],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.areas.length).toBeGreaterThanOrEqual(4);
+			expect(rechartsState.lines.length).toBeGreaterThanOrEqual(2);
+		});
+
+		rechartsState.areas.forEach((areaProps) => {
+			expect(areaProps.stroke).toBe("none");
+			expect(areaProps.fill).toBeTruthy();
+			expect(areaProps.data).toBeTruthy();
+		});
+
+		rechartsState.lines.forEach((lineProps) => {
+			expect(lineProps.dataKey).toBe("value");
+			expect(lineProps.stroke).not.toBe("none");
+		});
 	});
 
 	it("does not render dashed helper lines in timeline charts", async () => {

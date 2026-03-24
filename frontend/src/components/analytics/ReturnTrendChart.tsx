@@ -78,8 +78,6 @@ const STEP_DELTA_LABELS: Record<TimelineRange, string> = {
 	year: "月均变动",
 };
 
-const POSITIVE_RETURN_COLOR = "#009BC1";
-const NEGATIVE_RETURN_COLOR = "#D7336C";
 const POSITIVE_RETURN_FILL = "rgba(0, 155, 193, 0.22)";
 const NEGATIVE_RETURN_FILL = "rgba(215, 51, 108, 0.22)";
 const RETURN_LINE_COLOR = "rgba(230, 235, 241, 0.95)";
@@ -502,9 +500,8 @@ export function ReturnTrendChart({
 								type="linear"
 								data={areaData}
 								dataKey="positiveValue"
-								stroke={POSITIVE_RETURN_COLOR}
+								stroke="none"
 								fill={POSITIVE_RETURN_FILL}
-								strokeWidth={1.2}
 								baseValue={ZERO_RETURN_THRESHOLD}
 								connectNulls
 							/>
@@ -512,9 +509,8 @@ export function ReturnTrendChart({
 								type="linear"
 								data={areaData}
 								dataKey="negativeValue"
-								stroke={NEGATIVE_RETURN_COLOR}
+								stroke="none"
 								fill={NEGATIVE_RETURN_FILL}
-								strokeWidth={1.2}
 								baseValue={ZERO_RETURN_THRESHOLD}
 								connectNulls
 							/>
