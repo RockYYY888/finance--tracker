@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import http.cookiejar
 import json
 from pathlib import Path
 import re
@@ -176,11 +175,14 @@ def _json_request(
 	url: str,
 	payload: dict[str, Any] | None,
 	api_token: str | None,
+	authorization: str | None = None,
 ) -> dict[str, Any]:
 	body = None if payload is None else json.dumps(payload).encode("utf-8")
 	headers = {"Content-Type": "application/json"}
 	if api_token:
 		headers["X-API-Key"] = api_token
+	if authorization:
+		headers["Authorization"] = authorization
 	req = request.Request(url, data=body, headers=headers, method=method)
 	try:
 		with opener.open(req) as response:
@@ -205,6 +207,84 @@ def _login(
 		url=f"{origin}/api/auth/login",
 		payload={"user_id": admin_user, "password": admin_password},
 		api_token=api_token,
+	)
+
+
+def _issue_agent_access_token(
+	opener: request.OpenerDirector,
+	*,
+	origin: str,
+	admin_user: str,
+	admin_password: str,
+	api_token: str | None,
+) -> str:
+	response_payload = _json_request(
+		opener,
+		method="POST",
+		url=f"{origin}/api/agent/tokens/issue",
+		payload={
+			"user_id": admin_user,
+			"password": admin_password,
+			"name": "release-note-publisher",
+			"expires_in_days": 1,
+		},
+		api_token=api_token,
+	)
+	access_token = response_payload.get("access_token")
+	if not isinstance(access_token, str) or not access_token.strip():
+		raise RuntimeError("Agent token issue response did not include access_token.")
+	return access_token
+
+
+def _is_session_auth_failure(exc: RuntimeError) -> bool:
+	message = str(exc)
+	return "401" in message and ("请先登录" in message or "请重新登录" in message)
+
+
+def _publish_release_note_with_admin_auth(
+	opener: request.OpenerDirector,
+	*,
+	origin: str,
+	admin_user: str,
+	admin_password: str,
+	api_token: str | None,
+	payload: dict[str, Any],
+) -> dict[str, Any]:
+	# Production currently serves HTTP only, so the secure session cookie from login is not
+	# sent back on follow-up requests. Fall back to a short-lived bearer token when that happens.
+	_login(
+		opener,
+		origin=origin,
+		admin_user=admin_user,
+		admin_password=admin_password,
+		api_token=api_token,
+	)
+	try:
+		return _json_request(
+			opener,
+			method="POST",
+			url=f"{origin}/api/admin/release-notes/publish-changelog",
+			payload=payload,
+			api_token=api_token,
+		)
+	except RuntimeError as exc:
+		if not _is_session_auth_failure(exc):
+			raise
+
+	access_token = _issue_agent_access_token(
+		opener,
+		origin=origin,
+		admin_user=admin_user,
+		admin_password=admin_password,
+		api_token=api_token,
+	)
+	return _json_request(
+		opener,
+		method="POST",
+		url=f"{origin}/api/admin/release-notes/publish-changelog",
+		payload=payload,
+		api_token=api_token,
+		authorization=f"Bearer {access_token}",
 	)
 
 
@@ -327,22 +407,15 @@ def main(argv: list[str] | None = None) -> None:
 	if args.dry_run:
 		return
 
-	cookie_jar = http.cookiejar.CookieJar()
-	opener = request.build_opener(request.HTTPCookieProcessor(cookie_jar))
+	opener = request.build_opener()
 	origin = _normalize_origin(args.origin)
-	_login(
+	response_payload = _publish_release_note_with_admin_auth(
 		opener,
 		origin=origin,
 		admin_user=args.admin_user,
 		admin_password=args.admin_password,
 		api_token=args.api_token,
-	)
-	response_payload = _json_request(
-		opener,
-		method="POST",
-		url=f"{origin}/api/admin/release-notes/publish-changelog",
 		payload=payload,
-		api_token=args.api_token,
 	)
 	print(json.dumps(response_payload, ensure_ascii=False, indent=2))
 
