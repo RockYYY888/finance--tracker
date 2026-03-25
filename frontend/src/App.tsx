@@ -1344,17 +1344,30 @@ function App() {
 			defaultAssetApiClient.listAgentTasks(),
 			defaultAssetApiClient.listAssetRecords({
 				source: "AGENT",
-				limit: 120,
+				limit: 200,
+			}),
+			defaultAssetApiClient.listAssetRecords({
+				source: "API",
+				limit: 200,
 			}),
 		])
-			.then(([registrations, apiKeys, tasks, records]) => {
+			.then(([registrations, apiKeys, tasks, agentRecords, directApiRecords]) => {
 				if (latestAgentAuditRequestIdRef.current !== requestId) {
 					return;
 				}
 				setAgentRegistrations(registrations);
 				setAgentApiKeys(apiKeys);
 				setAgentTasks(tasks);
-				setAgentRecords(records);
+				setAgentRecords(
+					[...agentRecords, ...directApiRecords].sort((left, right) => {
+						const leftTime = left.created_at ? Date.parse(left.created_at) : 0;
+						const rightTime = right.created_at ? Date.parse(right.created_at) : 0;
+						if (leftTime !== rightTime) {
+							return rightTime - leftTime;
+						}
+						return right.id - left.id;
+					}),
+				);
 				hasLoadedAgentAuditRef.current = true;
 			})
 			.catch((error) => {

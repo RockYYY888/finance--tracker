@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
 
 from sqlmodel import Session, select
 from starlette.requests import Request
@@ -12,6 +13,7 @@ from app.schemas import AgentTaskCreate, AgentTokenCreate, CashAccountCreate
 from app.services.agent_service import create_agent_task, list_agent_registrations, list_agent_tasks
 from app.services.asset_record_service import list_asset_records
 from app.services.auth_service import (
+	AGENT_REGISTRATION_ACTIVE_WINDOW,
 	create_agent_token_for_current_session,
 	get_current_user,
 	revoke_agent_token,
@@ -41,6 +43,19 @@ class AgentWorkspaceDemoSeedSummary:
 
 
 def _build_bearer_request(access_token: str) -> Request:
+	return _build_bearer_request_with_agent_name(access_token, agent_name=None)
+
+
+def _build_bearer_request_with_agent_name(
+	access_token: str,
+	*,
+	agent_name: str | None,
+) -> Request:
+	headers: list[tuple[bytes, bytes]] = [
+		(b"authorization", f"Bearer {access_token}".encode("utf-8")),
+	]
+	if agent_name:
+		headers.append((b"agent-name", agent_name.encode("utf-8")))
 	scope = {
 		"type": "http",
 		"method": "POST",
@@ -48,9 +63,7 @@ def _build_bearer_request(access_token: str) -> Request:
 		"scheme": "http",
 		"http_version": "1.1",
 		"query_string": b"",
-		"headers": [
-			(b"authorization", f"Bearer {access_token}".encode("utf-8")),
-		],
+		"headers": headers,
 		"client": ("127.0.0.1", 12345),
 		"session": {},
 	}
@@ -99,16 +112,25 @@ def _authenticate_with_agent_token(
 	session: Session,
 	*,
 	access_token: str,
+	agent_name: str | None = None,
 ) -> UserAccount:
-	previous_source = runtime_state.current_actor_source_context.get()
-	try:
-		return get_current_user(
-			_build_bearer_request(access_token),
-			session,
-			None,
-		)
-	finally:
-		runtime_state.current_actor_source_context.set(previous_source)
+	return get_current_user(
+		_build_bearer_request_with_agent_name(access_token, agent_name=agent_name),
+		session,
+		None,
+	)
+
+
+def _reset_authenticated_request_contexts() -> None:
+	runtime_state.current_actor_source_context.set("USER")
+	runtime_state.current_api_key_name_context.set(None)
+	runtime_state.current_agent_name_context.set(None)
+
+
+def _set_agent_request_context(*, api_key_name: str, agent_name: str) -> None:
+	runtime_state.current_actor_source_context.set("AGENT")
+	runtime_state.current_api_key_name_context.set(api_key_name)
+	runtime_state.current_agent_name_context.set(agent_name)
 
 
 def _ensure_support_account(
@@ -164,7 +186,14 @@ def _ensure_active_agent_registration(
 		current_user,
 		session,
 	)
-	_authenticate_with_agent_token(session, access_token=token.access_token)
+	try:
+		_authenticate_with_agent_token(
+			session,
+			access_token=token.access_token,
+			agent_name=DEMO_ACTIVE_AGENT_NAME,
+		)
+	finally:
+		_reset_authenticated_request_contexts()
 	return token.access_token
 
 
@@ -186,8 +215,27 @@ def _ensure_inactive_agent_registration(
 		current_user,
 		session,
 	)
-	_authenticate_with_agent_token(session, access_token=token.access_token)
+	try:
+		_authenticate_with_agent_token(
+			session,
+			access_token=token.access_token,
+			agent_name=DEMO_INACTIVE_AGENT_NAME,
+		)
+	finally:
+		_reset_authenticated_request_contexts()
 	revoke_agent_token(token.id, current_user, session)
+	registration = _get_registration(
+		session,
+		user_id=current_user.username,
+		name=DEMO_INACTIVE_AGENT_NAME,
+	)
+	if registration is not None:
+		registration.status = "INACTIVE"
+		registration.last_seen_at = registration.last_seen_at - (
+			AGENT_REGISTRATION_ACTIVE_WINDOW + timedelta(minutes=1)
+		)
+		session.add(registration)
+		session.commit()
 
 
 def _ensure_direct_api_account(
@@ -210,10 +258,8 @@ def _ensure_direct_api_account(
 			session,
 		)
 		active_access_token = token.access_token
-	agent_user = _authenticate_with_agent_token(session, access_token=active_access_token)
-	previous_source = runtime_state.current_actor_source_context.get()
 	try:
-		runtime_state.current_actor_source_context.set("AGENT")
+		agent_user = _authenticate_with_agent_token(session, access_token=active_access_token)
 		create_account(
 			CashAccountCreate(
 				name=DEMO_DIRECT_ACCOUNT_NAME,
@@ -227,7 +273,7 @@ def _ensure_direct_api_account(
 			session,
 		)
 	finally:
-		runtime_state.current_actor_source_context.set(previous_source)
+		_reset_authenticated_request_contexts()
 	account = _get_demo_cash_account(
 		session,
 		user_id=current_user.username,
@@ -248,21 +294,28 @@ def _ensure_create_transfer_task(
 	if _task_exists(session, user_id=current_user.username, note_marker=DEMO_CREATE_TRANSFER_NOTE):
 		return
 
-	create_agent_task(
-		AgentTaskCreate(
-			task_type="CREATE_CASH_TRANSFER",
-			payload={
-				"from_account_id": source_account_id,
-				"to_account_id": target_account_id,
-				"source_amount": 60,
-				"transferred_on": "2026-03-13",
-				"note": DEMO_CREATE_TRANSFER_NOTE,
-			},
-		),
-		current_user,
-		session,
-		"agent-demo-create-transfer",
-	)
+	try:
+		_set_agent_request_context(
+			api_key_name=DEMO_ACTIVE_AGENT_NAME,
+			agent_name=DEMO_ACTIVE_AGENT_NAME,
+		)
+		create_agent_task(
+			AgentTaskCreate(
+				task_type="CREATE_CASH_TRANSFER",
+				payload={
+					"from_account_id": source_account_id,
+					"to_account_id": target_account_id,
+					"source_amount": 60,
+					"transferred_on": "2026-03-13",
+					"note": DEMO_CREATE_TRANSFER_NOTE,
+				},
+			),
+			current_user,
+			session,
+			"agent-demo-create-transfer",
+		)
+	finally:
+		_reset_authenticated_request_contexts()
 	_run_pending_jobs()
 	session.expire_all()
 
@@ -301,20 +354,27 @@ def _ensure_update_transfer_task(
 	if _task_exists(session, user_id=current_user.username, note_marker=DEMO_UPDATE_TRANSFER_NOTE):
 		return
 
-	create_agent_task(
-		AgentTaskCreate(
-			task_type="UPDATE_CASH_TRANSFER",
-			payload={
-				"transfer_id": transfer_id,
-				"source_amount": 45,
-				"transferred_on": "2026-03-14",
-				"note": DEMO_UPDATE_TRANSFER_NOTE,
-			},
-		),
-		current_user,
-		session,
-		"agent-demo-update-transfer",
-	)
+	try:
+		_set_agent_request_context(
+			api_key_name=DEMO_ACTIVE_AGENT_NAME,
+			agent_name=DEMO_ACTIVE_AGENT_NAME,
+		)
+		create_agent_task(
+			AgentTaskCreate(
+				task_type="UPDATE_CASH_TRANSFER",
+				payload={
+					"transfer_id": transfer_id,
+					"source_amount": 45,
+					"transferred_on": "2026-03-14",
+					"note": DEMO_UPDATE_TRANSFER_NOTE,
+				},
+			),
+			current_user,
+			session,
+			"agent-demo-update-transfer",
+		)
+	finally:
+		_reset_authenticated_request_contexts()
 	_run_pending_jobs()
 	session.expire_all()
 
@@ -328,20 +388,27 @@ def _ensure_ledger_adjustment_task(
 	if _task_exists(session, user_id=current_user.username, note_marker=DEMO_LEDGER_NOTE):
 		return
 
-	create_agent_task(
-		AgentTaskCreate(
-			task_type="CREATE_CASH_LEDGER_ADJUSTMENT",
-			payload={
-				"cash_account_id": cash_account_id,
-				"amount": 8,
-				"happened_on": "2026-03-14",
-				"note": DEMO_LEDGER_NOTE,
-			},
-		),
-		current_user,
-		session,
-		"agent-demo-ledger-adjustment",
-	)
+	try:
+		_set_agent_request_context(
+			api_key_name=DEMO_ACTIVE_AGENT_NAME,
+			agent_name=DEMO_ACTIVE_AGENT_NAME,
+		)
+		create_agent_task(
+			AgentTaskCreate(
+				task_type="CREATE_CASH_LEDGER_ADJUSTMENT",
+				payload={
+					"cash_account_id": cash_account_id,
+					"amount": 8,
+					"happened_on": "2026-03-14",
+					"note": DEMO_LEDGER_NOTE,
+				},
+			),
+			current_user,
+			session,
+			"agent-demo-ledger-adjustment",
+		)
+	finally:
+		_reset_authenticated_request_contexts()
 	_run_pending_jobs()
 	session.expire_all()
 
@@ -383,8 +450,9 @@ def seed_agent_workspace_demo(
 	session.expire_all()
 	registrations = list_agent_registrations(current_user, session, include_all_users=False)
 	tasks = list_agent_tasks(current_user, session, limit=50)
-	records = list_asset_records(current_user, session, source="AGENT", limit=120)
-	direct_api_records = [record for record in records if record.agent_task_id is None]
+	records = list_asset_records(current_user, session, limit=200)
+	agent_records = [record for record in records if record.source == "AGENT"]
+	direct_api_records = [record for record in records if record.source == "API"]
 
 	return AgentWorkspaceDemoSeedSummary(
 		registrations=len(registrations),
@@ -393,7 +461,7 @@ def seed_agent_workspace_demo(
 		),
 		tasks=len(tasks),
 		direct_api_records=len(direct_api_records),
-		agent_records=len(records),
+		agent_records=len(agent_records),
 	)
 
 

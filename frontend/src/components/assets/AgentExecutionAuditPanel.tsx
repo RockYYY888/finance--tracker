@@ -1,5 +1,7 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
+import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
 import {
 	formatDateValue,
 	formatMoneyAmount,
@@ -18,6 +20,7 @@ import type {
 	AgentRegistrationRecord,
 	AgentTaskRecord,
 	AssetRecordRecord,
+	AssetRecordSource,
 } from "../../types/assets";
 import "./asset-components.css";
 
@@ -39,6 +42,9 @@ export interface AgentExecutionAuditPanelProps {
 	onDismissIssuedApiKey?: () => void;
 }
 
+const MAX_ACTIVE_API_KEYS = 5;
+const MAX_DAILY_API_KEY_CREATIONS = 10;
+
 const TASK_LABELS: Record<string, string> = {
 	CREATE_BUY_TRANSACTION: "新增买入",
 	CREATE_SELL_TRANSACTION: "新增卖出",
@@ -49,6 +55,16 @@ const TASK_LABELS: Record<string, string> = {
 	UPDATE_CASH_LEDGER_ADJUSTMENT: "编辑现金余额修正",
 	DELETE_CASH_LEDGER_ADJUSTMENT: "删除现金余额修正",
 };
+
+const REQUEST_SOURCE_LABELS: Record<AssetRecordSource, string> = {
+	USER: "用户",
+	SYSTEM: "系统",
+	API: "直连 API",
+	AGENT: "Agent",
+};
+
+type ActivityView = "ALL" | "TASKS" | "RECORDS";
+type ActivitySourceFilter = "ALL" | "AGENT" | "API";
 
 function formatTaskLabel(taskType: string): string {
 	return TASK_LABELS[taskType] ?? taskType;
@@ -88,7 +104,7 @@ function getApiKeyStatus(apiKey: AgentApiKeyRecord): {
 } {
 	if (apiKey.revoked_at) {
 		return {
-			label: "已撤销",
+			label: "已删除",
 			className: "asset-manager__badge asset-manager__badge--muted",
 		};
 	}
@@ -105,6 +121,16 @@ function getApiKeyStatus(apiKey: AgentApiKeyRecord): {
 		label: "有效",
 		className: "asset-manager__badge asset-records__source-badge",
 	};
+}
+
+function describeRequestIdentity(
+	source: AssetRecordSource,
+	agentName?: string | null,
+): string {
+	if (source === "AGENT") {
+		return agentName?.trim() ? `Agent · ${agentName}` : "Agent";
+	}
+	return REQUEST_SOURCE_LABELS[source];
 }
 
 async function copyTextToClipboard(value: string): Promise<void> {
@@ -135,6 +161,78 @@ async function copyTextToClipboard(value: string): Promise<void> {
 	}
 }
 
+function AgentWorkspaceDialog({
+	open,
+	onClose,
+	title,
+	eyebrow,
+	description,
+	children,
+	panelClassName,
+	dialogScope,
+}: {
+	open: boolean;
+	onClose: () => void;
+	title: string;
+	eyebrow: string;
+	description: string;
+	children: ReactNode;
+	panelClassName?: string;
+	dialogScope: string;
+}) {
+	useBodyScrollLock(open);
+	useAutoRefreshGuard(open, dialogScope);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+
+		function handleKeyDown(event: KeyboardEvent): void {
+			if (event.key === "Escape") {
+				onClose();
+			}
+		}
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [onClose, open]);
+
+	if (!open) {
+		return null;
+	}
+
+	return (
+		<div className="feedback-modal" role="dialog" aria-modal="true" aria-labelledby={`${dialogScope}-title`}>
+			<button
+				type="button"
+				className="feedback-modal__backdrop"
+				onClick={onClose}
+				aria-label={`关闭${title}`}
+			/>
+			<div
+				className={`feedback-modal__panel agent-workspace__modal-panel ${panelClassName ?? ""}`.trim()}
+			>
+				<div className="feedback-modal__head agent-workspace__modal-head">
+					<div>
+						<p className="eyebrow">{eyebrow}</p>
+						<h2 id={`${dialogScope}-title`}>{title}</h2>
+						<p className="feedback-modal__copy">{description}</p>
+					</div>
+					<button
+						type="button"
+						className="hero-note hero-note--action"
+						onClick={onClose}
+					>
+						关闭
+					</button>
+				</div>
+				{children}
+			</div>
+		</div>
+	);
+}
+
 function AgentRecordList({
 	records,
 	emptyMessage,
@@ -147,13 +245,13 @@ function AgentRecordList({
 	}
 
 	return (
-		<ul className="asset-manager__list">
+		<ul className="asset-manager__list asset-records__list">
 			{records.map((record) => {
 				const amount = formatRecordAmount(record);
 				const hasProfit =
-					record.profit_amount != null &&
-					record.profit_currency &&
-					record.profit_rate_pct != null;
+					record.profit_amount != null
+					&& record.profit_currency
+					&& record.profit_rate_pct != null;
 				const profitToneClass =
 					(record.profit_amount ?? 0) >= 0
 						? "asset-records__profit-chip--positive"
@@ -173,15 +271,9 @@ function AgentRecordList({
 									<span className="asset-manager__badge asset-records__source-badge">
 										{SOURCE_BADGE_LABELS[record.source]}
 									</span>
-									{record.agent_task_id ? (
-										<span className="asset-manager__badge asset-manager__badge--muted">
-											任务 #{record.agent_task_id}
-										</span>
-									) : (
-										<span className="asset-manager__badge asset-manager__badge--muted">
-											直连 API
-										</span>
-									)}
+									<span className="asset-manager__badge asset-manager__badge--muted">
+										{describeRequestIdentity(record.source, record.agent_name)}
+									</span>
 								</div>
 								<h3>{record.title}</h3>
 								<p className="asset-manager__card-note">{record.summary}</p>
@@ -190,6 +282,14 @@ function AgentRecordList({
 
 						<div className="asset-manager__metric-grid">
 							<div className="asset-manager__metric">
+								<span>API Key</span>
+								<strong>{record.api_key_name ?? "—"}</strong>
+							</div>
+							<div className="asset-manager__metric">
+								<span>Agent 名称</span>
+								<strong>{record.source === "AGENT" ? record.agent_name ?? "Agent" : "直连 API"}</strong>
+							</div>
+							<div className="asset-manager__metric">
 								<span>生效日期</span>
 								<strong>{formatDateValue(record.effective_date)}</strong>
 							</div>
@@ -197,6 +297,12 @@ function AgentRecordList({
 								<span>记录时间</span>
 								<strong>{formatTimestamp(record.created_at)}</strong>
 							</div>
+							{record.agent_task_id ? (
+								<div className="asset-manager__metric">
+									<span>关联任务</span>
+									<strong>#{record.agent_task_id}</strong>
+								</div>
+							) : null}
 							{amount ? (
 								<div className="asset-manager__metric">
 									<span>记录值</span>
@@ -225,6 +331,92 @@ function AgentRecordList({
 	);
 }
 
+function AgentTaskList({
+	tasks,
+	recordsByTaskId,
+	emptyMessage,
+}: {
+	tasks: AgentTaskRecord[];
+	recordsByTaskId: Map<number, AssetRecordRecord[]>;
+	emptyMessage: string;
+}) {
+	if (tasks.length === 0) {
+		return <div className="asset-manager__empty-state">{emptyMessage}</div>;
+	}
+
+	return (
+		<ul className="asset-manager__list">
+			{tasks.map((task) => {
+				const relatedRecords = recordsByTaskId.get(task.id) ?? [];
+
+				return (
+					<li key={task.id} className="asset-manager__card">
+						<div className="asset-manager__card-top">
+							<div className="asset-manager__card-title">
+								<div className="asset-manager__badge-row">
+									<span className="asset-manager__badge">
+										{REQUEST_SOURCE_LABELS[task.request_source]}
+									</span>
+									<span className="asset-manager__badge asset-manager__badge--muted">
+										{task.status}
+									</span>
+									{task.agent_name ? (
+										<span className="asset-manager__badge asset-records__source-badge">
+											{task.agent_name}
+										</span>
+									) : (
+										<span className="asset-manager__badge asset-manager__badge--muted">
+											直连 API
+										</span>
+									)}
+								</div>
+								<h3>{formatTaskLabel(task.task_type)} · 任务 #{task.id}</h3>
+								<p className="asset-manager__card-note">
+									通过 {describeRequestIdentity(task.request_source, task.agent_name)} 发起。
+								</p>
+							</div>
+						</div>
+
+						<div className="asset-manager__metric-grid">
+							<div className="asset-manager__metric">
+								<span>API Key</span>
+								<strong>{task.api_key_name ?? "—"}</strong>
+							</div>
+							<div className="asset-manager__metric">
+								<span>创建时间</span>
+								<strong>{formatTimestamp(task.created_at)}</strong>
+							</div>
+							<div className="asset-manager__metric">
+								<span>完成时间</span>
+								<strong>{formatTimestamp(task.completed_at)}</strong>
+							</div>
+							<div className="asset-manager__metric">
+								<span>关联记录</span>
+								<strong>{relatedRecords.length}</strong>
+							</div>
+						</div>
+
+						<div className="asset-manager__preview-grid">
+							<div className="asset-manager__preview-item">
+								<span>任务输入</span>
+								<pre className="asset-manager__code-block">{formatJsonBlock(task.payload)}</pre>
+							</div>
+							<div className="asset-manager__preview-item">
+								<span>任务结果</span>
+								<pre className="asset-manager__code-block">
+									{task.error_message?.trim()
+										? task.error_message
+										: formatJsonBlock(task.result)}
+								</pre>
+							</div>
+						</div>
+					</li>
+				);
+			})}
+		</ul>
+	);
+}
+
 export function AgentExecutionAuditPanel({
 	apiKeys,
 	registrations,
@@ -245,6 +437,13 @@ export function AgentExecutionAuditPanel({
 	const [draftApiKeyName, setDraftApiKeyName] = useState("");
 	const [clipboardNotice, setClipboardNotice] = useState<string | null>(null);
 	const [clipboardError, setClipboardError] = useState<string | null>(null);
+	const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+	const [isManageKeysDialogOpen, setIsManageKeysDialogOpen] = useState(false);
+	const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
+	const [activityView, setActivityView] = useState<ActivityView>("ALL");
+	const [activitySourceFilter, setActivitySourceFilter] =
+		useState<ActivitySourceFilter>("ALL");
+
 	const recordsByTaskId = useMemo(() => {
 		const nextMap = new Map<number, AssetRecordRecord[]>();
 		for (const record of records) {
@@ -258,23 +457,50 @@ export function AgentExecutionAuditPanel({
 		return nextMap;
 	}, [records]);
 
-	const directApiRecords = useMemo(
-		() => records.filter((record) => record.agent_task_id == null),
-		[records],
-	);
-
 	const activeRegistrationCount = registrations.filter(
 		(registration) => registration.status === "ACTIVE",
 	).length;
-	const connectedAccountCount = new Set(registrations.map((registration) => registration.user_id)).size;
 	const activeApiKeyCount = apiKeys.filter((apiKey) => isApiKeyActive(apiKey)).length;
+
+	const filteredTasks = useMemo(() => {
+		if (activitySourceFilter === "ALL") {
+			return tasks;
+		}
+		return tasks.filter((task) => task.request_source === activitySourceFilter);
+	}, [activitySourceFilter, tasks]);
+
+	const filteredRecords = useMemo(() => {
+		if (activitySourceFilter === "ALL") {
+			return records;
+		}
+		return records.filter((record) => record.source === activitySourceFilter);
+	}, [activitySourceFilter, records]);
+
+	useEffect(() => {
+		if (issuedApiKey) {
+			setIsCreateDialogOpen(true);
+			setDraftApiKeyName("");
+		}
+	}, [issuedApiKey]);
+
+	function resetClipboardMessages(): void {
+		setClipboardNotice(null);
+		setClipboardError(null);
+	}
+
+	function closeCreateDialog(): void {
+		setIsCreateDialogOpen(false);
+		setDraftApiKeyName("");
+		resetClipboardMessages();
+		if (issuedApiKey) {
+			onDismissIssuedApiKey?.();
+		}
+	}
 
 	function handleCreateApiKeySubmit(event: FormEvent<HTMLFormElement>): void {
 		event.preventDefault();
-		setClipboardNotice(null);
-		setClipboardError(null);
+		resetClipboardMessages();
 		onCreateApiKey?.(draftApiKeyName);
-		setDraftApiKeyName("");
 	}
 
 	async function handleCopyIssuedApiKey(): Promise<void> {
@@ -285,7 +511,7 @@ export function AgentExecutionAuditPanel({
 		try {
 			await copyTextToClipboard(issuedApiKey.access_token);
 			setClipboardError(null);
-			setClipboardNotice("已复制到剪贴板。请立即保存，这串 API Key 不会再次显示。");
+			setClipboardNotice("已复制到剪贴板。请立即保存，这串 API Key 关闭后不会再次显示。");
 		} catch (error) {
 			setClipboardNotice(null);
 			setClipboardError(error instanceof Error ? error.message : "复制失败，请手动保存。");
@@ -298,22 +524,53 @@ export function AgentExecutionAuditPanel({
 				<div>
 					<p className="asset-manager__eyebrow">AGENT WORKSPACE</p>
 					<h3>智能体工作台</h3>
-					<p>查看已注册 Agent、Agent 任务和仅来源于 Agent 的真实落库记录。</p>
+					<p>查看已注册 Agent、Agent 任务，以及由 API Key 驱动的真实落库记录。</p>
+				</div>
+				<div className="asset-manager__panel-actions">
+					<button
+						type="button"
+						className="hero-note hero-note--action"
+						onClick={() => setIsActivityDialogOpen(true)}
+					>
+						查看记录
+					</button>
+					<button
+						type="button"
+						className="hero-note hero-note--action"
+						onClick={() => setIsManageKeysDialogOpen(true)}
+					>
+						有效 Key {activeApiKeyCount} / {MAX_ACTIVE_API_KEYS}
+					</button>
 				</div>
 			</div>
 
 			<div className="agent-workspace__top-grid">
 				<div className="asset-manager__helper-block">
 					<strong>Agent API</strong>
-					<p>文档已整理到 GitHub，供外部 Agent 或自动化服务按约定调用。</p>
-					<a
-						className="hero-note hero-note--action agent-workspace__doc-link"
-						href={apiDocUrl}
-						target="_blank"
-						rel="noreferrer"
-					>
-						打开 API 文档
-					</a>
+					<p>
+						文档已整理到 GitHub。使用 <code>Authorization: Bearer &lt;api_key&gt;</code>{" "}
+						调用；如需登记为 Agent，可额外传入 <code>Agent-Name</code>。
+					</p>
+					<div className="agent-workspace__doc-actions">
+						<a
+							className="hero-note hero-note--action agent-workspace__doc-link"
+							href={apiDocUrl}
+							target="_blank"
+							rel="noreferrer"
+						>
+							打开 API 文档
+						</a>
+						<button
+							type="button"
+							className="hero-note hero-note--action"
+							onClick={() => {
+								resetClipboardMessages();
+								setIsCreateDialogOpen(true);
+							}}
+						>
+							创建新的 API Key
+						</button>
+					</div>
 				</div>
 				<div
 					className="asset-manager__summary agent-workspace__summary"
@@ -328,11 +585,11 @@ export function AgentExecutionAuditPanel({
 						<strong>{activeRegistrationCount}</strong>
 					</div>
 					<div className="asset-manager__summary-card">
-						<span>接入账号</span>
-						<strong>{connectedAccountCount}</strong>
+						<span>Agent 任务</span>
+						<strong>{tasks.length}</strong>
 					</div>
 					<div className="asset-manager__summary-card">
-						<span>Agent 记录</span>
+						<span>API / Agent 记录</span>
 						<strong>{records.length}</strong>
 					</div>
 				</div>
@@ -343,113 +600,183 @@ export function AgentExecutionAuditPanel({
 					{errorMessage}
 				</div>
 			) : null}
+			{apiKeyErrorMessage ? (
+				<div className="asset-manager__message asset-manager__message--error">
+					{apiKeyErrorMessage}
+				</div>
+			) : null}
+			{apiKeyNoticeMessage ? (
+				<div className="asset-manager__status-note">{apiKeyNoticeMessage}</div>
+			) : null}
 
 			{loading ? (
 				<div className="asset-manager__empty-state">正在加载智能体工作台...</div>
 			) : (
-				<div className="agent-workspace__sections">
-					<section className="agent-workspace__section">
-						<div className="asset-manager__list-head">
-							<div>
-								<p className="asset-manager__eyebrow">API KEYS</p>
-								<h3>账户 API Keys</h3>
-								<p>
-									为当前账号生成直连 API 的 Bearer Key。每个账号最多保留 3 个有效 Key，
-									完整密钥只会在创建成功后显示一次。
-								</p>
+				<section className="agent-workspace__section">
+					<div className="asset-manager__list-head">
+						<div>
+							<p className="asset-manager__eyebrow">REGISTERED AGENTS</p>
+							<h3>已注册 Agent</h3>
+							<p>
+								只有带非空 <code>Agent-Name</code> 的 Bearer 请求才会在这里登记并累计请求次数。
+							</p>
+						</div>
+					</div>
+					{registrations.length === 0 ? (
+						<div className="asset-manager__empty-state">当前还没有已注册的 Agent。</div>
+					) : (
+						<ul className="asset-manager__list">
+							{registrations.map((registration) => (
+								<li key={registration.id} className="asset-manager__card">
+									<div className="asset-manager__card-top">
+										<div className="asset-manager__card-title">
+											<div className="asset-manager__badge-row">
+												<span className="asset-manager__badge">#{registration.id}</span>
+												<span
+													className={`asset-manager__badge ${
+														registration.status === "ACTIVE"
+															? "asset-records__source-badge"
+															: "asset-manager__badge--muted"
+													}`}
+												>
+													{registration.status === "ACTIVE" ? "活跃" : "非活跃"}
+												</span>
+											</div>
+											<h3>{registration.name}</h3>
+											<p className="asset-manager__card-note">账号：{registration.user_id}</p>
+										</div>
+									</div>
+									<div className="asset-manager__metric-grid">
+										<div className="asset-manager__metric">
+											<span>请求次数</span>
+											<strong>{registration.request_count}</strong>
+										</div>
+										<div className="asset-manager__metric">
+											<span>最近 API Key</span>
+											<strong>{registration.latest_api_key_name ?? "—"}</strong>
+										</div>
+										<div className="asset-manager__metric">
+											<span>最近接入</span>
+											<strong>{formatTimestamp(registration.last_seen_at)}</strong>
+										</div>
+										<div className="asset-manager__metric">
+											<span>首次登记</span>
+											<strong>{formatTimestamp(registration.created_at)}</strong>
+										</div>
+									</div>
+								</li>
+							))}
+						</ul>
+					)}
+				</section>
+			)}
+
+			<AgentWorkspaceDialog
+				open={isCreateDialogOpen}
+				onClose={closeCreateDialog}
+				title={issuedApiKey ? "新 API Key" : "创建新的 API Key"}
+				eyebrow="API KEY"
+				description={
+					issuedApiKey
+						? "完整 Key 只会显示这一次。请立即复制并存入密码管理器、系统钥匙串或其他安全位置。"
+						: `每个账号最多保留 ${MAX_ACTIVE_API_KEYS} 个有效 Key，每日最多生成 ${MAX_DAILY_API_KEY_CREATIONS} 次。新签发的 Key 统一以 sk- 开头。`
+				}
+				dialogScope="agent-workspace-create-key"
+			>
+				<div className="agent-workspace__modal-body">
+					{apiKeyErrorMessage ? (
+						<div className="asset-manager__message asset-manager__message--error">
+							{apiKeyErrorMessage}
+						</div>
+					) : null}
+					{clipboardError ? (
+						<div className="asset-manager__message asset-manager__message--error">
+							{clipboardError}
+						</div>
+					) : null}
+					{clipboardNotice ? (
+						<div className="asset-manager__status-note">{clipboardNotice}</div>
+					) : null}
+					{issuedApiKey ? (
+						<div className="agent-workspace__one-time-secret">
+							<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
+								<strong>{issuedApiKey.name}</strong>
+								<p>这是完整密钥的唯一展示机会。关闭窗口后，平台只会保留掩码提示。</p>
 							</div>
-							<div className="asset-manager__mini-actions">
-								<span className="asset-manager__status-note">
-									有效 Key {activeApiKeyCount} / 3
-								</span>
+							<pre className="asset-manager__code-block">{issuedApiKey.access_token}</pre>
+							<div className="asset-manager__form-actions">
+								<button
+									type="button"
+									className="asset-manager__button"
+									onClick={() => void handleCopyIssuedApiKey()}
+								>
+									复制到剪贴板
+								</button>
+								<button
+									type="button"
+									className="asset-manager__button asset-manager__button--secondary"
+									onClick={closeCreateDialog}
+								>
+									我已保存
+								</button>
 							</div>
 						</div>
-
-						{apiKeyErrorMessage ? (
-							<div className="asset-manager__message asset-manager__message--error">
-								{apiKeyErrorMessage}
-							</div>
-						) : null}
-						{apiKeyNoticeMessage ? (
-							<div className="asset-manager__status-note">{apiKeyNoticeMessage}</div>
-						) : null}
-						{clipboardError ? (
-							<div className="asset-manager__message asset-manager__message--error">
-								{clipboardError}
-							</div>
-						) : null}
-						{clipboardNotice ? (
-							<div className="asset-manager__status-note">{clipboardNotice}</div>
-						) : null}
-
-						<div className="agent-api-keys__layout">
-							<form
-								className="asset-manager__helper-block agent-api-keys__create"
-								onSubmit={handleCreateApiKeySubmit}
-							>
-								<strong>创建新的 API Key</strong>
+					) : (
+						<form className="asset-manager__form" onSubmit={handleCreateApiKeySubmit}>
+							<div className="asset-manager__helper-block">
+								<strong>命名建议</strong>
 								<p>
-									给 Key 一个清晰用途名称，例如 <code>local-cli</code>、<code>daily-sync</code>
+									用稳定且能区分用途的名称，例如 <code>local-cli</code>、<code>daily-sync</code>{" "}
 									或 <code>portfolio-agent</code>。
 								</p>
-								<label className="asset-manager__field">
-									<span>Key 名称</span>
-									<input
-										value={draftApiKeyName}
-										onChange={(event) => setDraftApiKeyName(event.target.value)}
-										placeholder="例如：local-cli"
-										maxLength={80}
-										disabled={isCreatingApiKey || activeApiKeyCount >= 3}
-									/>
-								</label>
-								<div className="asset-manager__form-actions">
-									<button
-										type="submit"
-										className="asset-manager__button"
-										disabled={isCreatingApiKey || activeApiKeyCount >= 3}
-									>
-										{isCreatingApiKey ? "生成中..." : "生成 API Key"}
-									</button>
-								</div>
-							</form>
+							</div>
+							<label className="asset-manager__field">
+								<span>Key 名称</span>
+								<input
+									value={draftApiKeyName}
+									onChange={(event) => setDraftApiKeyName(event.target.value)}
+									placeholder="例如：daily-sync"
+									maxLength={80}
+									disabled={isCreatingApiKey || activeApiKeyCount >= MAX_ACTIVE_API_KEYS}
+								/>
+							</label>
+							<div className="asset-manager__form-actions">
+								<button
+									type="submit"
+									className="asset-manager__button"
+									disabled={
+										isCreatingApiKey
+										|| activeApiKeyCount >= MAX_ACTIVE_API_KEYS
+										|| draftApiKeyName.trim().length < 3
+									}
+								>
+									{isCreatingApiKey ? "生成中..." : "生成 API Key"}
+								</button>
+							</div>
+						</form>
+					)}
+				</div>
+			</AgentWorkspaceDialog>
 
-							{issuedApiKey ? (
-								<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
-									<strong>只显示一次的 API Key</strong>
-									<p>
-										请现在复制并保存到密码管理器、系统钥匙串或其他安全的密钥管理位置。
-										关闭这张卡片后，平台只会保留掩码提示，不会再次返回完整 Key。
-									</p>
-									<pre className="asset-manager__code-block">{issuedApiKey.access_token}</pre>
-									<div className="asset-manager__form-actions agent-api-keys__issued-actions">
-										<button
-											type="button"
-											className="asset-manager__button"
-											onClick={() => void handleCopyIssuedApiKey()}
-										>
-											复制到剪贴板
-										</button>
-										<button
-											type="button"
-											className="asset-manager__button asset-manager__button--secondary"
-											onClick={onDismissIssuedApiKey}
-										>
-											我已保存
-										</button>
-									</div>
-								</div>
-							) : (
-								<div className="asset-manager__helper-block">
-									<strong>调用方式</strong>
-									<p>
-										生成后，把完整 Key 放到请求头
-										<code> Authorization: Bearer &lt;your_api_key&gt;</code> 中。
-										可用 <code>GET /api/auth/session</code> 立即验证这串 Key 当前归属的账户。
-									</p>
-								</div>
-							)}
-						</div>
-
+			<AgentWorkspaceDialog
+				open={isManageKeysDialogOpen}
+				onClose={() => setIsManageKeysDialogOpen(false)}
+				title="有效 Key"
+				eyebrow="API KEYS"
+				description="这里可以查看当前账号的 API Key 元信息并删除旧 Key。出于安全原因，完整 Key 不会再次显示，也不支持从这里复制。"
+				dialogScope="agent-workspace-manage-keys"
+			>
+				<div className="agent-workspace__modal-body">
+					{apiKeyNoticeMessage ? (
+						<div className="asset-manager__status-note">{apiKeyNoticeMessage}</div>
+					) : null}
+					<div className="asset-manager__helper-block">
+						<strong>当前状态</strong>
+						<p>
+							有效 Key {activeApiKeyCount} / {MAX_ACTIVE_API_KEYS}。删除后可释放名额，但历史记录仍会保留对应的 Key 名称。
+						</p>
+					</div>
+					<div className="agent-workspace__scroll-region">
 						{apiKeys.length === 0 ? (
 							<div className="asset-manager__empty-state">当前账号还没有 API Key。</div>
 						) : (
@@ -470,19 +797,21 @@ export function AgentExecutionAuditPanel({
 													</div>
 													<h3>{apiKey.name}</h3>
 													<p className="asset-manager__card-note">
-														仅显示掩码提示；完整密钥在创建后不会再次返回。
+														仅保留掩码提示，完整密钥在创建后不会再次返回。
 													</p>
 												</div>
-												<div className="asset-manager__card-actions">
-													<button
-														type="button"
-														className="asset-manager__button asset-manager__button--secondary"
-														onClick={() => onRevokeApiKey?.(apiKey.id)}
-														disabled={!canRevoke || revokingApiKeyId === apiKey.id}
-													>
-														{revokingApiKeyId === apiKey.id ? "撤销中..." : "撤销"}
-													</button>
-												</div>
+												{canRevoke ? (
+													<div className="asset-manager__card-actions">
+														<button
+															type="button"
+															className="asset-manager__button asset-manager__button--secondary"
+															onClick={() => onRevokeApiKey?.(apiKey.id)}
+															disabled={revokingApiKeyId === apiKey.id}
+														>
+															{revokingApiKeyId === apiKey.id ? "删除中..." : "删除"}
+														</button>
+													</div>
+												) : null}
 											</div>
 											<div className="asset-manager__metric-grid">
 												<div className="asset-manager__metric">
@@ -500,7 +829,7 @@ export function AgentExecutionAuditPanel({
 													</strong>
 												</div>
 												<div className="asset-manager__metric">
-													<span>撤销时间</span>
+													<span>删除时间</span>
 													<strong>{formatTimestamp(apiKey.revoked_at)}</strong>
 												</div>
 											</div>
@@ -509,164 +838,99 @@ export function AgentExecutionAuditPanel({
 								})}
 							</ul>
 						)}
-					</section>
-
-					<section className="agent-workspace__section">
-						<div className="asset-manager__list-head">
-							<div>
-								<p className="asset-manager__eyebrow">REGISTERED AGENTS</p>
-								<h3>已注册 Agent</h3>
-								<p>这里展示当前系统里已经登记并可追踪的 Agent 接入关系和活跃状态。</p>
-							</div>
-						</div>
-						{registrations.length === 0 ? (
-							<div className="asset-manager__empty-state">当前还没有已注册的 Agent。</div>
-						) : (
-							<ul className="asset-manager__list">
-								{registrations.map((registration) => (
-									<li key={registration.id} className="asset-manager__card">
-										<div className="asset-manager__card-top">
-											<div className="asset-manager__card-title">
-												<div className="asset-manager__badge-row">
-													<span className="asset-manager__badge">#{registration.id}</span>
-													<span
-														className={`asset-manager__badge ${
-															registration.status === "ACTIVE"
-																? "asset-records__source-badge"
-																: "asset-manager__badge--muted"
-														}`}
-													>
-														{registration.status === "ACTIVE" ? "活跃" : "停用"}
-													</span>
-												</div>
-												<h3>{registration.name}</h3>
-												<p className="asset-manager__card-note">
-													接入账号：{registration.user_id}
-												</p>
-											</div>
-										</div>
-										<div className="asset-manager__metric-grid">
-											<div className="asset-manager__metric">
-												<span>活跃令牌</span>
-												<strong>{registration.active_token_count}</strong>
-											</div>
-											<div className="asset-manager__metric">
-												<span>全部令牌</span>
-												<strong>{registration.total_token_count}</strong>
-											</div>
-											<div className="asset-manager__metric">
-												<span>最近使用</span>
-												<strong>{formatTimestamp(registration.last_used_at)}</strong>
-											</div>
-											<div className="asset-manager__metric">
-												<span>最近接入</span>
-												<strong>{formatTimestamp(registration.last_seen_at)}</strong>
-											</div>
-										</div>
-										{registration.latest_token_hint ? (
-											<div className="asset-manager__helper-block">
-												<strong>最近令牌提示</strong>
-												<p>{registration.latest_token_hint}</p>
-											</div>
-										) : null}
-									</li>
-								))}
-							</ul>
-						)}
-					</section>
-
-					<section className="agent-workspace__section">
-						<div className="asset-manager__list-head">
-							<div>
-								<p className="asset-manager__eyebrow">TASKS AND AUDIT</p>
-								<h3>任务与审计</h3>
-								<p>任务展示 Agent 的执行输入和结果，审计展示只来源于 Agent 的真实记录。</p>
-							</div>
-						</div>
-						{tasks.length === 0 ? (
-							<div className="asset-manager__empty-state">还没有 Agent 任务。</div>
-						) : (
-							<ul className="asset-manager__list">
-								{tasks.map((task) => {
-									const relatedRecords = recordsByTaskId.get(task.id) ?? [];
-									return (
-										<li key={task.id} className="asset-manager__card">
-											<div className="asset-manager__card-top">
-												<div className="asset-manager__card-title">
-													<div className="asset-manager__badge-row">
-														<span className="asset-manager__badge">AGENT</span>
-														<span className="asset-manager__badge asset-manager__badge--muted">
-															{task.status}
-														</span>
-													</div>
-													<h3>{formatTaskLabel(task.task_type)} · 任务 #{task.id}</h3>
-													<p className="asset-manager__card-note">
-														创建于 {formatTimestamp(task.created_at)}
-													</p>
-												</div>
-											</div>
-
-											<div className="asset-manager__metric-grid">
-												<div className="asset-manager__metric">
-													<span>任务状态</span>
-													<strong>{task.status}</strong>
-												</div>
-												<div className="asset-manager__metric">
-													<span>完成时间</span>
-													<strong>{formatTimestamp(task.completed_at)}</strong>
-												</div>
-												<div className="asset-manager__metric">
-													<span>关联记录</span>
-													<strong>{relatedRecords.length}</strong>
-												</div>
-											</div>
-
-											<div className="asset-manager__preview-grid">
-												<div className="asset-manager__preview-item">
-													<span>任务输入</span>
-													<pre className="asset-manager__code-block">
-														{formatJsonBlock(task.payload)}
-													</pre>
-												</div>
-												<div className="asset-manager__preview-item">
-													<span>任务结果</span>
-													<pre className="asset-manager__code-block">
-														{task.error_message?.trim()
-															? task.error_message
-															: formatJsonBlock(task.result)}
-													</pre>
-												</div>
-											</div>
-
-											<div className="agent-workspace__task-records">
-												<strong>关联审计记录</strong>
-												<AgentRecordList
-													records={relatedRecords}
-													emptyMessage="这个任务还没有关联的 Agent 记录。"
-												/>
-											</div>
-										</li>
-									);
-								})}
-							</ul>
-						)}
-					</section>
-
-					<section className="agent-workspace__section">
-						<div className="asset-manager__list-head">
-							<div>
-								<p className="asset-manager__eyebrow">DIRECT AGENT RECORDS</p>
-								<h3>直连 API 记录</h3>
-								<p>这里展示未经过任务队列、但来源明确为 Agent 的直接调用落库记录。</p>
-							</div>
-						</div>
-						<AgentRecordList
-							records={directApiRecords}
-							emptyMessage="当前没有直连 API 的 Agent 记录。"
-						/>
-					</section>
+					</div>
 				</div>
-			)}
+			</AgentWorkspaceDialog>
+
+			<AgentWorkspaceDialog
+				open={isActivityDialogOpen}
+				onClose={() => setIsActivityDialogOpen(false)}
+				title="记录"
+				eyebrow="AGENT ACTIVITY"
+				description="按来源查看仅由 API Key 鉴权触发的任务与真实落库记录。这里只读展示，不支持撤销。"
+				dialogScope="agent-workspace-activity"
+			>
+				<div className="agent-workspace__modal-body">
+					<div className="asset-records__filters">
+						<div className="asset-records__filter-group">
+							<span className="asset-records__filter-label">视图</span>
+							<div className="asset-manager__filter-row">
+								{([
+									["ALL", "全部"],
+									["TASKS", "任务"],
+									["RECORDS", "落库记录"],
+								] as const).map(([value, label]) => (
+									<button
+										key={value}
+										type="button"
+										className={`asset-manager__filter-chip ${
+											activityView === value ? "is-active" : ""
+										}`}
+										onClick={() => setActivityView(value)}
+									>
+										{label}
+									</button>
+								))}
+							</div>
+						</div>
+						<div className="asset-records__filter-group">
+							<span className="asset-records__filter-label">来源</span>
+							<div className="asset-manager__filter-row">
+								{([
+									["ALL", "全部"],
+									["AGENT", "Agent"],
+									["API", "直连 API"],
+								] as const).map(([value, label]) => (
+									<button
+										key={value}
+										type="button"
+										className={`asset-manager__filter-chip ${
+											activitySourceFilter === value ? "is-active" : ""
+										}`}
+										onClick={() => setActivitySourceFilter(value)}
+									>
+										{label}
+									</button>
+								))}
+							</div>
+						</div>
+					</div>
+					<div className="agent-workspace__scroll-region">
+						<div className="agent-workspace__dialog-sections">
+							{activityView !== "RECORDS" ? (
+								<section className="agent-workspace__dialog-section">
+									<div className="asset-manager__list-head">
+										<div>
+											<h3>任务</h3>
+											<p>记录任务的发起来源、API Key、Agent 名称以及执行输入输出。</p>
+										</div>
+									</div>
+									<AgentTaskList
+										tasks={filteredTasks}
+										recordsByTaskId={recordsByTaskId}
+										emptyMessage="当前筛选条件下还没有任务。"
+									/>
+								</section>
+							) : null}
+
+							{activityView !== "TASKS" ? (
+								<section className="agent-workspace__dialog-section">
+									<div className="asset-manager__list-head">
+										<div>
+											<h3>落库记录</h3>
+											<p>记录真实写入数据库的资产操作，并标明 API Key 与 Agent 名称。</p>
+										</div>
+									</div>
+									<AgentRecordList
+										records={filteredRecords}
+										emptyMessage="当前筛选条件下还没有落库记录。"
+									/>
+								</section>
+							) : null}
+						</div>
+					</div>
+				</div>
+			</AgentWorkspaceDialog>
 		</section>
 	);
 }

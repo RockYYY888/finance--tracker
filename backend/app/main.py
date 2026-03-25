@@ -13,7 +13,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.router import api_router
 from app.database import init_db
 from app.runtime_state import (
+	current_agent_name_context,
+	current_agent_task_id_context,
 	current_actor_source_context,
+	current_api_key_name_context,
 	dashboard_cache,
 	live_holdings_return_states,
 	live_portfolio_states,
@@ -50,7 +53,13 @@ def create_app() -> FastAPI:
 		allow_origins=settings.cors_origins(),
 		allow_credentials=True,
 		allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-		allow_headers=["Authorization", "Content-Type", "X-Client-Device-Id"],
+		allow_headers=[
+			"Authorization",
+			"Agent-Name",
+			"Content-Type",
+			"Idempotency-Key",
+			"X-Client-Device-Id",
+		],
 	)
 	app.add_middleware(
 		SessionMiddleware,
@@ -63,11 +72,17 @@ def create_app() -> FastAPI:
 
 	@app.middleware("http")
 	async def add_security_headers(request: Request, call_next):
-		context_token = current_actor_source_context.set("USER")
+		actor_source_token = current_actor_source_context.set("USER")
+		api_key_name_token = current_api_key_name_context.set(None)
+		agent_name_token = current_agent_name_context.set(None)
+		agent_task_token = current_agent_task_id_context.set(None)
 		try:
 			response: Response = await call_next(request)
 		finally:
-			current_actor_source_context.reset(context_token)
+			current_agent_task_id_context.reset(agent_task_token)
+			current_agent_name_context.reset(agent_name_token)
+			current_api_key_name_context.reset(api_key_name_token)
+			current_actor_source_context.reset(actor_source_token)
 		response.headers["Cache-Control"] = "no-store"
 		response.headers["Pragma"] = "no-cache"
 		response.headers["Cross-Origin-Opener-Policy"] = "same-origin"

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import re
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import Response
@@ -49,7 +51,12 @@ FAILED_LOGIN_FORGOT_PASSWORD_THRESHOLD = 5
 MAX_LOGIN_DEVICE_ID_LENGTH = 120
 LOGIN_ATTEMPT_STATE_TTL = timedelta(hours=24)
 AGENT_TOKEN_LAST_USED_UPDATE_INTERVAL = timedelta(minutes=1)
-MAX_ACTIVE_AGENT_TOKENS_PER_USER = 3
+MAX_ACTIVE_AGENT_TOKENS_PER_USER = 5
+MAX_DAILY_AGENT_TOKEN_CREATIONS = 10
+AUTHENTICATED_REQUESTS_PER_SECOND = 10
+AGENT_REGISTRATION_ACTIVE_WINDOW = timedelta(hours=24)
+SERVER_DAY_TIMEZONE = ZoneInfo("Asia/Shanghai")
+AGENT_RUNTIME_NAME_PATTERN = re.compile(r"^[\w .:/-]{1,80}$", re.UNICODE)
 
 
 def _coerce_utc_datetime(value: datetime) -> datetime:
@@ -93,6 +100,13 @@ def _normalize_agent_registration_name(name: str) -> str:
 	normalized_name = name.strip()
 	if not normalized_name:
 		raise HTTPException(status_code=422, detail="Agent 名称不能为空。")
+	if any(ord(character) < 32 for character in normalized_name):
+		raise HTTPException(status_code=422, detail="Agent 名称不能包含换行或控制字符。")
+	if not AGENT_RUNTIME_NAME_PATTERN.fullmatch(normalized_name):
+		raise HTTPException(
+			status_code=422,
+			detail="Agent 名称仅支持字母、数字、空格，以及 . _ / : - 。",
+		)
 	return normalized_name
 
 
@@ -118,11 +132,42 @@ def _is_agent_token_active(token: AgentAccessToken, now: datetime) -> bool:
 	return True
 
 
+def _current_server_day_window(now: datetime) -> tuple[datetime, datetime]:
+	local_now = _coerce_utc_datetime(now).astimezone(SERVER_DAY_TIMEZONE)
+	local_day_start = datetime.combine(local_now.date(), datetime.min.time(), tzinfo=SERVER_DAY_TIMEZONE)
+	local_day_end = local_day_start + timedelta(days=1)
+	return (
+		local_day_start.astimezone(timezone.utc),
+		local_day_end.astimezone(timezone.utc),
+	)
+
+
+def _count_today_agent_token_creations_for_user(
+	session: SessionDependency,
+	*,
+	user_id: str,
+	now: datetime,
+) -> int:
+	day_start, day_end = _current_server_day_window(now)
+	return len(
+		list(
+			session.exec(
+				select(AgentAccessToken.id)
+				.where(AgentAccessToken.user_id == user_id)
+				.where(AgentAccessToken.created_at >= day_start)
+				.where(AgentAccessToken.created_at < day_end),
+			),
+		),
+	)
+
+
 def _ensure_agent_registration(
 	session: SessionDependency,
 	*,
 	current_user: UserAccount,
 	name: str,
+	api_key_name: str | None,
+	seen_at: datetime,
 ) -> AgentRegistration:
 	registration_name = _normalize_agent_registration_name(name)
 	registration = _get_agent_registration_by_name(
@@ -135,9 +180,15 @@ def _ensure_agent_registration(
 			user_id=current_user.username,
 			name=registration_name,
 			status=AGENT_REGISTRATION_STATUSES[0],
+			request_count=1,
+			latest_api_key_name=api_key_name,
+			last_seen_at=seen_at,
 		)
 	else:
 		registration.status = AGENT_REGISTRATION_STATUSES[0]
+		registration.request_count += 1
+		registration.latest_api_key_name = api_key_name
+		registration.last_seen_at = seen_at
 		_touch_model(registration)
 
 	session.add(registration)
@@ -145,47 +196,33 @@ def _ensure_agent_registration(
 	return registration
 
 
-def _sync_agent_registration_status(
-	session: SessionDependency,
-	registration_id: int | None,
-) -> None:
-	if registration_id is None:
-		return
-	registration = session.get(AgentRegistration, registration_id)
-	if registration is None:
-		return
-
-	now = utc_now()
-	tokens = list(
-		session.exec(
-			select(AgentAccessToken)
-			.where(AgentAccessToken.agent_registration_id == registration_id),
-		),
-	)
-	has_active_token = any(_is_agent_token_active(token, now) for token in tokens)
-	next_status = AGENT_REGISTRATION_STATUSES[0] if has_active_token else AGENT_REGISTRATION_STATUSES[1]
-	if registration.status != next_status:
-		registration.status = next_status
-		_touch_model(registration)
-		session.add(registration)
+def _normalize_agent_name_header(raw_value: str | None) -> str | None:
+	if raw_value is None:
+		return None
+	normalized = raw_value.strip()
+	if not normalized:
+		return None
+	if normalized.casefold() == "false":
+		return None
+	return _normalize_agent_registration_name(normalized)
 
 
-def _touch_agent_registration_last_seen(
-	session: SessionDependency,
-	registration_id: int | None,
+def _enforce_authenticated_request_rate_limit(
+	user_id: str,
 	*,
-	seen_at: datetime,
+	now: datetime,
 ) -> None:
-	if registration_id is None:
-		return
-	registration = session.get(AgentRegistration, registration_id)
-	if registration is None:
-		return
-	registration.last_seen_at = seen_at
-	if registration.status != AGENT_REGISTRATION_STATUSES[0]:
-		registration.status = AGENT_REGISTRATION_STATUSES[0]
-	_touch_model(registration)
-	session.add(registration)
+	utc_now_value = _coerce_utc_datetime(now)
+	second_bucket = int(utc_now_value.timestamp())
+	key = f"asset-tracker:rate-limit:{normalize_user_id(user_id)}:{second_bucket}"
+	current_count = runtime_state.redis_client.incr(key)
+	if current_count == 1:
+		runtime_state.redis_client.expire(key, 2)
+	if current_count > AUTHENTICATED_REQUESTS_PER_SECOND:
+		raise HTTPException(
+			status_code=429,
+			detail=f"同一账号每秒最多请求 {AUTHENTICATED_REQUESTS_PER_SECOND} 次，请稍后重试。",
+		)
 
 
 def _resolve_agent_token_expiry(expires_in_days: int | None) -> datetime | None:
@@ -219,42 +256,56 @@ def _create_agent_access_token(
 	expires_in_days: int | None,
 ) -> tuple[AgentAccessToken, str]:
 	now = utc_now()
-	existing_tokens = _list_agent_access_tokens_for_user(
-		session,
-		user_id=current_user.username,
-	)
-	active_tokens = [
-		token for token in existing_tokens if _is_agent_token_active(token, now)
-	]
-	if len(active_tokens) >= MAX_ACTIVE_AGENT_TOKENS_PER_USER:
-		raise HTTPException(
-			status_code=409,
-			detail="每个账号最多保留 3 个有效 API Key，请先撤销旧 Key。",
+	lock_name = f"agent-token-create:{current_user.username}"
+	with runtime_state.redis_lock(lock_name, timeout=10, blocking_timeout=10):
+		existing_tokens = _list_agent_access_tokens_for_user(
+			session,
+			user_id=current_user.username,
 		)
+		active_tokens = [
+			token for token in existing_tokens if _is_agent_token_active(token, now)
+		]
+		if len(active_tokens) >= MAX_ACTIVE_AGENT_TOKENS_PER_USER:
+			raise HTTPException(
+				status_code=409,
+				detail="每个账号最多保留 5 个有效 API Key，请先删除旧 Key。",
+			)
+		if _count_today_agent_token_creations_for_user(
+			session,
+			user_id=current_user.username,
+			now=now,
+		) >= MAX_DAILY_AGENT_TOKEN_CREATIONS:
+			raise HTTPException(
+				status_code=429,
+				detail="同一账号每天最多生成 10 次 API Key，请明天再试。",
+			)
 
-	registration = _ensure_agent_registration(
-		session,
-		current_user=current_user,
-		name=name,
-	)
-	if any(token.name.casefold() == registration.name.casefold() for token in active_tokens):
-		raise HTTPException(
-			status_code=409,
-			detail="当前账号已经存在同名的有效 API Key，请使用新的名称。",
-		)
-	raw_token = generate_agent_token()
-	token = AgentAccessToken(
-		user_id=current_user.username,
-		agent_registration_id=registration.id,
-		name=registration.name,
-		token_digest=hash_agent_token(raw_token),
-		token_hint=_format_agent_token_hint(raw_token),
-		expires_at=_resolve_agent_token_expiry(expires_in_days),
-	)
-	session.add(token)
-	session.commit()
-	session.refresh(token)
-	return token, raw_token
+		normalized_name = name.strip()
+		if any(token.name.casefold() == normalized_name.casefold() for token in active_tokens):
+			raise HTTPException(
+				status_code=409,
+				detail="当前账号已经存在同名的有效 API Key，请使用新的名称。",
+			)
+
+		for _ in range(8):
+			raw_token = generate_agent_token()
+			token_digest = hash_agent_token(raw_token)
+			if _get_agent_access_token_by_digest(session, token_digest) is not None:
+				continue
+			token = AgentAccessToken(
+				user_id=current_user.username,
+				agent_registration_id=None,
+				name=normalized_name,
+				token_digest=token_digest,
+				token_hint=_format_agent_token_hint(raw_token),
+				expires_at=_resolve_agent_token_expiry(expires_in_days),
+			)
+			session.add(token)
+			session.commit()
+			session.refresh(token)
+			return token, raw_token
+
+	raise RuntimeError("Unable to generate a unique API key after multiple attempts.")
 
 
 def _normalize_client_device_id(raw_device_id: str | None) -> str | None:
@@ -393,7 +444,12 @@ def _authenticate_user_account(
 	return user
 
 
-def _authenticate_agent_access_token(session: SessionDependency, raw_token: str) -> UserAccount:
+def _authenticate_agent_access_token(
+	session: SessionDependency,
+	raw_token: str,
+	*,
+	agent_name: str | None,
+) -> UserAccount:
 	try:
 		token_digest = hash_agent_token(raw_token)
 	except ValueError as exc:
@@ -410,7 +466,10 @@ def _authenticate_agent_access_token(session: SessionDependency, raw_token: str)
 	user = _get_user(session, token.user_id)
 	if user is None:
 		raise HTTPException(status_code=401, detail="API Key 对应账号不存在。")
-	runtime_state.current_actor_source_context.set("AGENT")
+	request_source = "AGENT" if agent_name else "API"
+	runtime_state.current_actor_source_context.set(request_source)
+	runtime_state.current_api_key_name_context.set(token.name)
+	runtime_state.current_agent_name_context.set(agent_name)
 
 	if token.last_used_at is None or (
 		now - _coerce_utc_datetime(token.last_used_at)
@@ -418,12 +477,18 @@ def _authenticate_agent_access_token(session: SessionDependency, raw_token: str)
 		token.last_used_at = now
 		_touch_model(token)
 		session.add(token)
-		_touch_agent_registration_last_seen(
-			session,
-			token.agent_registration_id,
-			seen_at=now,
-		)
 		session.commit()
+	if agent_name is not None:
+		lock_name = f"agent-registration:{user.username}:{agent_name.casefold()}"
+		with runtime_state.redis_lock(lock_name, timeout=10, blocking_timeout=10):
+			_ensure_agent_registration(
+				session,
+				current_user=user,
+				name=agent_name,
+				api_key_name=token.name,
+				seen_at=now,
+			)
+			session.commit()
 
 	return user
 
@@ -439,9 +504,17 @@ def get_current_user(
 		raise HTTPException(status_code=401, detail="Authorization 头必须使用 Bearer API Key。")
 
 	if bearer_token is not None:
-		return _authenticate_agent_access_token(session, bearer_token)
+		current_user = _authenticate_agent_access_token(
+			session,
+			bearer_token,
+			agent_name=_normalize_agent_name_header(request.headers.get("Agent-Name")),
+		)
+		_enforce_authenticated_request_rate_limit(current_user.username, now=utc_now())
+		return current_user
 
-	return get_session_current_user(request, session, None)
+	current_user = get_session_current_user(request, session, None)
+	_enforce_authenticated_request_rate_limit(current_user.username, now=utc_now())
+	return current_user
 
 
 def get_session_current_user(
@@ -454,6 +527,8 @@ def get_session_current_user(
 	if user is None:
 		request.session.clear()
 		raise HTTPException(status_code=401, detail="请重新登录。")
+	runtime_state.current_api_key_name_context.set(None)
+	runtime_state.current_agent_name_context.set(None)
 	runtime_state.current_actor_source_context.set(
 		"SYSTEM" if user.username == "admin" else "USER",
 	)
@@ -648,7 +723,6 @@ def revoke_agent_token(
 		token.revoked_at = utc_now()
 		_touch_model(token)
 		session.add(token)
-		_sync_agent_registration_status(session, token.agent_registration_id)
 		session.commit()
 
 	return ActionMessageRead(message="API Key 已撤销。")
@@ -665,14 +739,14 @@ __all__ = [
 	"_build_login_attempt_key",
 	"_create_agent_access_token",
 	"_ensure_agent_registration",
+	"_enforce_authenticated_request_rate_limit",
 	"_get_agent_registration_by_name",
 	"_is_agent_token_active",
 	"_list_agent_access_tokens_for_user",
 	"_create_user_account",
 	"_get_user",
+	"_normalize_agent_name_header",
 	"_reset_user_password_with_email",
-	"_sync_agent_registration_status",
-	"_touch_agent_registration_last_seen",
 	"_to_agent_token_read",
 	"_update_user_email",
 	"create_agent_token_for_current_session",

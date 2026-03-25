@@ -22,8 +22,16 @@ application session flow. This document is limited to bearer-token agent and dev
 | Header | Required | Applies To | Description |
 | --- | --- | --- | --- |
 | `Authorization: Bearer <api_key>` | Yes | Every authenticated route in this document | Account-scoped API key issued by the backend and validated on every request |
+| `Agent-Name: <name>` | No | Any authenticated route | Non-empty values mark the request as agent traffic, update agent registration state, and attribute downstream audit rows to that agent |
 | `Idempotency-Key: <unique_key>` | Recommended for supported create routes | `POST` create routes listed in [Idempotency](#idempotency) | Prevents duplicate side effects for retried calls |
 | `Content-Type: application/json` | Yes for JSON request bodies | All `POST`, `PUT`, and `PATCH` routes with request bodies | JSON request encoding |
+
+Notes:
+
+- Omit `Agent-Name`, send it as an empty string, or send the literal string `false` to keep the
+  request classified as a direct API call rather than an agent call.
+- Agent registrations are keyed by account plus normalized non-empty `Agent-Name`. Distinct names
+  become distinct registered agents.
 
 ### API Key Lifecycle Endpoints
 
@@ -44,7 +52,9 @@ Notes:
 
 - The backend stores only a one-way digest plus a short hint such as `...a1b2c3`.
 - The full API key is returned exactly once in the create response.
-- Each account may hold up to three active API keys at the same time.
+- Issued API keys use the `sk-` prefix.
+- Each account may hold up to five active API keys at the same time.
+- Each account may create up to ten API keys per server day.
 - API key self-service requires an already valid API key for the same account.
 
 ### Example: Create An API Key For The Current Account
@@ -571,6 +581,7 @@ curl -X POST http://127.0.0.1:8080/api/liabilities \
 curl -X POST http://127.0.0.1:8080/api/feedback \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
+  -H 'Agent-Name: api-monitor-bot' \
   -d '{
     "message": "[SYSTEM] API latency exceeded 5 minutes",
     "category": "SYSTEM_ALERT",
@@ -587,6 +598,7 @@ curl -X POST http://127.0.0.1:8080/api/feedback \
 curl -X POST http://127.0.0.1:8080/api/admin/release-notes/publish-changelog \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
+  -H 'Agent-Name: release-bot' \
   -d '{
     "version": "0.7.1",
     "title": "Chart Comparison and Agent API Updates",

@@ -95,9 +95,15 @@ def postgres_database_url(postgres_database: tuple[str, Engine]) -> str:
 
 
 @pytest.fixture(autouse=True)
-def reset_actor_source_context() -> Iterator[None]:
-	token = runtime_state.current_actor_source_context.set("USER")
+def reset_request_contexts() -> Iterator[None]:
+	actor_source_token = runtime_state.current_actor_source_context.set("USER")
+	api_key_name_token = runtime_state.current_api_key_name_context.set(None)
+	agent_name_token = runtime_state.current_agent_name_context.set(None)
+	agent_task_token = runtime_state.current_agent_task_id_context.set(None)
 	try:
 		yield
 	finally:
-		runtime_state.current_actor_source_context.reset(token)
+		runtime_state.current_agent_task_id_context.reset(agent_task_token)
+		runtime_state.current_agent_name_context.reset(agent_name_token)
+		runtime_state.current_api_key_name_context.reset(api_key_name_token)
+		runtime_state.current_actor_source_context.reset(actor_source_token)

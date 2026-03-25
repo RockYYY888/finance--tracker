@@ -227,6 +227,8 @@ def _record_asset_mutation(
 			user_id=current_user.username,
 			actor_user_id=current_user.username,
 			actor_source=_resolve_asset_mutation_actor_source(current_user),
+			api_key_name=runtime_state.current_api_key_name_context.get(),
+			agent_name=runtime_state.current_agent_name_context.get(),
 			agent_task_id=runtime_state.current_agent_task_id_context.get(),
 			entity_type=entity_type,
 			entity_id=entity_id,
@@ -349,6 +351,8 @@ def _to_asset_mutation_audit_read(audit: AssetMutationAudit) -> AssetMutationAud
 	return AssetMutationAuditRead(
 		id=audit.id or 0,
 		actor_source=audit.actor_source,
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		entity_type=audit.entity_type,
 		entity_id=audit.entity_id,

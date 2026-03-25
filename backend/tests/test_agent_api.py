@@ -52,6 +52,7 @@ from app.security import hash_password
 from app.services.market_data import Quote
 from app.services.auth_service import (
 	MAX_ACTIVE_AGENT_TOKENS_PER_USER,
+	MAX_DAILY_AGENT_TOKEN_CREATIONS,
 	create_agent_token_for_current_session,
 	login_user,
 	list_agent_tokens,
@@ -185,21 +186,18 @@ def test_create_agent_token_and_use_bearer_auth(session: Session) -> None:
 	current_user = make_user(session)
 
 	issued_token = create_agent_token_for_current_session(
-		AgentTokenCreate(name="quant-runner", expires_in_days=30),
+		AgentTokenCreate(name="local-cli", expires_in_days=30),
 		current_user,
 		session,
 	)
 
-	assert issued_token.access_token.startswith("atrk_")
+	assert issued_token.access_token.startswith("sk-")
 	stored_token = session.exec(select(AgentAccessToken)).one()
-	stored_registration = session.exec(select(AgentRegistration)).one()
 	assert stored_token.user_id == "tester"
-	assert stored_token.agent_registration_id == stored_registration.id
-	assert stored_token.name == "quant-runner"
+	assert stored_token.agent_registration_id is None
+	assert stored_token.name == "local-cli"
 	assert stored_token.token_hint.startswith("...")
-	assert stored_registration.user_id == "tester"
-	assert stored_registration.name == "quant-runner"
-	assert stored_registration.status == "ACTIVE"
+	assert session.exec(select(AgentRegistration)).all() == []
 
 	authenticated_user = get_current_user(
 		build_request(
@@ -211,17 +209,35 @@ def test_create_agent_token_and_use_bearer_auth(session: Session) -> None:
 
 	assert authenticated_user.username == "tester"
 	session.refresh(stored_token)
-	session.refresh(stored_registration)
 	assert stored_token.last_used_at is not None
-	assert stored_registration.last_seen_at is not None
+	assert session.exec(select(AgentRegistration)).all() == []
 
-	registrations = list_agent_registrations(authenticated_user, session, include_all_users=False)
+	agent_user = get_current_user(
+		build_request(
+			headers={
+				"Authorization": f"Bearer {issued_token.access_token}",
+				"Agent-Name": "quant-runner",
+			},
+		),
+		session,
+		None,
+	)
+
+	assert agent_user.username == "tester"
+	stored_registration = session.exec(select(AgentRegistration)).one()
+	assert stored_registration.user_id == "tester"
+	assert stored_registration.name == "quant-runner"
+	assert stored_registration.last_seen_at is not None
+	assert stored_registration.request_count == 1
+	assert stored_registration.latest_api_key_name == "local-cli"
+
+	registrations = list_agent_registrations(agent_user, session, include_all_users=False)
 	assert len(registrations) == 1
 	assert registrations[0].name == "quant-runner"
 	assert registrations[0].status == "ACTIVE"
-	assert registrations[0].active_token_count == 1
 	assert registrations[0].user_id == "tester"
-	assert registrations[0].latest_token_hint == stored_token.token_hint
+	assert registrations[0].request_count == 1
+	assert registrations[0].latest_api_key_name == "local-cli"
 
 
 def test_get_current_user_accepts_browser_session_without_bearer(session: Session) -> None:
@@ -265,7 +281,7 @@ def test_create_agent_token_for_current_session_only_returns_secret_once(session
 		session,
 	)
 
-	assert issued_token.access_token.startswith("atrk_")
+	assert issued_token.access_token.startswith("sk-")
 	assert issued_token.expires_at is None
 
 	listed_tokens = list_agent_tokens(current_user, session)
@@ -275,7 +291,7 @@ def test_create_agent_token_for_current_session_only_returns_secret_once(session
 	assert not hasattr(listed_tokens[0], "access_token")
 
 
-def test_agent_token_creation_rejects_more_than_three_active_keys(session: Session) -> None:
+def test_agent_token_creation_rejects_more_than_five_active_keys(session: Session) -> None:
 	current_user = make_user(session)
 
 	for index in range(MAX_ACTIVE_AGENT_TOKENS_PER_USER):
@@ -287,13 +303,39 @@ def test_agent_token_creation_rejects_more_than_three_active_keys(session: Sessi
 
 	with pytest.raises(HTTPException) as error:
 		create_agent_token_for_current_session(
-			AgentTokenCreate(name="worker-4"),
+			AgentTokenCreate(name="worker-6"),
 			current_user,
 			session,
 		)
 
 	assert error.value.status_code == 409
-	assert error.value.detail == "每个账号最多保留 3 个有效 API Key，请先撤销旧 Key。"
+	assert error.value.detail == "每个账号最多保留 5 个有效 API Key，请先删除旧 Key。"
+
+
+def test_agent_token_creation_rejects_more_than_ten_daily_creations(session: Session) -> None:
+	current_user = make_user(session)
+
+	for index in range(MAX_DAILY_AGENT_TOKEN_CREATIONS):
+		issued_token = create_agent_token_for_current_session(
+			AgentTokenCreate(name=f"rotation-{index + 1}"),
+			current_user,
+			session,
+		)
+		token_row = session.exec(
+			select(AgentAccessToken).where(AgentAccessToken.name == f"rotation-{index + 1}"),
+		).one()
+		revoke_agent_token(token_row.id or 0, current_user, session)
+		assert issued_token.access_token.startswith("sk-")
+
+	with pytest.raises(HTTPException) as error:
+		create_agent_token_for_current_session(
+			AgentTokenCreate(name="rotation-11"),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 429
+	assert error.value.detail == "同一账号每天最多生成 10 次 API Key，请明天再试。"
 
 
 def test_agent_token_creation_rejects_duplicate_active_names(session: Session) -> None:
@@ -316,7 +358,7 @@ def test_agent_token_creation_rejects_duplicate_active_names(session: Session) -
 	assert error.value.detail == "当前账号已经存在同名的有效 API Key，请使用新的名称。"
 
 
-def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) -> None:
+def test_direct_api_bearer_asset_write_is_recorded_as_api_source(session: Session) -> None:
 	current_user = make_user(session)
 	issued_token = create_agent_token_for_current_session(
 		AgentTokenCreate(name="agent-audit-source", expires_in_days=30),
@@ -342,7 +384,64 @@ def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) 
 	)
 
 	mutations = list_asset_mutation_audits(agent_user, session, limit=20)
+	assert mutations[0].actor_source == "API"
+	assert mutations[0].api_key_name == "agent-audit-source"
+	assert mutations[0].agent_name is None
+
+	records = list_asset_records(
+		agent_user,
+		session,
+		asset_class="cash",
+		operation_kind="NEW",
+		source="API",
+	)
+	assert len(records) == 1
+	assert records[0].title == "Agent Wallet"
+	assert records[0].source == "API"
+	assert records[0].api_key_name == "agent-audit-source"
+	assert records[0].agent_name is None
+
+
+def test_agent_named_bearer_asset_write_registers_agent_and_audit_metadata(session: Session) -> None:
+	current_user = make_user(session)
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="portfolio-agent", expires_in_days=30),
+		current_user,
+		session,
+	)
+	agent_user = get_current_user(
+		build_request(
+			headers={
+				"Authorization": f"Bearer {issued_token.access_token}",
+				"Agent-Name": "portfolio-copilot",
+			},
+		),
+		session,
+		None,
+	)
+
+	create_account(
+		CashAccountCreate(
+			name="Agent Registered Wallet",
+			platform="API",
+			currency="CNY",
+			balance=320,
+			account_type="BANK",
+		),
+		agent_user,
+		session,
+	)
+
+	registrations = list_agent_registrations(agent_user, session, include_all_users=False)
+	assert len(registrations) == 1
+	assert registrations[0].name == "portfolio-copilot"
+	assert registrations[0].request_count == 1
+	assert registrations[0].latest_api_key_name == "portfolio-agent"
+
+	mutations = list_asset_mutation_audits(agent_user, session, limit=20)
 	assert mutations[0].actor_source == "AGENT"
+	assert mutations[0].api_key_name == "portfolio-agent"
+	assert mutations[0].agent_name == "portfolio-copilot"
 
 	records = list_asset_records(
 		agent_user,
@@ -352,8 +451,10 @@ def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) 
 		source="AGENT",
 	)
 	assert len(records) == 1
-	assert records[0].title == "Agent Wallet"
+	assert records[0].title == "Agent Registered Wallet"
 	assert records[0].source == "AGENT"
+	assert records[0].api_key_name == "portfolio-agent"
+	assert records[0].agent_name == "portfolio-copilot"
 
 
 def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> None:
@@ -368,10 +469,6 @@ def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> Non
 	response = revoke_agent_token(token_row.id or 0, current_user, session)
 
 	assert response.message == "API Key 已撤销。"
-	registrations = list_agent_registrations(current_user, session, include_all_users=False)
-	assert len(registrations) == 1
-	assert registrations[0].status == "INACTIVE"
-	assert registrations[0].active_token_count == 0
 	with pytest.raises(HTTPException) as error:
 		get_current_user(
 			build_request(
@@ -390,22 +487,42 @@ def test_admin_can_list_agent_registrations_across_all_accounts(session: Session
 	alice_user = make_user(session, "alice")
 	bob_user = make_user(session, "bob")
 
-	create_agent_token_for_current_session(
+	alice_token = create_agent_token_for_current_session(
 		AgentTokenCreate(name="alpha", expires_in_days=30),
 		alice_user,
 		session,
 	)
-	create_agent_token_for_current_session(
+	get_current_user(
+		build_request(
+			headers={
+				"Authorization": f"Bearer {alice_token.access_token}",
+				"Agent-Name": "alpha-bot",
+			},
+		),
+		session,
+		None,
+	)
+	bob_token = create_agent_token_for_current_session(
 		AgentTokenCreate(name="beta", expires_in_days=30),
 		bob_user,
 		session,
+	)
+	get_current_user(
+		build_request(
+			headers={
+				"Authorization": f"Bearer {bob_token.access_token}",
+				"Agent-Name": "beta-bot",
+			},
+		),
+		session,
+		None,
 	)
 
 	registrations = list_agent_registrations(admin_user, session, include_all_users=True)
 
 	assert {(item.user_id, item.name) for item in registrations} == {
-		("alice", "alpha"),
-		("bob", "beta"),
+		("alice", "alpha-bot"),
+		("bob", "beta-bot"),
 	}
 
 
@@ -1018,21 +1135,21 @@ def test_seed_agent_workspace_demo_creates_registrations_tasks_and_records(
 
 	registrations = list_agent_registrations(admin_user, session, include_all_users=False)
 	tasks = list_asset_mutation_audits(admin_user, session, limit=50)
-	records = list_asset_records(admin_user, session, source="AGENT", limit=120)
-	direct_api_records = [record for record in records if record.agent_task_id is None]
+	agent_records = list_asset_records(admin_user, session, source="AGENT", limit=120)
+	direct_api_records = list_asset_records(admin_user, session, source="API", limit=120)
 
 	assert summary.registrations == 2
 	assert summary.active_registrations == 1
 	assert summary.tasks == 3
 	assert summary.direct_api_records == 1
-	assert summary.agent_records == len(records)
+	assert summary.agent_records == len(agent_records)
 	assert {(item.name, item.status) for item in registrations} == {
 		("history-audit-bot", "INACTIVE"),
 		("rebalancer-bot", "ACTIVE"),
 	}
 	assert any(task.agent_task_id is not None for task in tasks)
 	assert any(record.title == "Agent API 沙盒账户" for record in direct_api_records)
-	assert any(record.agent_task_id is not None for record in records)
+	assert any(record.agent_task_id is not None for record in agent_records)
 
 
 def test_seed_agent_workspace_demo_is_idempotent(session: Session) -> None:
@@ -1042,9 +1159,11 @@ def test_seed_agent_workspace_demo_is_idempotent(session: Session) -> None:
 	second = seed_agent_workspace_demo(session, user_id=admin_user.username)
 
 	registrations = list_agent_registrations(admin_user, session, include_all_users=False)
-	tasks = list_asset_records(admin_user, session, source="AGENT", limit=120)
+	agent_records = list_asset_records(admin_user, session, source="AGENT", limit=120)
+	direct_api_records = list_asset_records(admin_user, session, source="API", limit=120)
 
 	assert first == second
 	assert len(registrations) == 2
 	assert len(session.exec(select(AgentTask)).all()) == 3
-	assert len(tasks) == first.agent_records
+	assert len(agent_records) == first.agent_records
+	assert len(direct_api_records) == first.direct_api_records

@@ -268,6 +268,14 @@ current_actor_source_context: ContextVar[str] = ContextVar(
 	"current_actor_source",
 	default="USER",
 )
+current_api_key_name_context: ContextVar[str | None] = ContextVar(
+	"current_api_key_name",
+	default=None,
+)
+current_agent_name_context: ContextVar[str | None] = ContextVar(
+	"current_agent_name",
+	default=None,
+)
 background_refresh_task: asyncio.Task[None] | None = None
 snapshot_rebuild_worker_task: asyncio.Task[None] | None = None
 background_job_worker_task: asyncio.Task[None] | None = None

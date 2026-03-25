@@ -18,7 +18,7 @@ from app.services.service_context import SessionDependency
 
 ASSET_RECORD_CLASSES = ("cash", "investment", "fixed", "liability", "other")
 ASSET_RECORD_OPERATIONS = ("NEW", "EDIT", "DELETE", "BUY", "SELL", "TRANSFER", "ADJUST")
-ASSET_RECORD_SOURCES = ("USER", "SYSTEM", "AGENT")
+ASSET_RECORD_SOURCES = ("USER", "SYSTEM", "API", "AGENT")
 CANONICAL_AUDIT_ENTITY_TYPES = (
 	"CASH_ACCOUNT",
 	"CASH_TRANSFER",
@@ -68,7 +68,15 @@ def _normalize_asset_record_filter(
 
 
 def _resolve_audit_source(audit: AssetMutationAudit) -> str:
-	return audit.actor_source or ("AGENT" if audit.agent_task_id is not None else "USER")
+	if audit.actor_source in ASSET_RECORD_SOURCES:
+		return audit.actor_source
+	if audit.agent_name:
+		return "AGENT"
+	if audit.api_key_name:
+		return "API"
+	if audit.agent_task_id is not None:
+		return "AGENT"
+	return "USER"
 
 
 def _is_cash_account_business_record(audit: AssetMutationAudit) -> bool:
@@ -108,6 +116,8 @@ def _resolve_cash_account_record(audit: AssetMutationAudit) -> AssetRecordRead |
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		asset_class="cash",
 		operation_kind=operation_kind,
@@ -156,6 +166,8 @@ def _resolve_cash_transfer_record(audit: AssetMutationAudit) -> AssetRecordRead 
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		asset_class="cash",
 		operation_kind=operation_kind,
@@ -184,6 +196,8 @@ def _resolve_cash_adjustment_record(audit: AssetMutationAudit) -> AssetRecordRea
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		asset_class="cash",
 		operation_kind=operation_kind,
@@ -319,6 +333,8 @@ def _resolve_holding_transaction_record(
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		asset_class="investment",
 		operation_kind=operation_kind,
@@ -346,6 +362,8 @@ def _resolve_holding_delete_record(audit: AssetMutationAudit) -> AssetRecordRead
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		asset_class="investment",
 		operation_kind="DELETE",
@@ -380,6 +398,8 @@ def _resolve_asset_entry_record(
 	return AssetRecordRead(
 		id=audit.id or 0,
 		source=_resolve_audit_source(audit),
+		api_key_name=audit.api_key_name,
+		agent_name=audit.agent_name,
 		agent_task_id=audit.agent_task_id,
 		asset_class=asset_class,
 		operation_kind=operation_kind,

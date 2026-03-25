@@ -63,6 +63,7 @@ export const SOURCE_FILTER_OPTIONS: Array<{
 	{ value: "ALL", label: "全部" },
 	{ value: "USER", label: "用户" },
 	{ value: "SYSTEM", label: "系统" },
+	{ value: "API", label: "直连 API" },
 	{ value: "AGENT", label: "Agent" },
 ];
 
@@ -87,5 +88,6 @@ export const OPERATION_BADGE_LABELS: Record<AssetRecordOperationKind, string> = 
 export const SOURCE_BADGE_LABELS: Record<AssetRecordSource, string> = {
 	USER: "用户",
 	SYSTEM: "系统",
+	API: "直连 API",
 	AGENT: "Agent",
 };

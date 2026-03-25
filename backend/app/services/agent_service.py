@@ -6,11 +6,11 @@ from typing import Annotated
 from fastapi import Header, HTTPException, Query
 from sqlmodel import select
 
+from app import runtime_state
 from app.models import (
 	AGENT_REGISTRATION_STATUSES,
 	AGENT_TASK_STATUSES,
 	HOLDING_HISTORY_SYNC_STATUSES,
-	AgentAccessToken,
 	AgentRegistration,
 	AgentTask,
 	HoldingHistorySyncRequest,
@@ -19,24 +19,29 @@ from app.models import (
 from app.schemas import AgentContextRead, AgentRegistrationRead, AgentTaskCreate, AgentTaskRead
 from app.services import job_service
 from app.services.auth_service import (
+	AGENT_REGISTRATION_ACTIVE_WINDOW,
 	CurrentUserDependency,
-	_is_agent_token_active,
 	create_agent_token_for_current_session,
 	issue_agent_token_with_password,
 	list_agent_tokens,
 	revoke_agent_token,
 )
 from app.services.common_service import (
-    _build_idempotency_request_hash,
-    _load_idempotent_response,
-    _store_idempotent_response,
+	_build_idempotency_request_hash,
+	_coerce_utc_datetime,
+	_load_idempotent_response,
+	_store_idempotent_response,
 )
 from app.services.portfolio_service import _list_holding_transactions_for_user, _to_holding_transaction_reads
 from app.services.service_context import SessionDependency
 
+
 def _to_agent_task_read(task: AgentTask) -> AgentTaskRead:
 	return AgentTaskRead(
 		id=task.id or 0,
+		request_source=task.request_source,
+		api_key_name=task.api_key_name,
+		agent_name=task.agent_name,
 		task_type=task.task_type,
 		status=task.status,
 		payload=json.loads(task.input_json),
@@ -48,39 +53,23 @@ def _to_agent_task_read(task: AgentTask) -> AgentTaskRead:
 	)
 
 
-def _to_agent_registration_read(
-	registration: AgentRegistration,
-	*,
-	tokens: list[AgentAccessToken],
-) -> AgentRegistrationRead:
-	now = utc_now()
-	sorted_tokens = sorted(
-		tokens,
-		key=lambda token: (token.created_at, token.id or 0),
-		reverse=True,
-	)
-	active_token_count = sum(1 for token in tokens if _is_agent_token_active(token, now))
-	last_used_at = max(
-		(
-			token.last_used_at
-			for token in tokens
-			if token.last_used_at is not None
-		),
-		default=None,
-	)
+def _resolve_agent_registration_status(registration: AgentRegistration) -> str:
+	if registration.last_seen_at is None:
+		return AGENT_REGISTRATION_STATUSES[1]
+	if utc_now() - _coerce_utc_datetime(registration.last_seen_at) <= AGENT_REGISTRATION_ACTIVE_WINDOW:
+		return AGENT_REGISTRATION_STATUSES[0]
+	return AGENT_REGISTRATION_STATUSES[1]
+
+
+def _to_agent_registration_read(registration: AgentRegistration) -> AgentRegistrationRead:
 	return AgentRegistrationRead(
 		id=registration.id or 0,
 		user_id=registration.user_id,
 		name=registration.name,
-		status=(
-			AGENT_REGISTRATION_STATUSES[0]
-			if active_token_count > 0
-			else AGENT_REGISTRATION_STATUSES[1]
-		),
-		active_token_count=active_token_count,
-		total_token_count=len(tokens),
-		latest_token_hint=sorted_tokens[0].token_hint if sorted_tokens else None,
-		last_used_at=last_used_at,
+		status=_resolve_agent_registration_status(registration),
+		request_count=registration.request_count,
+		latest_api_key_name=registration.latest_api_key_name,
+		last_used_at=registration.last_seen_at,
 		last_seen_at=registration.last_seen_at,
 		created_at=registration.created_at,
 		updated_at=registration.updated_at,
@@ -164,35 +153,15 @@ def list_agent_registrations(
 
 	registrations = list(
 		session.exec(
-			statement.order_by(
+			statement
+			.where(AgentRegistration.request_count > 0)
+			.order_by(
 				AgentRegistration.updated_at.desc(),
 				AgentRegistration.id.desc(),
 			),
 		),
 	)
-	if not registrations:
-		return []
-
-	registration_ids = [registration.id for registration in registrations if registration.id is not None]
-	tokens = list(
-		session.exec(
-			select(AgentAccessToken)
-			.where(AgentAccessToken.agent_registration_id.in_(registration_ids)),
-		),
-	) if registration_ids else []
-	tokens_by_registration_id: dict[int, list[AgentAccessToken]] = {}
-	for token in tokens:
-		if token.agent_registration_id is None:
-			continue
-		tokens_by_registration_id.setdefault(token.agent_registration_id, []).append(token)
-
-	return [
-		_to_agent_registration_read(
-			registration,
-			tokens=tokens_by_registration_id.get(registration.id or 0, []),
-		)
-		for registration in registrations
-	]
+	return [_to_agent_registration_read(registration) for registration in registrations]
 
 def create_agent_task(
 	payload: AgentTaskCreate,
@@ -215,6 +184,9 @@ def create_agent_task(
 
 	task = AgentTask(
 		user_id=current_user.username,
+		request_source=runtime_state.current_actor_source_context.get(),
+		api_key_name=runtime_state.current_api_key_name_context.get(),
+		agent_name=runtime_state.current_agent_name_context.get(),
 		task_type=payload.task_type,
 		status=AGENT_TASK_STATUSES[0],
 		input_json=json.dumps(payload.payload, sort_keys=True, ensure_ascii=False),

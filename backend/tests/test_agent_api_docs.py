@@ -90,6 +90,10 @@ def test_agent_api_doc_contains_parameter_tables_and_examples() -> None:
 	assert "| Header | Required | Applies To | Description |" in markdown
 	assert "| Field | Type | Required | Description |" in markdown
 	assert "| Endpoint | Parameter | Type | Required | Default | Description |" in markdown
+	assert "`Agent-Name: <name>`" in markdown
+	assert "up to five active API keys" in markdown
+	assert "up to ten API keys per server day" in markdown
+	assert "`sk-` prefix" in markdown
 	assert "### Submit A System Feedback Message" in markdown
 	assert "### Publish A Changelog-Backed Release Note" in markdown
 	assert "X-API-Key" not in markdown

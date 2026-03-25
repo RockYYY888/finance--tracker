@@ -208,7 +208,7 @@ describe("App session restore", () => {
 			id: 1,
 			name: "local-cli",
 			token_hint: "...abc123",
-			access_token: "atrk_demo_key",
+			access_token: "sk_demo_key",
 			created_at: new Date().toISOString(),
 			updated_at: new Date().toISOString(),
 			last_used_at: null,
@@ -780,9 +780,13 @@ describe("App session restore", () => {
 			includeAllUsers: false,
 		});
 		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
-		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledWith({
+		expect(assetApiMocks.listAssetRecords).toHaveBeenNthCalledWith(1, {
 			source: "AGENT",
-			limit: 120,
+			limit: 200,
+		});
+		expect(assetApiMocks.listAssetRecords).toHaveBeenNthCalledWith(2, {
+			source: "API",
+			limit: 200,
 		});
 
 		await act(async () => {
@@ -804,7 +808,7 @@ describe("App session restore", () => {
 		expect(assetApiMocks.listAgentApiKeys).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
-		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledTimes(1);
+		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledTimes(2);
 	});
 
 	it("opens the asset records dialog from the hero actions", async () => {

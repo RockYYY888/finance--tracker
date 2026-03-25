@@ -32,7 +32,7 @@ def test_publish_release_note_uses_admin_api_key(monkeypatch) -> None:
 	result = push_release._publish_release_note_with_admin_api_key(
 		object(),
 		origin="https://example.com",
-		admin_api_key="atrk_admin_key",
+		admin_api_key="sk_admin_key",
 		payload={"version": "0.7.1"},
 	)
 
@@ -40,6 +40,6 @@ def test_publish_release_note_uses_admin_api_key(monkeypatch) -> None:
 	assert recorded_calls == [
 		(
 			"https://example.com/api/admin/release-notes/publish-changelog",
-			"Bearer atrk_admin_key",
+			"Bearer sk_admin_key",
 		),
 	]

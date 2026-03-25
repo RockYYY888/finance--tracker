@@ -227,7 +227,7 @@ export type AgentTaskType =
 
 export type AgentTaskStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 export type AgentRegistrationStatus = "ACTIVE" | "INACTIVE";
-export type AssetRecordSource = "USER" | "SYSTEM" | "AGENT";
+export type AssetRecordSource = "USER" | "SYSTEM" | "API" | "AGENT";
 export type AssetRecordAssetClass = "cash" | "investment" | "fixed" | "liability" | "other";
 export type AssetRecordOperationKind =
 	| "NEW"
@@ -240,6 +240,9 @@ export type AssetRecordOperationKind =
 
 export interface AgentTaskRecord {
 	id: number;
+	request_source: AssetRecordSource;
+	api_key_name?: string | null;
+	agent_name?: string | null;
 	task_type: AgentTaskType;
 	status: AgentTaskStatus;
 	payload: Record<string, unknown>;
@@ -255,9 +258,8 @@ export interface AgentRegistrationRecord {
 	user_id: string;
 	name: string;
 	status: AgentRegistrationStatus;
-	active_token_count: number;
-	total_token_count: number;
-	latest_token_hint?: string | null;
+	request_count: number;
+	latest_api_key_name?: string | null;
 	last_used_at?: string | null;
 	last_seen_at?: string | null;
 	created_at?: string;
@@ -288,6 +290,8 @@ export interface AssetMutationAuditRecord {
 	id: number;
 	agent_task_id?: number | null;
 	actor_source?: AssetRecordSource;
+	api_key_name?: string | null;
+	agent_name?: string | null;
 	entity_type: string;
 	entity_id?: number | null;
 	operation: "CREATE" | "UPDATE" | "DELETE";
@@ -305,6 +309,8 @@ export interface AgentAuditSnapshot {
 export interface AssetRecordRecord {
 	id: number;
 	source: AssetRecordSource;
+	api_key_name?: string | null;
+	agent_name?: string | null;
 	agent_task_id?: number | null;
 	asset_class: AssetRecordAssetClass;
 	operation_kind: AssetRecordOperationKind;

@@ -393,7 +393,9 @@ def _execute_agent_task_command_in_new_session(task_id: int) -> dict[str, Any]:
 			raise HTTPException(status_code=404, detail="Agent task user not found.")
 
 		context_token = runtime_state.current_agent_task_id_context.set(task.id or 0)
-		source_token = runtime_state.current_actor_source_context.set("AGENT")
+		source_token = runtime_state.current_actor_source_context.set(task.request_source)
+		api_key_name_token = runtime_state.current_api_key_name_context.set(task.api_key_name)
+		agent_name_token = runtime_state.current_agent_name_context.set(task.agent_name)
 		try:
 			return _execute_agent_task_command(
 				session,
@@ -401,6 +403,8 @@ def _execute_agent_task_command_in_new_session(task_id: int) -> dict[str, Any]:
 				current_user=current_user,
 			)
 		finally:
+			runtime_state.current_agent_name_context.reset(agent_name_token)
+			runtime_state.current_api_key_name_context.reset(api_key_name_token)
 			runtime_state.current_actor_source_context.reset(source_token)
 			runtime_state.current_agent_task_id_context.reset(context_token)
 

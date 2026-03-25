@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 from fastapi import HTTPException, Request
 
 from app.settings import get_settings
@@ -17,7 +18,7 @@ SCRYPT_N = 2**14
 SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_DKLEN = 64
-AGENT_TOKEN_PREFIX = "atrk_"
+AGENT_TOKEN_PREFIX = "sk-"
 
 
 def normalize_user_id(value: str) -> str:
@@ -102,13 +103,15 @@ def verify_password(password: str, password_digest: str) -> bool:
 
 
 def generate_agent_token() -> str:
-	return f"{AGENT_TOKEN_PREFIX}{os.urandom(24).hex()}"
+	return f"{AGENT_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
 
 
 def hash_agent_token(token: str) -> str:
 	normalized_token = token.strip()
 	if not normalized_token:
 		raise ValueError("Agent token cannot be empty.")
+	if not normalized_token.startswith(AGENT_TOKEN_PREFIX):
+		raise ValueError("Agent token must start with sk-.")
 
 	return hashlib.sha256(normalized_token.encode("utf-8")).hexdigest()
 

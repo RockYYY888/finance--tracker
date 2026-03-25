@@ -993,6 +993,9 @@ class AgentTaskCreate(BaseModel):
 
 class AgentTaskRead(UtcTimestampResponseModel):
 	id: int
+	request_source: str
+	api_key_name: str | None = None
+	agent_name: str | None = None
 	task_type: str
 	status: str
 	payload: dict[str, Any]
@@ -1018,9 +1021,8 @@ class AgentRegistrationRead(UtcTimestampResponseModel):
 	user_id: str
 	name: str
 	status: str
-	active_token_count: int
-	total_token_count: int
-	latest_token_hint: str | None = None
+	request_count: int
+	latest_api_key_name: str | None = None
 	last_used_at: datetime | None = None
 	last_seen_at: datetime | None = None
 	created_at: datetime
@@ -1191,6 +1193,8 @@ class DashboardCorrectionRead(UtcTimestampResponseModel):
 class AssetMutationAuditRead(UtcTimestampResponseModel):
 	id: int
 	actor_source: str
+	api_key_name: str | None = None
+	agent_name: str | None = None
 	agent_task_id: int | None = None
 	entity_type: str
 	entity_id: int | None = None
@@ -1204,6 +1208,8 @@ class AssetMutationAuditRead(UtcTimestampResponseModel):
 class AssetRecordRead(UtcTimestampResponseModel):
 	id: int
 	source: str
+	api_key_name: str | None = None
+	agent_name: str | None = None
 	agent_task_id: int | None = None
 	asset_class: str
 	operation_kind: str
