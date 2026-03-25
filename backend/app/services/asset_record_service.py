@@ -68,14 +68,12 @@ def _normalize_asset_record_filter(
 
 
 def _resolve_audit_source(audit: AssetMutationAudit) -> str:
-	if audit.actor_source in ASSET_RECORD_SOURCES:
+	if audit.actor_source in {"USER", "SYSTEM"}:
 		return audit.actor_source
 	if audit.agent_name:
 		return "AGENT"
-	if audit.api_key_name:
+	if audit.api_key_name or audit.agent_task_id is not None or audit.actor_source in {"API", "AGENT"}:
 		return "API"
-	if audit.agent_task_id is not None:
-		return "AGENT"
 	return "USER"
 
 

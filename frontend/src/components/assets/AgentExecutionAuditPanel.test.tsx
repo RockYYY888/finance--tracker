@@ -93,7 +93,7 @@ describe("AgentExecutionAuditPanel", () => {
 		expect(screen.getAllByText("直连 API").length).toBeGreaterThan(0);
 	});
 
-	it("opens the key management dialog and only allows deleting existing keys", () => {
+	it("opens the key management dialog, hides deleted keys, and requires revoke confirmation", () => {
 		const revokeApiKey = vi.fn();
 
 		render(
@@ -109,6 +109,16 @@ describe("AgentExecutionAuditPanel", () => {
 						expires_at: null,
 						revoked_at: null,
 					},
+					{
+						id: 9,
+						name: "discarded-key",
+						token_hint: "...dead00",
+						created_at: "2026-03-10T10:00:00.000Z",
+						updated_at: "2026-03-10T10:00:00.000Z",
+						last_used_at: "2026-03-10T10:05:00.000Z",
+						expires_at: null,
+						revoked_at: "2026-03-11T10:05:00.000Z",
+					},
 				]}
 				registrations={[]}
 				tasks={[]}
@@ -122,9 +132,15 @@ describe("AgentExecutionAuditPanel", () => {
 
 		expect(screen.getByRole("heading", { name: "有效 Key" })).toBeTruthy();
 		expect(screen.getByText("local-cli")).toBeTruthy();
+		expect(screen.queryByText("discarded-key")).toBeNull();
 		expect(screen.queryByRole("button", { name: "复制到剪贴板" })).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", { name: "删除" }));
+		expect(screen.getByRole("heading", { name: "删除 API Key" })).toBeTruthy();
+		expect(screen.getAllByText("local-cli").length).toBeGreaterThan(0);
+		expect(revokeApiKey).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 		expect(revokeApiKey).toHaveBeenCalledWith(8);
 	});
 

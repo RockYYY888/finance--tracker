@@ -979,9 +979,16 @@
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
 	gap: 1rem;
+	position: relative;
+	z-index: 1;
 	width: min(100%, 960px);
 	max-height: min(84dvh, 760px);
 	overflow: hidden;
+}
+
+.feedback-modal__panel.agent-workspace__confirm-panel {
+	width: min(100%, 520px);
+	max-height: min(70dvh, 480px);
 }
 
 .agent-workspace__modal-head {

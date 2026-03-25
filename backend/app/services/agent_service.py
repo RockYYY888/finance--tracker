@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 from typing import Annotated
 
@@ -10,6 +11,7 @@ from app import runtime_state
 from app.models import (
 	AGENT_REGISTRATION_STATUSES,
 	AGENT_TASK_STATUSES,
+	AgentAccessToken,
 	HOLDING_HISTORY_SYNC_STATUSES,
 	AgentRegistration,
 	AgentTask,
@@ -21,6 +23,7 @@ from app.services import job_service
 from app.services.auth_service import (
 	AGENT_REGISTRATION_ACTIVE_WINDOW,
 	CurrentUserDependency,
+	_is_agent_token_active,
 	create_agent_token_for_current_session,
 	issue_agent_token_with_password,
 	list_agent_tokens,
@@ -36,10 +39,29 @@ from app.services.portfolio_service import _list_holding_transactions_for_user, 
 from app.services.service_context import SessionDependency
 
 
+def _resolve_request_source(
+	request_source: str | None,
+	*,
+	api_key_name: str | None,
+	agent_name: str | None,
+) -> str:
+	if agent_name and agent_name.strip():
+		return "AGENT"
+	if api_key_name and api_key_name.strip():
+		return "API"
+	if request_source in {"USER", "SYSTEM"}:
+		return request_source
+	return "API"
+
+
 def _to_agent_task_read(task: AgentTask) -> AgentTaskRead:
 	return AgentTaskRead(
 		id=task.id or 0,
-		request_source=task.request_source,
+		request_source=_resolve_request_source(
+			task.request_source,
+			api_key_name=task.api_key_name,
+			agent_name=task.agent_name,
+		),
 		api_key_name=task.api_key_name,
 		agent_name=task.agent_name,
 		task_type=task.task_type,
@@ -53,27 +75,73 @@ def _to_agent_task_read(task: AgentTask) -> AgentTaskRead:
 	)
 
 
-def _resolve_agent_registration_status(registration: AgentRegistration) -> str:
+def _resolve_agent_registration_status(
+	registration: AgentRegistration,
+	*,
+	active_api_key_names: set[str],
+	now: datetime | None = None,
+) -> str:
+	now_value = now or utc_now()
 	if registration.last_seen_at is None:
 		return AGENT_REGISTRATION_STATUSES[1]
-	if utc_now() - _coerce_utc_datetime(registration.last_seen_at) <= AGENT_REGISTRATION_ACTIVE_WINDOW:
+	if registration.latest_api_key_name not in active_api_key_names:
+		return AGENT_REGISTRATION_STATUSES[1]
+	if now_value - _coerce_utc_datetime(registration.last_seen_at) <= AGENT_REGISTRATION_ACTIVE_WINDOW:
 		return AGENT_REGISTRATION_STATUSES[0]
 	return AGENT_REGISTRATION_STATUSES[1]
 
 
-def _to_agent_registration_read(registration: AgentRegistration) -> AgentRegistrationRead:
+def _to_agent_registration_read(
+	registration: AgentRegistration,
+	*,
+	active_api_key_names: set[str],
+	now: datetime | None = None,
+) -> AgentRegistrationRead:
+	now_value = now or utc_now()
+	latest_api_key_name = (
+		registration.latest_api_key_name
+		if registration.latest_api_key_name in active_api_key_names
+		else None
+	)
 	return AgentRegistrationRead(
 		id=registration.id or 0,
 		user_id=registration.user_id,
 		name=registration.name,
-		status=_resolve_agent_registration_status(registration),
+		status=_resolve_agent_registration_status(
+			registration,
+			active_api_key_names=active_api_key_names,
+			now=now_value,
+		),
 		request_count=registration.request_count,
-		latest_api_key_name=registration.latest_api_key_name,
+		latest_api_key_name=latest_api_key_name,
 		last_used_at=registration.last_seen_at,
 		last_seen_at=registration.last_seen_at,
 		created_at=registration.created_at,
 		updated_at=registration.updated_at,
 	)
+
+
+def _list_active_api_key_names_by_user(
+	session: SessionDependency,
+	*,
+	user_ids: set[str],
+	now: datetime | None = None,
+) -> dict[str, set[str]]:
+	if not user_ids:
+		return {}
+
+	now_value = now or utc_now()
+	tokens = list(
+		session.exec(
+			select(AgentAccessToken).where(AgentAccessToken.user_id.in_(sorted(user_ids))),
+		),
+	)
+	active_names_by_user: dict[str, set[str]] = {}
+	for token in tokens:
+		if not _is_agent_token_active(token, now_value):
+			continue
+		active_names_by_user.setdefault(token.user_id, set()).add(token.name)
+	return active_names_by_user
 
 async def get_agent_context(
 	current_user: CurrentUserDependency,
@@ -161,7 +229,20 @@ def list_agent_registrations(
 			),
 		),
 	)
-	return [_to_agent_registration_read(registration) for registration in registrations]
+	now = utc_now()
+	active_api_key_names_by_user = _list_active_api_key_names_by_user(
+		session,
+		user_ids={registration.user_id for registration in registrations},
+		now=now,
+	)
+	return [
+		_to_agent_registration_read(
+			registration,
+			active_api_key_names=active_api_key_names_by_user.get(registration.user_id, set()),
+			now=now,
+		)
+		for registration in registrations
+	]
 
 def create_agent_task(
 	payload: AgentTaskCreate,

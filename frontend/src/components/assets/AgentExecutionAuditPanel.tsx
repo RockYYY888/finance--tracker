@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
@@ -202,7 +203,11 @@ function AgentWorkspaceDialog({
 		return null;
 	}
 
-	return (
+	if (typeof document === "undefined") {
+		return null;
+	}
+
+	return createPortal(
 		<div className="feedback-modal" role="dialog" aria-modal="true" aria-labelledby={`${dialogScope}-title`}>
 			<button
 				type="button"
@@ -229,7 +234,8 @@ function AgentWorkspaceDialog({
 				</div>
 				{children}
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
@@ -440,9 +446,15 @@ export function AgentExecutionAuditPanel({
 	const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 	const [isManageKeysDialogOpen, setIsManageKeysDialogOpen] = useState(false);
 	const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
+	const [pendingRevokeApiKey, setPendingRevokeApiKey] = useState<AgentApiKeyRecord | null>(null);
 	const [activityView, setActivityView] = useState<ActivityView>("ALL");
 	const [activitySourceFilter, setActivitySourceFilter] =
 		useState<ActivitySourceFilter>("ALL");
+
+	const activeApiKeys = useMemo(
+		() => apiKeys.filter((apiKey) => isApiKeyActive(apiKey)),
+		[apiKeys],
+	);
 
 	const recordsByTaskId = useMemo(() => {
 		const nextMap = new Map<number, AssetRecordRecord[]>();
@@ -460,7 +472,18 @@ export function AgentExecutionAuditPanel({
 	const activeRegistrationCount = registrations.filter(
 		(registration) => registration.status === "ACTIVE",
 	).length;
-	const activeApiKeyCount = apiKeys.filter((apiKey) => isApiKeyActive(apiKey)).length;
+	const activeApiKeyCount = activeApiKeys.length;
+
+	useEffect(() => {
+		if (!pendingRevokeApiKey) {
+			return;
+		}
+
+		const stillExists = activeApiKeys.some((apiKey) => apiKey.id === pendingRevokeApiKey.id);
+		if (!stillExists) {
+			setPendingRevokeApiKey(null);
+		}
+	}, [activeApiKeys, pendingRevokeApiKey]);
 
 	const filteredTasks = useMemo(() => {
 		if (activitySourceFilter === "ALL") {
@@ -495,6 +518,28 @@ export function AgentExecutionAuditPanel({
 		if (issuedApiKey) {
 			onDismissIssuedApiKey?.();
 		}
+	}
+
+	function closeManageKeysDialog(): void {
+		setIsManageKeysDialogOpen(false);
+		setPendingRevokeApiKey(null);
+	}
+
+	function requestRevokeApiKey(apiKey: AgentApiKeyRecord): void {
+		setPendingRevokeApiKey(apiKey);
+	}
+
+	function cancelRevokeApiKey(): void {
+		setPendingRevokeApiKey(null);
+	}
+
+	function confirmRevokeApiKey(): void {
+		if (!pendingRevokeApiKey) {
+			return;
+		}
+
+		onRevokeApiKey?.(pendingRevokeApiKey.id);
+		setPendingRevokeApiKey(null);
 	}
 
 	function handleCreateApiKeySubmit(event: FormEvent<HTMLFormElement>): void {
@@ -760,7 +805,7 @@ export function AgentExecutionAuditPanel({
 
 			<AgentWorkspaceDialog
 				open={isManageKeysDialogOpen}
-				onClose={() => setIsManageKeysDialogOpen(false)}
+				onClose={closeManageKeysDialog}
 				title="有效 Key"
 				eyebrow="API KEYS"
 				description="这里可以查看当前账号的 API Key 元信息并删除旧 Key。出于安全原因，完整 Key 不会再次显示，也不支持从这里复制。"
@@ -773,17 +818,16 @@ export function AgentExecutionAuditPanel({
 					<div className="asset-manager__helper-block">
 						<strong>当前状态</strong>
 						<p>
-							有效 Key {activeApiKeyCount} / {MAX_ACTIVE_API_KEYS}。删除后可释放名额，但历史记录仍会保留对应的 Key 名称。
+							有效 Key {activeApiKeyCount} / {MAX_ACTIVE_API_KEYS}。删除后会立即失效并释放名额，历史记录仍会保留对应的 Key 名称。
 						</p>
 					</div>
 					<div className="agent-workspace__scroll-region">
-						{apiKeys.length === 0 ? (
+						{activeApiKeys.length === 0 ? (
 							<div className="asset-manager__empty-state">当前账号还没有 API Key。</div>
 						) : (
 							<ul className="asset-manager__list">
-								{apiKeys.map((apiKey) => {
+								{activeApiKeys.map((apiKey) => {
 									const status = getApiKeyStatus(apiKey);
-									const canRevoke = !apiKey.revoked_at;
 									return (
 										<li key={apiKey.id} className="asset-manager__card">
 											<div className="asset-manager__card-top">
@@ -800,18 +844,16 @@ export function AgentExecutionAuditPanel({
 														仅保留掩码提示，完整密钥在创建后不会再次返回。
 													</p>
 												</div>
-												{canRevoke ? (
-													<div className="asset-manager__card-actions">
-														<button
-															type="button"
-															className="asset-manager__button asset-manager__button--secondary"
-															onClick={() => onRevokeApiKey?.(apiKey.id)}
-															disabled={revokingApiKeyId === apiKey.id}
-														>
-															{revokingApiKeyId === apiKey.id ? "删除中..." : "删除"}
-														</button>
-													</div>
-												) : null}
+												<div className="asset-manager__card-actions">
+													<button
+														type="button"
+														className="asset-manager__button asset-manager__button--secondary"
+														onClick={() => requestRevokeApiKey(apiKey)}
+														disabled={revokingApiKeyId === apiKey.id}
+													>
+														{revokingApiKeyId === apiKey.id ? "删除中..." : "删除"}
+													</button>
+												</div>
 											</div>
 											<div className="asset-manager__metric-grid">
 												<div className="asset-manager__metric">
@@ -828,16 +870,51 @@ export function AgentExecutionAuditPanel({
 														{apiKey.expires_at ? formatTimestamp(apiKey.expires_at) : "永不过期"}
 													</strong>
 												</div>
-												<div className="asset-manager__metric">
-													<span>删除时间</span>
-													<strong>{formatTimestamp(apiKey.revoked_at)}</strong>
-												</div>
 											</div>
 										</li>
 									);
 								})}
 							</ul>
 						)}
+					</div>
+				</div>
+			</AgentWorkspaceDialog>
+
+			<AgentWorkspaceDialog
+				open={pendingRevokeApiKey !== null}
+				onClose={cancelRevokeApiKey}
+				title="删除 API Key"
+				eyebrow="CONFIRM"
+				description="删除后，这个 Key 会立刻失效，后续请求无法再通过它完成鉴权。这个操作不能撤销。"
+				dialogScope="agent-workspace-confirm-revoke-key"
+				panelClassName="agent-workspace__confirm-panel"
+			>
+				<div className="agent-workspace__modal-body">
+					<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
+						<strong>{pendingRevokeApiKey?.name ?? "待删除 API Key"}</strong>
+						<p>
+							掩码提示：<code>{pendingRevokeApiKey?.token_hint ?? "—"}</code>
+						</p>
+					</div>
+					<div className="asset-manager__form-actions">
+						<button
+							type="button"
+							className="asset-manager__button asset-manager__button--secondary"
+							onClick={cancelRevokeApiKey}
+							disabled={pendingRevokeApiKey !== null && revokingApiKeyId === pendingRevokeApiKey.id}
+						>
+							取消
+						</button>
+						<button
+							type="button"
+							className="asset-manager__button"
+							onClick={confirmRevokeApiKey}
+							disabled={pendingRevokeApiKey !== null && revokingApiKeyId === pendingRevokeApiKey.id}
+						>
+							{pendingRevokeApiKey !== null && revokingApiKeyId === pendingRevokeApiKey.id
+								? "删除中..."
+								: "确认删除"}
+						</button>
 					</div>
 				</div>
 			</AgentWorkspaceDialog>

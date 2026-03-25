@@ -124,6 +124,20 @@ def _list_agent_access_tokens_for_user(
 	)
 
 
+def _list_active_agent_access_tokens_for_user(
+	session: SessionDependency,
+	*,
+	user_id: str,
+	now: datetime | None = None,
+) -> list[AgentAccessToken]:
+	now_value = now or utc_now()
+	return [
+		token
+		for token in _list_agent_access_tokens_for_user(session, user_id=user_id)
+		if _is_agent_token_active(token, now_value)
+	]
+
+
 def _is_agent_token_active(token: AgentAccessToken, now: datetime) -> bool:
 	if token.revoked_at is not None:
 		return False
@@ -703,7 +717,7 @@ def list_agent_tokens(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> list[AgentTokenRead]:
-	tokens = _list_agent_access_tokens_for_user(
+	tokens = _list_active_agent_access_tokens_for_user(
 		session,
 		user_id=current_user.username,
 	)
@@ -720,9 +734,22 @@ def revoke_agent_token(
 		raise HTTPException(status_code=404, detail="API Key 不存在。")
 
 	if token.revoked_at is None:
-		token.revoked_at = utc_now()
+		now = utc_now()
+		token.revoked_at = now
 		_touch_model(token)
 		session.add(token)
+		registrations = list(
+			session.exec(
+				select(AgentRegistration)
+				.where(AgentRegistration.user_id == current_user.username)
+				.where(AgentRegistration.latest_api_key_name == token.name),
+			),
+		)
+		for registration in registrations:
+			registration.status = AGENT_REGISTRATION_STATUSES[1]
+			registration.latest_api_key_name = None
+			_touch_model(registration)
+			session.add(registration)
 		session.commit()
 
 	return ActionMessageRead(message="API Key 已撤销。")
@@ -743,6 +770,7 @@ __all__ = [
 	"_get_agent_registration_by_name",
 	"_is_agent_token_active",
 	"_list_agent_access_tokens_for_user",
+	"_list_active_agent_access_tokens_for_user",
 	"_create_user_account",
 	"_get_user",
 	"_normalize_agent_name_header",

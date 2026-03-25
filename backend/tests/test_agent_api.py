@@ -20,6 +20,7 @@ from app.main import (
 	get_current_user,
 	get_security_quote,
 	list_agent_registrations,
+	list_agent_tasks,
 	list_all_holding_transactions,
 	list_asset_mutation_audits,
 	revoke_agent_token,
@@ -291,6 +292,31 @@ def test_create_agent_token_for_current_session_only_returns_secret_once(session
 	assert not hasattr(listed_tokens[0], "access_token")
 
 
+def test_list_agent_tokens_discards_revoked_keys(session: Session) -> None:
+	current_user = make_user(session)
+
+	create_agent_token_for_current_session(
+		AgentTokenCreate(name="local-cli"),
+		current_user,
+		session,
+	)
+	revoked_issue = create_agent_token_for_current_session(
+		AgentTokenCreate(name="stale-key"),
+		current_user,
+		session,
+	)
+	revoked_token = session.exec(
+		select(AgentAccessToken).where(AgentAccessToken.name == "stale-key"),
+	).one()
+	assert revoked_issue.access_token.startswith("sk-")
+
+	revoke_agent_token(revoked_token.id or 0, current_user, session)
+
+	listed_tokens = list_agent_tokens(current_user, session)
+
+	assert [token.name for token in listed_tokens] == ["local-cli"]
+
+
 def test_agent_token_creation_rejects_more_than_five_active_keys(session: Session) -> None:
 	current_user = make_user(session)
 
@@ -480,6 +506,83 @@ def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> Non
 
 	assert error.value.status_code == 401
 	assert error.value.detail == "API Key 无效。"
+
+
+def test_revoking_agent_token_marks_registration_inactive_and_hides_latest_key(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="portfolio-agent", expires_in_days=30),
+		current_user,
+		session,
+	)
+	agent_user = get_current_user(
+		build_request(
+			headers={
+				"Authorization": f"Bearer {issued_token.access_token}",
+				"Agent-Name": "portfolio-copilot",
+			},
+		),
+		session,
+		None,
+	)
+	token_row = session.exec(
+		select(AgentAccessToken).where(AgentAccessToken.name == "portfolio-agent"),
+	).one()
+
+	revoke_agent_token(token_row.id or 0, current_user, session)
+	registrations = list_agent_registrations(agent_user, session, include_all_users=False)
+
+	assert len(registrations) == 1
+	assert registrations[0].name == "portfolio-copilot"
+	assert registrations[0].status == "INACTIVE"
+	assert registrations[0].latest_api_key_name is None
+
+
+def test_stale_agent_metadata_without_agent_name_is_treated_as_direct_api(session: Session) -> None:
+	current_user = make_user(session)
+	task = AgentTask(
+		user_id=current_user.username,
+		request_source="AGENT",
+		api_key_name="local-cli",
+		agent_name=None,
+		task_type="CREATE_CASH_TRANSFER",
+		status="DONE",
+		input_json=json.dumps({"note": "legacy-direct-api"}),
+		result_json=json.dumps({"ok": True}),
+	)
+	audit = AssetMutationAudit(
+		user_id=current_user.username,
+		actor_user_id=current_user.username,
+		actor_source="AGENT",
+		api_key_name="local-cli",
+		agent_name=None,
+		agent_task_id=91,
+		entity_type="CASH_ACCOUNT",
+		entity_id=7,
+		operation="CREATE",
+		after_state=json.dumps(
+			{
+				"name": "Legacy API Wallet",
+				"platform": "API",
+				"balance": 120,
+				"currency": "CNY",
+			},
+		),
+	)
+	session.add(task)
+	session.add(audit)
+	session.commit()
+
+	tasks = list_agent_tasks(current_user, session, limit=50)
+	records = list_asset_records(current_user, session, source="API")
+
+	assert tasks[0].request_source == "API"
+	assert tasks[0].agent_name is None
+	assert records[0].source == "API"
+	assert records[0].api_key_name == "local-cli"
+	assert records[0].agent_name is None
 
 
 def test_admin_can_list_agent_registrations_across_all_accounts(session: Session) -> None:
