@@ -49,6 +49,8 @@ import { useTimelineRangeSelection } from "./useTimelineRangeSelection";
 type ReturnTrendSeriesOption = {
 	key: string;
 	label: string;
+	summaryLabel?: string;
+	quantityLabel?: string;
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
@@ -141,14 +143,24 @@ function getAnalyticsPillToneClass(value: number | null | undefined): string {
 }
 
 function formatHoldingSelectorLabel(item: HoldingReturnSeries): string {
+	return `${formatHoldingSummaryLabel(item)} · ${formatHoldingQuantityLabel(item)}`;
+}
+
+function formatHoldingSummaryLabel(item: HoldingReturnSeries): string {
+	return `${item.name} (${item.symbol})`;
+}
+
+function formatHoldingQuantityLabel(item: HoldingReturnSeries): string {
 	const quantity = Number.isFinite(item.quantity) ? formatQuantity(item.quantity) : "0";
-	return `${item.name} (${item.symbol}) · ${quantity} 股/份`;
+	return `${quantity} 股/份`;
 }
 
 function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[] {
 	return items.map((item) => ({
 		key: item.symbol,
 		label: formatHoldingSelectorLabel(item),
+		summaryLabel: formatHoldingSummaryLabel(item),
+		quantityLabel: formatHoldingQuantityLabel(item),
 		hour_series: item.hour_series,
 		day_series: item.day_series,
 		month_series: item.month_series,
@@ -362,6 +374,18 @@ export function ReturnTrendChart({
 						))}
 					</select>
 				</label>
+			) : null}
+			{selectedOption?.quantityLabel ? (
+				<div className="analytics-card__meta">
+					<div className="analytics-pill">
+						<span>当前持仓</span>
+						<strong>{selectedOption.summaryLabel ?? selectedOption.label}</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>持有股数</span>
+						<strong>{selectedOption.quantityLabel}</strong>
+					</div>
+				</div>
 			) : null}
 
 			{loading ? (

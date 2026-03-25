@@ -280,4 +280,75 @@ describe("timeline range summaries", () => {
 		expectPillToContain("区间变化", "+3.00%");
 		expectPillToContain("区间内月均变动", "+1.50%");
 	});
+
+	it("shows the selected holding quantity directly and keeps interval summaries synced when switching holdings", async () => {
+		render(
+			<ReturnTrendChart
+				title="单只持仓收益率"
+				description="测试"
+				defaultRange="day"
+				selectorLabel="持仓"
+				showCompoundedStepRate
+				seriesOptions={[
+					{
+						key: "0700.HK",
+						label: "腾讯控股 (0700.HK) · 120 股/份",
+						summaryLabel: "腾讯控股 (0700.HK)",
+						quantityLabel: "120 股/份",
+						hour_series: [],
+						day_series: [
+							{ label: "03-01", value: 1 },
+							{ label: "03-02", value: 2 },
+							{ label: "03-03", value: 4 },
+						],
+						month_series: [],
+						year_series: [],
+					},
+					{
+						key: "AAPL",
+						label: "苹果 (AAPL) · 3 股/份",
+						summaryLabel: "苹果 (AAPL)",
+						quantityLabel: "3 股/份",
+						hour_series: [],
+						day_series: [
+							{ label: "03-01", value: 10 },
+							{ label: "03-02", value: 11 },
+							{ label: "03-03", value: 15 },
+						],
+						month_series: [],
+						year_series: [],
+					},
+				]}
+			/>,
+		);
+
+		expectPillToContain("当前持仓", "腾讯控股 (0700.HK)");
+		expectPillToContain("持有股数", "120 股/份");
+		expectPillToContain("终点收益率", "4.00%");
+		expectPillToContain("区间变化", "+3.00%");
+
+		fireEvent.click(screen.getByRole("button", { name: "选择终点时间点" }));
+		const endDialog = screen.getByRole("dialog", { name: "选择终点时间点" });
+		fireEvent.click(within(endDialog).getByRole("button", { name: "03-02" }));
+
+		await waitFor(() => {
+			expectPillToContain("终点收益率", "2.00%");
+		});
+		expectPillToContain("区间变化", "+1.00%");
+
+		fireEvent.change(screen.getByLabelText("持仓"), {
+			target: { value: "AAPL" },
+		});
+
+		await waitFor(() => {
+			expectPillToContain("当前持仓", "苹果 (AAPL)");
+		});
+		expectPillToContain("持有股数", "3 股/份");
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("03-02");
+		expectPillToContain("终点收益率", "11.00%");
+		expectPillToContain("区间变化", "+1.00%");
+		expectPillToContain("区间内日均变动", "+1.00%");
+	});
 });

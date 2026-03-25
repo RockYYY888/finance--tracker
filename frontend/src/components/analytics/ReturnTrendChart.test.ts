@@ -107,6 +107,8 @@ describe("createHoldingReturnOptions", () => {
 			{
 				key: "0700.HK",
 				label: "腾讯控股 (0700.HK) · 120 股/份",
+				summaryLabel: "腾讯控股 (0700.HK)",
+				quantityLabel: "120 股/份",
 				hour_series: [],
 				day_series: [],
 				month_series: [],
