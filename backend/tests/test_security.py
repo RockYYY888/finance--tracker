@@ -79,6 +79,21 @@ def test_settings_lock_down_same_origin_in_production(monkeypatch: pytest.Monkey
 	assert settings.is_production is True
 	assert settings.cors_origins() == ["https://finance.example.com"]
 	assert settings.trusted_hosts() == ["finance.example.com"]
+	assert settings.session_cookie_https_only() is True
+
+
+def test_settings_allow_non_secure_session_cookie_for_http_origin_in_production(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.setenv("ASSET_TRACKER_APP_ENV", "production")
+	monkeypatch.setenv("ASSET_TRACKER_PUBLIC_ORIGIN", "http://117.72.217.15:8080")
+	monkeypatch.setenv("ASSET_TRACKER_REDIS_URL", "redis://redis:6379/0")
+	monkeypatch.setenv("ASSET_TRACKER_SESSION_SECRET", "session-secret")
+	settings = get_settings()
+
+	assert settings.is_production is True
+	assert settings.cors_origins() == ["http://117.72.217.15:8080"]
+	assert settings.session_cookie_https_only() is False
 
 
 def test_settings_require_redis_url_in_production(monkeypatch: pytest.MonkeyPatch) -> None:

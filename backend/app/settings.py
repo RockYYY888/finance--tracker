@@ -136,6 +136,12 @@ class Settings(BaseSettings):
 
 		return normalized_origin in self.cors_origins()
 
+	def session_cookie_https_only(self) -> bool:
+		origins = self.cors_origins()
+		if not origins:
+			return False
+		return all(urlparse(origin).scheme == "https" for origin in origins)
+
 	def validate_runtime(self) -> None:
 		database_url = self.database_url_value()
 

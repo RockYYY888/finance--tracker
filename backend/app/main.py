@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
 		session_cookie="asset_tracker_session",
 		max_age=60 * 60 * 24 * 30,
 		same_site="lax",
-		https_only=settings.is_production,
+		https_only=settings.session_cookie_https_only(),
 	)
 
 	@app.middleware("http")
