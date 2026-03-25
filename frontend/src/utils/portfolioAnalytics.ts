@@ -30,7 +30,7 @@ const CHART_COLORS = [
 ];
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
-type TimelineBucketGranularity = "hour" | "day" | "month" | "year";
+export type TimelineBucketGranularity = "hour" | "day" | "month" | "year";
 
 export const ANALYTICS_TOOLTIP_STYLE = {
 	backgroundColor: "rgba(8, 18, 34, 0.96)",
@@ -255,6 +255,13 @@ function bucketStartTimestampMs(
 	localDate.setUTCMonth(0, 1);
 	localDate.setUTCHours(0, 0, 0, 0);
 	return fromShanghaiShiftedDate(localDate);
+}
+
+export function getTimelineBucketStartTimestampMs(
+	timestampMs: number,
+	granularity: TimelineBucketGranularity,
+): number {
+	return bucketStartTimestampMs(timestampMs, granularity);
 }
 
 function addBucketSteps(
@@ -508,6 +515,31 @@ export function buildDisplayTimelineSeriesByRange(
 			yearUsesMonthlyBuckets ? 12 : 1,
 		),
 	};
+}
+
+export function getTimelineDisplayGranularity(
+	range: TimelineRange,
+	series: TimelinePoint[],
+): TimelineBucketGranularity {
+	if (range === "hour") {
+		return "hour";
+	}
+
+	if (range === "day" || range === "month") {
+		return "day";
+	}
+
+	const timestampValues = series
+		.map((point) => toTimestampMs(point))
+		.filter((value): value is number => value !== null)
+		.sort((left, right) => left - right);
+	if (timestampValues.length >= 2) {
+		const uniqueValues = [...new Set(timestampValues)];
+		const firstGap = uniqueValues[1] - uniqueValues[0];
+		return firstGap < 300 * 24 * 60 * 60 * 1000 ? "month" : "year";
+	}
+
+	return series.some((point) => point.label.includes("-")) ? "month" : "year";
 }
 
 export function getFirstRenderableTimelineRange(

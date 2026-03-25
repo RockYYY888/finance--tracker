@@ -4,6 +4,7 @@ import {
 	CartesianGrid,
 	ComposedChart,
 	Line,
+	ReferenceDot,
 	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
@@ -11,6 +12,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import type { HoldingTransactionRecord } from "../../types/assets";
 import type {
 	HoldingReturnSeries,
 	TimelinePoint,
@@ -41,6 +43,7 @@ import {
 	type ThresholdSegmentedCoordinatePoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
+import { buildChartTradeMarkers } from "./chartTradeMarkers";
 import { TimelineRangeSelector } from "./TimelineRangeSelector";
 import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
@@ -66,6 +69,7 @@ type ReturnTrendChartProps = {
 	selectorLabel?: string;
 	emptyMessage?: string;
 	showCompoundedStepRate?: boolean;
+	recentHoldingTransactions?: HoldingTransactionRecord[];
 };
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
@@ -200,6 +204,7 @@ export function ReturnTrendChart({
 	selectorLabel = "标的",
 	emptyMessage = "暂无可用的收益率历史数据。",
 	showCompoundedStepRate = false,
+	recentHoldingTransactions = [],
 }: ReturnTrendChartProps) {
 	const [range, setRange] = useState<TimelineRange>(defaultRange);
 	const [selectedKey, setSelectedKey] = useState(seriesOptions[0]?.key ?? "");
@@ -296,6 +301,21 @@ export function ReturnTrendChart({
 		[chartData],
 	);
 	const xAxisDomain = useMemo(() => buildNumericXAxisDomain(chartData), [chartData]);
+	const activeTradeMarkers = useMemo(
+		() =>
+			buildChartTradeMarkers({
+				range: activeRange,
+				series,
+				chartPoints: chartData,
+				transactions: recentHoldingTransactions,
+				symbol: selectedOption?.key === "aggregate" ? undefined : selectedOption?.key,
+			}),
+		[activeRange, chartData, recentHoldingTransactions, selectedOption?.key, series],
+	);
+	const activeTradeMarkerByXValue = useMemo(
+		() => new Map(activeTradeMarkers.map((marker) => [marker.xValue, marker])),
+		[activeTradeMarkers],
+	);
 	const resolvedEmptyMessage =
 		emptyMessage.trim().length > 0
 			? `${emptyMessage} 当前所选周期的数据会在累计后补齐。`
@@ -319,21 +339,25 @@ export function ReturnTrendChart({
 		payload?: ReturnTrendRenderablePoint;
 		stroke?: string;
 	}): JSX.Element | null {
+		const sourcePoint = props.payload;
 		if (
 			typeof props.cx !== "number" ||
 			typeof props.cy !== "number" ||
-			!isInteractiveTrendPoint(props.payload)
+			sourcePoint === undefined ||
+			!isInteractiveTrendPoint(sourcePoint)
 		) {
 			return null;
 		}
 
+		const tradeMarker = activeTradeMarkerByXValue.get(sourcePoint.xValue);
 		return (
 			<circle
 				cx={props.cx}
 				cy={props.cy}
 				r={4}
 				fill={props.fill ?? RETURN_LINE_COLOR}
-				stroke={props.stroke ?? "none"}
+				stroke={tradeMarker?.stroke ?? props.stroke ?? "none"}
+				strokeWidth={tradeMarker ? 1.6 : 0}
 			/>
 		);
 	}
@@ -473,6 +497,7 @@ export function ReturnTrendChart({
 									if (!periodLabel) {
 										return null;
 									}
+									const tradeMarker = activeTradeMarkerByXValue.get(sourcePoint.xValue);
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
@@ -485,6 +510,32 @@ export function ReturnTrendChart({
 											<p style={ANALYTICS_TOOLTIP_ITEM_STYLE}>
 												基准线: {formatPercentMetric(axisLayout.referenceValue)}
 											</p>
+											{tradeMarker ? (
+												<>
+													<p
+														style={{
+															...ANALYTICS_TOOLTIP_LABEL_STYLE,
+															marginTop: "0.55rem",
+														}}
+													>
+														交易事件
+													</p>
+													{tradeMarker.events.map((event) => (
+														<p
+															key={event.id}
+															style={{
+																...ANALYTICS_TOOLTIP_ITEM_STYLE,
+																color:
+																	event.side === "BUY"
+																		? "rgba(181, 241, 255, 0.96)"
+																		: "rgba(255, 196, 216, 0.96)",
+															}}
+														>
+															{event.description}
+														</p>
+													))}
+												</>
+											) : null}
 										</div>
 									);
 								}}
@@ -500,6 +551,7 @@ export function ReturnTrendChart({
 								fill={POSITIVE_RETURN_FILL}
 								baseValue={ZERO_RETURN_THRESHOLD}
 								tooltipType="none"
+								activeDot={false}
 								connectNulls
 							/>
 							<Area
@@ -510,8 +562,29 @@ export function ReturnTrendChart({
 								fill={NEGATIVE_RETURN_FILL}
 								baseValue={ZERO_RETURN_THRESHOLD}
 								tooltipType="none"
+								activeDot={false}
 								connectNulls
 							/>
+							{activeTradeMarkers.map((marker) => (
+								<ReferenceDot
+									key={`trade-marker-${marker.xValue}`}
+									x={marker.xValue}
+									y={marker.yValue}
+									r={5.5}
+									fill={marker.fill}
+									stroke={marker.stroke}
+									strokeWidth={2}
+									ifOverflow="extendDomain"
+									label={{
+										value: marker.label,
+										position: "top",
+										fill: marker.labelColor,
+										fontSize: 12,
+										fontWeight: 700,
+										offset: 8,
+									}}
+								/>
+							))}
 							<Line
 								type="linear"
 								dataKey="value"

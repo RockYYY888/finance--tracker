@@ -20,6 +20,7 @@ const rechartsState = vi.hoisted(() => ({
 	tooltips: [] as Array<Record<string, unknown>>,
 	lines: [] as Array<Record<string, unknown>>,
 	areas: [] as Array<Record<string, unknown>>,
+	referenceDots: [] as Array<Record<string, unknown>>,
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
@@ -60,6 +61,10 @@ vi.mock("recharts", () => ({
 	},
 	Area: (props: Record<string, unknown>) => {
 		rechartsState.areas.push(props);
+		return null;
+	},
+	ReferenceDot: (props: Record<string, unknown>) => {
+		rechartsState.referenceDots.push(props);
 		return null;
 	},
 	Line: (props: Record<string, unknown>) => {
@@ -138,6 +143,7 @@ describe("analytics charts responsive layout", () => {
 		rechartsState.tooltips.length = 0;
 		rechartsState.lines.length = 0;
 		rechartsState.areas.length = 0;
+		rechartsState.referenceDots.length = 0;
 		rechartsState.xAxes.length = 0;
 		rechartsState.yAxes.length = 0;
 		rechartsState.pies.length = 0;
@@ -689,12 +695,174 @@ describe("analytics charts responsive layout", () => {
 			expect(areaProps.stroke).toBe("none");
 			expect(areaProps.fill).toBeTruthy();
 			expect(areaProps.data).toBeTruthy();
+			expect(areaProps.activeDot).toBe(false);
 		});
 
 		rechartsState.lines.forEach((lineProps) => {
 			expect(lineProps.dataKey).toBe("value");
 			expect(lineProps.stroke).not.toBe("none");
 		});
+	});
+
+	it("renders grouped trade markers only on return-aware charts and filters single-holding markers by symbol", async () => {
+		const portfolioRender = render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{
+						label: "03-02",
+						value: 231_000,
+						timestamp_utc: "2026-03-01T16:00:00.000Z",
+					},
+					{
+						label: "03-03",
+						value: 236_000,
+						timestamp_utc: "2026-03-02T16:00:00.000Z",
+					},
+				]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[]}
+				holdings_return_day_series={[
+					{
+						label: "03-02",
+						value: 1.2,
+						timestamp_utc: "2026-03-01T16:00:00.000Z",
+					},
+					{
+						label: "03-03",
+						value: -0.4,
+						timestamp_utc: "2026-03-02T16:00:00.000Z",
+					},
+				]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+				recentHoldingTransactions={[
+					{
+						id: 1,
+						symbol: "BABA.US",
+						name: "阿里巴巴",
+						side: "BUY",
+						quantity: 100,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-02",
+						created_at: "2026-03-02T01:30:00.000Z",
+					},
+					{
+						id: 2,
+						symbol: "BABA.US",
+						name: "阿里巴巴",
+						side: "SELL",
+						quantity: 20,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-02",
+						created_at: "2026-03-02T02:00:00.000Z",
+					},
+					{
+						id: 3,
+						symbol: "TCEHY.US",
+						name: "腾讯控股",
+						side: "SELL",
+						quantity: 30,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-03",
+						created_at: "2026-03-03T01:00:00.000Z",
+					},
+				]}
+			/>,
+		);
+
+		expect(rechartsState.referenceDots).toHaveLength(0);
+		fireEvent.click(screen.getByRole("button", { name: "投资类收益率" }));
+
+		await waitFor(() => {
+			expect(rechartsState.referenceDots.length).toBeGreaterThanOrEqual(2);
+		});
+
+		const portfolioMarkerLabels = [...new Set(
+			rechartsState.referenceDots.map(
+				(dot) => (dot.label as { value?: string }).value,
+			),
+		)];
+		expect(portfolioMarkerLabels).toEqual(["B/S", "S"]);
+
+		portfolioRender.unmount();
+		rechartsState.referenceDots.length = 0;
+
+		render(
+			<ReturnTrendChart
+				defaultRange="day"
+				title="单只持仓收益率"
+				description="测试"
+				recentHoldingTransactions={[
+					{
+						id: 11,
+						symbol: "BABA.US",
+						name: "阿里巴巴",
+						side: "BUY",
+						quantity: 100,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-02",
+						created_at: "2026-03-02T01:30:00.000Z",
+					},
+					{
+						id: 12,
+						symbol: "TCEHY.US",
+						name: "腾讯控股",
+						side: "SELL",
+						quantity: 20,
+						fallback_currency: "USD",
+						market: "US",
+						traded_on: "2026-03-02",
+						created_at: "2026-03-02T02:00:00.000Z",
+					},
+				]}
+				seriesOptions={[
+					{
+						key: "BABA.US",
+						label: "阿里巴巴 (BABA.US) · 100 股/份",
+						summaryLabel: "阿里巴巴 (BABA.US)",
+						quantityLabel: "100 股/份",
+						hour_series: [],
+						day_series: [
+							{
+								label: "03-02",
+								value: 1.2,
+								timestamp_utc: "2026-03-01T16:00:00.000Z",
+							},
+							{
+								label: "03-03",
+								value: 1.8,
+								timestamp_utc: "2026-03-02T16:00:00.000Z",
+							},
+						],
+						month_series: [],
+						year_series: [],
+					},
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.referenceDots.length).toBeGreaterThanOrEqual(1);
+		});
+
+		const singleHoldingMarker = rechartsState.referenceDots[
+			rechartsState.referenceDots.length - 1
+		] as {
+			label?: { value?: string };
+		};
+		expect(singleHoldingMarker.label?.value).toBe("B");
+		expect(
+			[...new Set(rechartsState.referenceDots.map(
+				(dot) => (dot.label as { value?: string }).value,
+			))],
+		).toEqual(["B"]);
 	});
 
 	it("aligns shaded return areas to the same numeric x-axis positions as the white line", async () => {

@@ -51,6 +51,7 @@ import type {
 	CreateAgentApiKeyInput,
 	FixedAssetRecord,
 	HoldingRecord,
+	HoldingTransactionRecord,
 	OtherAssetRecord,
 	SupportedCurrency,
 	LiabilityRecord,
@@ -196,6 +197,9 @@ function sanitizeCachedDashboard(value: unknown): DashboardResponse | null {
 		holdings_return_month_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_month_series),
 		holdings_return_year_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_year_series),
 		holding_return_series: toObjectArray<HoldingReturnSeries>(dashboard.holding_return_series),
+		recent_holding_transactions: toObjectArray<HoldingTransactionRecord>(
+			dashboard.recent_holding_transactions,
+		),
 		warnings: toStringArray(dashboard.warnings),
 	};
 }

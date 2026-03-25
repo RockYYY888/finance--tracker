@@ -4,6 +4,7 @@ import {
 	CartesianGrid,
 	ComposedChart,
 	Line,
+	ReferenceDot,
 	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
@@ -11,6 +12,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import type { HoldingTransactionRecord } from "../../types/assets";
 import type {
 	TimelinePoint,
 	TimelineRange,
@@ -43,6 +45,9 @@ import {
 	type ThresholdSegmentedCoordinatePoint,
 	type ThresholdSegmentedPoint,
 } from "./chartSegmentation";
+import {
+	buildChartTradeMarkers,
+} from "./chartTradeMarkers";
 import { TimelineRangeSelector } from "./TimelineRangeSelector";
 import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
@@ -57,6 +62,7 @@ type PortfolioTrendChartProps = {
 	holdings_return_day_series?: TimelinePoint[];
 	holdings_return_month_series?: TimelinePoint[];
 	holdings_return_year_series?: TimelinePoint[];
+	recentHoldingTransactions?: HoldingTransactionRecord[];
 	defaultRange?: TimelineRange;
 	loading?: boolean;
 	title?: string;
@@ -192,6 +198,7 @@ export function PortfolioTrendChart({
 	holdings_return_day_series = [],
 	holdings_return_month_series = [],
 	holdings_return_year_series = [],
+	recentHoldingTransactions = [],
 	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
@@ -338,6 +345,28 @@ export function PortfolioTrendChart({
 		() => buildNumericXAxisDomain(activeChartData),
 		[activeChartData],
 	);
+	const activeTradeMarkers = useMemo(
+		() =>
+			displayMode === "return"
+				? buildChartTradeMarkers({
+					range: activeRange,
+					series: activeSeries,
+					chartPoints: activeChartData,
+					transactions: recentHoldingTransactions,
+				})
+				: [],
+		[
+			activeChartData,
+			activeRange,
+			activeSeries,
+			displayMode,
+			recentHoldingTransactions,
+		],
+	);
+	const activeTradeMarkerByXValue = useMemo(
+		() => new Map(activeTradeMarkers.map((marker) => [marker.xValue, marker])),
+		[activeTradeMarkers],
+	);
 
 	useEffect(() => {
 		if (
@@ -366,21 +395,25 @@ export function PortfolioTrendChart({
 		payload?: PortfolioTrendRenderablePoint;
 		stroke?: string;
 	}): JSX.Element | null {
+		const sourcePoint = props.payload;
 		if (
 			typeof props.cx !== "number" ||
 			typeof props.cy !== "number" ||
-			!isInteractiveTrendPoint(props.payload)
+			sourcePoint === undefined ||
+			!isInteractiveTrendPoint(sourcePoint)
 		) {
 			return null;
 		}
 
+		const tradeMarker = activeTradeMarkerByXValue.get(sourcePoint.xValue);
 		return (
 			<circle
 				cx={props.cx}
 				cy={props.cy}
 				r={4}
 				fill={props.fill ?? TREND_LINE_COLOR}
-				stroke={props.stroke ?? "none"}
+				stroke={tradeMarker?.stroke ?? props.stroke ?? "none"}
+				strokeWidth={tradeMarker ? 1.6 : 0}
 			/>
 		);
 	}
@@ -559,6 +592,7 @@ export function PortfolioTrendChart({
 									if (!periodLabel) {
 										return null;
 									}
+									const tradeMarker = activeTradeMarkerByXValue.get(sourcePoint.xValue);
 
 									return (
 										<div style={ANALYTICS_TOOLTIP_STYLE}>
@@ -571,6 +605,32 @@ export function PortfolioTrendChart({
 												{activeMetricConfig.referenceLabel}:{" "}
 												{activeMetricConfig.valueFormatter(axisLayout.referenceValue)}
 											</p>
+											{tradeMarker ? (
+												<>
+													<p
+														style={{
+															...ANALYTICS_TOOLTIP_LABEL_STYLE,
+															marginTop: "0.55rem",
+														}}
+													>
+														交易事件
+													</p>
+													{tradeMarker.events.map((event) => (
+														<p
+															key={event.id}
+															style={{
+																...ANALYTICS_TOOLTIP_ITEM_STYLE,
+																color:
+																	event.side === "BUY"
+																		? "rgba(181, 241, 255, 0.96)"
+																		: "rgba(255, 196, 216, 0.96)",
+															}}
+														>
+															{event.description}
+														</p>
+													))}
+												</>
+											) : null}
 										</div>
 									);
 								}}
@@ -586,6 +646,7 @@ export function PortfolioTrendChart({
 								fill={POSITIVE_TREND_FILL}
 								baseValue={axisLayout.referenceValue}
 								tooltipType="none"
+								activeDot={false}
 								connectNulls
 							/>
 							<Area
@@ -596,8 +657,29 @@ export function PortfolioTrendChart({
 								fill={NEGATIVE_TREND_FILL}
 								baseValue={axisLayout.referenceValue}
 								tooltipType="none"
+								activeDot={false}
 								connectNulls
 							/>
+							{activeTradeMarkers.map((marker) => (
+								<ReferenceDot
+									key={`trade-marker-${marker.xValue}`}
+									x={marker.xValue}
+									y={marker.yValue}
+									r={5.5}
+									fill={marker.fill}
+									stroke={marker.stroke}
+									strokeWidth={2}
+									ifOverflow="extendDomain"
+									label={{
+										value: marker.label,
+										position: "top",
+										fill: marker.labelColor,
+										fontSize: 12,
+										fontWeight: 700,
+										offset: 8,
+									}}
+								/>
+							))}
 							<Line
 								type="linear"
 								dataKey="value"

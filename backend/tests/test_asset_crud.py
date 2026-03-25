@@ -1813,6 +1813,9 @@ def test_build_dashboard_replays_total_series_from_cash_ledger_and_holding_trans
 	assert dashboard.holdings_value_cny == 700.0
 	assert dashboard.total_value_cny == 1000.0
 	assert any(point.value == 1000.0 for point in dashboard.hour_series)
+	assert len(dashboard.recent_holding_transactions) == 1
+	assert dashboard.recent_holding_transactions[0].symbol == "AAPL"
+	assert dashboard.recent_holding_transactions[0].side == "BUY"
 
 
 def test_build_dashboard_persists_previous_live_hour_snapshot_when_hour_rolls(

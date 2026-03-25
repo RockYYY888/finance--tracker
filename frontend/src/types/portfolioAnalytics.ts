@@ -1,6 +1,7 @@
 import type {
 	CashAccountType,
 	FixedAssetCategory,
+	HoldingTransactionRecord,
 	LiabilityCategory,
 	OtherAssetCategory,
 	SecurityMarket,
@@ -116,6 +117,7 @@ export type PortfolioAnalyticsData = {
 	holdings_return_month_series: TimelinePoint[];
 	holdings_return_year_series: TimelinePoint[];
 	holding_return_series: HoldingReturnSeries[];
+	recent_holding_transactions?: HoldingTransactionRecord[];
 };
 
 export type ChartLegendItem = {

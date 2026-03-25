@@ -1262,6 +1262,7 @@ class DashboardResponse(BaseModel):
 	holdings_return_month_series: list[TimelinePoint]
 	holdings_return_year_series: list[TimelinePoint]
 	holding_return_series: list[HoldingReturnSeries]
+	recent_holding_transactions: list[SecurityHoldingTransactionRead] = Field(default_factory=list)
 	warnings: list[str]
 
 

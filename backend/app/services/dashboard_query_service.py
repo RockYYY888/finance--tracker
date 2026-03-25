@@ -60,6 +60,8 @@ from app.services.dashboard_live_service import (
 	_update_live_portfolio_state,
 )
 from app.services.portfolio_service import (
+	_list_holding_transactions_for_user,
+	_to_holding_transaction_reads,
     _load_display_fx_rates,
     _value_cash_accounts,
     _value_fixed_assets,
@@ -372,6 +374,15 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		series_scope="HOLDINGS_RETURN_TOTAL",
 		granularity="year",
 	)
+	recent_holding_transactions = _to_holding_transaction_reads(
+		session,
+		user_id=user.username,
+		transactions=_list_holding_transactions_for_user(
+			session,
+			user_id=user.username,
+			limit=5000,
+		),
+	)
 	holding_return_series = []
 	for holding in valued_holdings:
 		if holding.cost_basis_price is None:
@@ -508,6 +519,7 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		holdings_return_month_series=holdings_return_month_series,
 		holdings_return_year_series=holdings_return_year_series,
 		holding_return_series=holding_return_series,
+		recent_holding_transactions=recent_holding_transactions,
 		warnings=_filter_dashboard_warnings_for_user(dashboard_warnings, user),
 	)
 

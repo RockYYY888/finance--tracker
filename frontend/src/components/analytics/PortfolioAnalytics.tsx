@@ -35,6 +35,7 @@ export function PortfolioAnalytics({
 	holdings_return_month_series,
 	holdings_return_year_series,
 	holding_return_series,
+	recent_holding_transactions = [],
 	loading = false,
 	defaultRange = "hour",
 	className,
@@ -62,6 +63,7 @@ export function PortfolioAnalytics({
 						holdings_return_day_series={holdings_return_day_series}
 						holdings_return_month_series={holdings_return_month_series}
 						holdings_return_year_series={holdings_return_year_series}
+						recentHoldingTransactions={recent_holding_transactions}
 						loading={loading}
 						defaultRange={defaultRange}
 					/>
@@ -69,6 +71,7 @@ export function PortfolioAnalytics({
 						title="单只持仓收益率"
 						description="查看任一持仓收益率在 24 小时、7 天、30 天和近一年内的变化。"
 						seriesOptions={createHoldingReturnOptions(holding_return_series)}
+						recentHoldingTransactions={recent_holding_transactions}
 						loading={loading}
 						defaultRange={defaultRange}
 						selectorLabel="持仓"

@@ -37,5 +37,6 @@ export const EMPTY_DASHBOARD: DashboardResponse = {
 	holdings_return_month_series: [],
 	holdings_return_year_series: [],
 	holding_return_series: [],
+	recent_holding_transactions: [],
 	warnings: [],
 };
