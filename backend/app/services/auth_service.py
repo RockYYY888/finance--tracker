@@ -58,6 +58,7 @@ AGENT_REGISTRATION_ACTIVE_WINDOW = timedelta(hours=24)
 SERVER_DAY_TIMEZONE = ZoneInfo("Asia/Shanghai")
 AGENT_RUNTIME_NAME_PATTERN = re.compile(r"^[\w .:/-]{1,80}$", re.UNICODE)
 AGENT_TOKEN_HINT_MASK_LENGTH = 10
+LEGACY_AGENT_TOKEN_HINT_PLACEHOLDER = "sk-*************"
 
 
 def _coerce_utc_datetime(value: datetime) -> datetime:
@@ -300,11 +301,18 @@ def _format_agent_token_hint(raw_token: str) -> str:
 	return f"{raw_token[:6]}{'*' * AGENT_TOKEN_HINT_MASK_LENGTH}"
 
 
+def _normalize_agent_token_hint_for_output(token_hint: str) -> str:
+	normalized = token_hint.strip()
+	if normalized.startswith("sk-"):
+		return normalized
+	return LEGACY_AGENT_TOKEN_HINT_PLACEHOLDER
+
+
 def _to_agent_token_read(token: AgentAccessToken) -> AgentTokenRead:
 	return AgentTokenRead(
 		id=token.id or 0,
 		name=token.name,
-		token_hint=token.token_hint,
+		token_hint=_normalize_agent_token_hint_for_output(token.token_hint),
 		created_at=token.created_at,
 		updated_at=token.updated_at,
 		last_used_at=token.last_used_at,

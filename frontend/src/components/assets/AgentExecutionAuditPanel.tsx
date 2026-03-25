@@ -126,6 +126,10 @@ function isApiKeyExpiringSoon(apiKey: AgentApiKeyRecord): boolean {
 	return remainingMs > 0 && remainingMs <= API_KEY_EXPIRY_WARNING_WINDOW_MS;
 }
 
+function getVisibleTokenHint(tokenHint: string): string {
+	return tokenHint.startsWith("sk-") ? tokenHint : "sk-*************";
+}
+
 function getApiKeyStatus(apiKey: AgentApiKeyRecord): {
 	label: string;
 	className: string;
@@ -420,7 +424,7 @@ function RegisteredAgentList({
 									</span>
 									{latestApiKey ? (
 										<span className="asset-manager__badge asset-manager__badge--muted">
-											{latestApiKey.token_hint}
+											{getVisibleTokenHint(latestApiKey.token_hint)}
 										</span>
 									) : null}
 								</div>
@@ -446,7 +450,9 @@ function RegisteredAgentList({
 							</div>
 							<div className="asset-manager__metric">
 								<span>Key 掩码</span>
-								<strong>{latestApiKey?.token_hint ?? "—"}</strong>
+								<strong>
+									{latestApiKey ? getVisibleTokenHint(latestApiKey.token_hint) : "—"}
+								</strong>
 							</div>
 							<div className="asset-manager__metric">
 								<span>最近接入</span>
@@ -797,7 +803,7 @@ export function AgentExecutionAuditPanel({
 							<div className="asset-manager__metric-grid">
 								<div className="asset-manager__metric">
 									<span>掩码提示</span>
-									<strong>{issuedApiKey.token_hint}</strong>
+									<strong>{getVisibleTokenHint(issuedApiKey.token_hint)}</strong>
 								</div>
 								<div className="asset-manager__metric">
 									<span>过期时间</span>
@@ -927,7 +933,7 @@ export function AgentExecutionAuditPanel({
 														<span className="asset-manager__badge">API KEY</span>
 														<span className={status.className}>{status.label}</span>
 														<span className="asset-manager__badge asset-manager__badge--muted">
-															{apiKey.token_hint}
+															{getVisibleTokenHint(apiKey.token_hint)}
 														</span>
 													</div>
 													<h3>{apiKey.name}</h3>
@@ -954,7 +960,7 @@ export function AgentExecutionAuditPanel({
 											<div className="asset-manager__metric-grid">
 												<div className="asset-manager__metric">
 													<span>掩码提示</span>
-													<strong>{apiKey.token_hint}</strong>
+													<strong>{getVisibleTokenHint(apiKey.token_hint)}</strong>
 												</div>
 												<div className="asset-manager__metric">
 													<span>创建时间</span>
@@ -995,7 +1001,13 @@ export function AgentExecutionAuditPanel({
 					<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
 						<strong>{pendingRevokeApiKey?.name ?? "待删除 API Key"}</strong>
 						<p>
-							掩码提示：<code>{pendingRevokeApiKey?.token_hint ?? "—"}</code>
+							掩码提示：
+							{" "}
+							<code>
+								{pendingRevokeApiKey
+									? getVisibleTokenHint(pendingRevokeApiKey.token_hint)
+									: "—"}
+							</code>
 						</p>
 					</div>
 					<div className="asset-manager__form-actions">

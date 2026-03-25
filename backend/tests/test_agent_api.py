@@ -331,6 +331,26 @@ def test_list_agent_tokens_discards_revoked_keys(session: Session) -> None:
 	assert [token.name for token in listed_tokens] == ["local-cli"]
 
 
+def test_list_agent_tokens_normalizes_legacy_token_hints(session: Session) -> None:
+	current_user = make_user(session)
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="legacy-key"),
+		current_user,
+		session,
+	)
+	token_row = session.exec(
+		select(AgentAccessToken).where(AgentAccessToken.name == "legacy-key"),
+	).one()
+	token_row.token_hint = "...abc123"
+	session.add(token_row)
+	session.commit()
+
+	listed_tokens = list_agent_tokens(current_user, session)
+
+	assert issued_token.access_token.startswith("sk-")
+	assert listed_tokens[0].token_hint == "sk-*************"
+
+
 def test_agent_token_creation_rejects_more_than_five_active_keys(session: Session) -> None:
 	current_user = make_user(session)
 

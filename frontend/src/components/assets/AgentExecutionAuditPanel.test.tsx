@@ -141,6 +141,46 @@ describe("AgentExecutionAuditPanel", () => {
 		expect(revokeApiKey).toHaveBeenCalledWith(8);
 	});
 
+	it("falls back to a generic sk- mask for legacy token hints", () => {
+		render(
+			<AgentExecutionAuditPanel
+				apiKeys={[
+					{
+						id: 10,
+						name: "legacy-key",
+						token_hint: "...abc123",
+						created_at: "2026-03-14T10:00:00.000Z",
+						updated_at: "2026-03-14T10:00:00.000Z",
+						last_used_at: "2026-03-14T10:05:00.000Z",
+						expires_at: null,
+						revoked_at: null,
+					},
+				]}
+				registrations={[
+					{
+						id: 4,
+						user_id: "admin",
+						name: "legacy-agent",
+						status: "ACTIVE",
+						request_count: 2,
+						latest_api_key_name: "legacy-key",
+						last_used_at: "2026-03-14T10:05:00.000Z",
+						last_seen_at: "2026-03-14T10:05:00.000Z",
+						created_at: "2026-03-14T10:00:00.000Z",
+						updated_at: "2026-03-14T10:05:00.000Z",
+					},
+				]}
+				records={[]}
+				apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
+			/>,
+		);
+
+		expect(screen.getAllByText("sk-*************").length).toBeGreaterThan(0);
+
+		fireEvent.click(screen.getByRole("button", { name: "有效 Key 1 / 5" }));
+		expect(screen.getAllByText("sk-*************").length).toBeGreaterThan(0);
+	});
+
 	it("validates key naming rules and includes expiry selection when creating a new api key", () => {
 		const createApiKey = vi.fn();
 
