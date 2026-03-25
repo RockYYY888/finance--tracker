@@ -160,7 +160,7 @@ function getStatusFallbackMessage(statusCode: number): string {
 		case 400:
 			return "请求内容不正确，请检查后重试。";
 		case 401:
-			return "API Key 无效或已过期，请重新输入。";
+			return "身份验证失败，请重新登录。";
 		case 403:
 			return "当前请求被服务器拒绝。";
 		case 404:
@@ -261,10 +261,6 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 			const requestHeaders = new Headers(init?.headers ?? undefined);
 			if (!requestHeaders.has("Content-Type") && init?.body) {
 				requestHeaders.set("Content-Type", "application/json");
-			}
-			const runtimeApiKey = getStoredRuntimeApiKey();
-			if (runtimeApiKey && !requestHeaders.has("Authorization")) {
-				requestHeaders.set("Authorization", `Bearer ${runtimeApiKey}`);
 			}
 
 			let response: Response;

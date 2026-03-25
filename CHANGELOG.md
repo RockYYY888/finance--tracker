@@ -4,7 +4,7 @@
 
 - Fixed timeline comparison defaults so both trend charts populate the full-range start and end points immediately, and duplicate timepoints no longer destabilize interval selection.
 - Rewrote the agent API reference in a formal contract style and documented every bearer-token-compatible backend operation with parameter tables, examples, and route coverage checks.
-- GitHub Release: https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.1
+- GitHub Release: https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.1
 
 ## v0.7.0 - 2026-03-24
 
@@ -13,7 +13,7 @@
 - Switched production deployment to a Redis + Postgres + Alembic model, with explicit PostgreSQL enforcement and startup-time schema upgrades.
 - Added nginx proxy rollout, agent registration and actor-source audit support, plus multi-user concurrency and cache hardening.
 - Fixed analytics timeline alignment, workspace state regressions, and several asset-management UI issues.
-- GitHub Release: https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.0
+- GitHub Release: https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.0
 
 ## v0.6.5 - 2026-03-10
 

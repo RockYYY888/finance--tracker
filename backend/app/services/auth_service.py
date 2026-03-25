@@ -5,6 +5,7 @@ import hashlib
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
+from fastapi.responses import Response
 from sqlmodel import select
 
 from app import runtime_state
@@ -18,6 +19,7 @@ from app.models import (
 from app.schemas import (
 	ActionMessageRead,
 	AgentTokenCreate,
+	AgentTokenIssueCreate,
 	AgentTokenIssueRead,
 	AgentTokenRead,
 	AuthLoginCredentials,
@@ -33,6 +35,7 @@ from app.security import (
 	hash_email,
 	hash_password,
 	normalize_user_id,
+	require_session_user_id,
 	verify_api_token,
 	verify_email,
 	verify_password,
@@ -435,12 +438,29 @@ def get_current_user(
 	if authorization and bearer_token is None:
 		raise HTTPException(status_code=401, detail="Authorization 头必须使用 Bearer API Key。")
 
-	if bearer_token is None:
-		raise HTTPException(status_code=401, detail="请先提供 API Key。")
+	if bearer_token is not None:
+		return _authenticate_agent_access_token(session, bearer_token)
 
-	return _authenticate_agent_access_token(session, bearer_token)
+	return get_session_current_user(request, session, None)
 
 
+def get_session_current_user(
+	request: Request,
+	session: SessionDependency,
+	_: TokenDependency,
+) -> UserAccount:
+	user_id = require_session_user_id(request)
+	user = _get_user(session, user_id)
+	if user is None:
+		request.session.clear()
+		raise HTTPException(status_code=401, detail="请重新登录。")
+	runtime_state.current_actor_source_context.set(
+		"SYSTEM" if user.username == "admin" else "USER",
+	)
+	return user
+
+
+SessionCurrentUserDependency = Annotated[UserAccount, Depends(get_session_current_user)]
 CurrentUserDependency = Annotated[UserAccount, Depends(get_current_user)]
 
 
@@ -510,14 +530,81 @@ def get_auth_session(
 	return AuthSessionRead(user_id=current_user.username, email=current_user.email)
 
 
+def register_user(
+	request: Request,
+	payload: AuthRegisterCredentials,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> AuthSessionRead:
+	user = _create_user_account(session, payload)
+	request.session["user_id"] = user.username
+	return AuthSessionRead(user_id=user.username, email=user.email)
+
+
+def login_user(
+	request: Request,
+	payload: AuthLoginCredentials,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> AuthSessionRead:
+	attempt_key = _build_login_attempt_key(request, payload.user_id)
+	user = _authenticate_user_account(
+		session,
+		payload,
+		attempt_key=attempt_key,
+	)
+	request.session["user_id"] = user.username
+	return AuthSessionRead(user_id=user.username, email=user.email)
+
+
+def reset_password_with_email(
+	payload: PasswordResetRequest,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> ActionMessageRead:
+	_reset_user_password_with_email(session, payload)
+	return ActionMessageRead(message="密码已重置，请使用新密码登录。")
+
+
 def update_user_email(
+	request: Request,
 	payload: UserEmailUpdate,
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 	_: TokenDependency,
 ) -> AuthSessionRead:
 	user = _update_user_email(session, current_user, payload)
+	request.session["user_id"] = user.username
 	return AuthSessionRead(user_id=user.username, email=user.email)
+
+
+def logout_user(request: Request, _: TokenDependency) -> Response:
+	request.session.clear()
+	return Response(status_code=204)
+
+
+def issue_agent_token_with_password(
+	request: Request,
+	payload: AgentTokenIssueCreate,
+	_: TokenDependency,
+	session: SessionDependency,
+) -> AgentTokenIssueRead:
+	attempt_key = _build_login_attempt_key(request, payload.user_id)
+	current_user = _authenticate_user_account(
+		session,
+		AuthLoginCredentials(user_id=payload.user_id, password=payload.password),
+		attempt_key=attempt_key,
+	)
+	token, raw_token = _create_agent_access_token(
+		session,
+		current_user=current_user,
+		name=payload.name,
+		expires_in_days=payload.expires_in_days,
+	)
+	return AgentTokenIssueRead(
+		**_to_agent_token_read(token).model_dump(),
+		access_token=raw_token,
+	)
 
 
 def create_agent_token_for_current_session(
@@ -571,6 +658,7 @@ __all__ = [
 	"AGENT_TOKEN_LAST_USED_UPDATE_INTERVAL",
 	"CurrentUserDependency",
 	"MAX_ACTIVE_AGENT_TOKENS_PER_USER",
+	"SessionCurrentUserDependency",
 	"TokenDependency",
 	"_authenticate_agent_access_token",
 	"_authenticate_user_account",
@@ -590,7 +678,13 @@ __all__ = [
 	"create_agent_token_for_current_session",
 	"get_auth_session",
 	"get_current_user",
+	"get_session_current_user",
+	"issue_agent_token_with_password",
 	"list_agent_tokens",
+	"login_user",
+	"logout_user",
+	"register_user",
+	"reset_password_with_email",
 	"revoke_agent_token",
 	"update_user_email",
 ]

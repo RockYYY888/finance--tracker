@@ -9,13 +9,13 @@ import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
 import { FeedbackDialog } from "./components/feedback/FeedbackDialog";
 import { UserFeedbackInboxDialog } from "./components/feedback/UserFeedbackInboxDialog";
-import { clearStoredRuntimeApiKey } from "./lib/apiClient";
 import { createAssetManagerController, defaultAssetApiClient } from "./lib/assetApi";
 import {
-	authenticateWithApiKey,
 	getAuthSession,
-	hasStoredApiKey,
+	loginWithPassword,
 	logoutCurrentUser,
+	registerWithPassword,
+	resetPasswordWithEmail,
 	updateCurrentUserEmail,
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
@@ -37,7 +37,9 @@ import {
 	submitUserFeedback,
 } from "./lib/feedbackApi";
 import type {
-	ApiKeyAuthCredentials,
+	AuthLoginCredentials,
+	AuthRegisterCredentials,
+	PasswordResetPayload,
 	UserEmailUpdate,
 } from "./types/auth";
 import type {
@@ -421,6 +423,8 @@ function formatFxRate(rate: number | null | undefined): string {
 
 function isAuthenticationErrorMessage(message: string): boolean {
 	return (
+		message.includes("请先登录") ||
+		message.includes("请重新登录") ||
 		message.includes("请先提供 API Key") ||
 		message.includes("API Key 无效") ||
 		message.includes("API Key 已过期") ||
@@ -644,14 +648,9 @@ function App() {
 		setIsLoadingDashboard(!hasUsableCachedDashboard);
 	}
 
-	function markSignedOut(
-		options: { clearRememberedSession?: boolean; clearStoredApiKey?: boolean } = {},
-	): void {
+	function markSignedOut(options: { clearRememberedSession?: boolean } = {}): void {
 		if (options.clearRememberedSession ?? true) {
 			clearRememberedSessionUserId();
-		}
-		if (options.clearStoredApiKey ?? true) {
-			clearStoredRuntimeApiKey();
 		}
 		currentUserIdRef.current = null;
 		authStatusRef.current = "anonymous";
@@ -817,34 +816,32 @@ function App() {
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
 
-		if (!hasStoredApiKey()) {
-			markSignedOut();
-			return;
-		}
-
 		try {
 			const session = await withTimeout(
 				getAuthSession(),
 				SESSION_CHECK_TIMEOUT_MS,
-				"API Key 验证超时",
+				"会话检查超时",
 			);
 			markSignedInWithProfile(session.user_id, session.email ?? null);
 		} catch (error) {
 			const nextErrorMessage =
 				error instanceof Error && error.message.trim()
 					? error.message
-					: "暂时无法验证 API Key，请稍后再试。";
+					: "暂时无法验证登录状态，请稍后再试。";
 			if (isAuthenticationErrorMessage(nextErrorMessage)) {
 				markSignedOut();
 				return;
 			}
 
-			markSignedOut({ clearRememberedSession: false, clearStoredApiKey: false });
+			markSignedOut({ clearRememberedSession: false });
 			setAuthErrorMessage(nextErrorMessage);
 		}
 	}
 
-	async function submitAuth(payload: ApiKeyAuthCredentials): Promise<void> {
+	async function submitAuth(
+		mode: "login" | "register",
+		payload: AuthLoginCredentials | AuthRegisterCredentials,
+	): Promise<void> {
 		setIsSubmittingAuth(true);
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
@@ -852,16 +849,40 @@ function App() {
 
 		try {
 			const session = await withTimeout(
-				authenticateWithApiKey(payload),
+				mode === "login"
+					? loginWithPassword(payload as AuthLoginCredentials)
+					: registerWithPassword(payload as AuthRegisterCredentials),
 				AUTH_SUBMISSION_TIMEOUT_MS,
-				"API Key 验证超时，请检查网络或服务状态后重试。",
+				"请求超时，请检查后端服务或网络后重试。",
 			);
 			markSignedInWithProfile(session.user_id, session.email ?? null);
 		} catch (error) {
 			setAuthErrorMessage(
-				error instanceof Error ? error.message : "API Key 验证失败，请稍后再试。",
+				error instanceof Error ? error.message : "登录失败，请稍后再试。",
 			);
 			setAuthStatus("anonymous");
+		} finally {
+			setIsSubmittingAuth(false);
+		}
+	}
+
+	async function submitPasswordReset(payload: PasswordResetPayload): Promise<void> {
+		setIsSubmittingAuth(true);
+		setAuthErrorMessage(null);
+		setAuthNoticeMessage(null);
+		setAuthStatus("anonymous");
+
+		try {
+			const result = await withTimeout(
+				resetPasswordWithEmail(payload),
+				AUTH_SUBMISSION_TIMEOUT_MS,
+				"请求超时，请检查后端服务或网络后重试。",
+			);
+			setAuthNoticeMessage(result.message);
+		} catch (error) {
+			setAuthErrorMessage(
+				error instanceof Error ? error.message : "密码重置失败，请稍后再试。",
+			);
 		} finally {
 			setIsSubmittingAuth(false);
 		}
@@ -1414,9 +1435,9 @@ function App() {
 				<header className="hero-panel">
 					<div className="hero-copy-block">
 						<div className="hero-copy-block__main">
-							<p className="eyebrow">API KEY VERIFY</p>
-							<h1>正在验证 API Key</h1>
-							<p className="hero-copy">确认当前 API Key 之前，不展示本地缓存里的资产数据。</p>
+							<p className="eyebrow">SESSION RESTORE</p>
+							<h1>正在恢复登录状态</h1>
+							<p className="hero-copy">确认当前会话之前，不展示本地缓存里的资产数据。</p>
 							<p className="hero-subtle">验证通过后会继续回到你的工作区。</p>
 						</div>
 					</div>
@@ -1441,7 +1462,9 @@ function App() {
 				checkingSession={authStatus === "checking"}
 				errorMessage={authErrorMessage}
 				noticeMessage={authNoticeMessage}
-				onAuthenticate={submitAuth}
+				onLogin={(payload) => submitAuth("login", payload)}
+				onRegister={(payload) => submitAuth("register", payload)}
+				onResetPassword={submitPasswordReset}
 			/>
 		);
 	}
@@ -1485,11 +1508,11 @@ function App() {
 		<div className="app-shell">
 			<header className="hero-panel">
 				<div className="hero-copy-block">
-					<p className="eyebrow">HENG CANG</p>
+					<p className="eyebrow">OPEN TRAFI</p>
 					<h1>你好，{currentUserId}</h1>
-					<p className="hero-copy">你的资产按 API Key 权限隔离保存，并按分钟自动刷新。</p>
+					<p className="hero-copy">你的资产与账户已隔离保存，并按分钟自动刷新。</p>
 					<p className="hero-subtle">
-						{currentUserEmail ? currentUserEmail : "未绑定邮箱。"}
+						{currentUserEmail ? currentUserEmail : "未绑定邮箱，可用于找回密码。"}
 					</p>
 					<div className="hero-actions">
 						<button
@@ -1730,7 +1753,7 @@ function App() {
 						registrations={agentRegistrations}
 						tasks={agentTasks}
 						records={agentRecords}
-						apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
+						apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
 						loading={isLoadingAgentAudit}
 						errorMessage={agentAuditErrorMessage}
 						apiKeyErrorMessage={agentApiKeyErrorMessage}

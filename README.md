@@ -1,6 +1,6 @@
-# Personal Asset Tracker
+# OpenTraFi
 
-Personal Asset Tracker is a personal portfolio tracker for cash accounts, holdings, liabilities,
+OpenTraFi is a personal portfolio tracker for cash accounts, holdings, liabilities,
 and performance history. Agent-facing API documentation lives in
 [docs/agent-api.md](docs/agent-api.md).
 

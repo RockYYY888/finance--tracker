@@ -125,6 +125,25 @@ def extract_bearer_token(authorization: str | None) -> str | None:
 	return token or None
 
 
+def get_session_user_id(request: Request) -> str | None:
+	user_id = request.session.get("user_id")
+	if not isinstance(user_id, str):
+		return None
+
+	try:
+		return normalize_user_id(user_id)
+	except ValueError:
+		request.session.clear()
+		return None
+
+
+def require_session_user_id(request: Request) -> str:
+	user_id = get_session_user_id(request)
+	if user_id is None:
+		raise HTTPException(status_code=401, detail="请先登录。")
+	return user_id
+
+
 def verify_api_token(
 	request: Request,
 ) -> None:

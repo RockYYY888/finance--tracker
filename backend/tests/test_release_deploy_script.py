@@ -26,7 +26,7 @@ def test_deploy_server_uses_plain_ssh_without_password(monkeypatch) -> None:
 	release_deploy._deploy_server(
 		"vipcup@117.72.217.15",
 		"main",
-		"~/finance--tracker",
+		"~/opentrifi",
 		password=None,
 	)
 
@@ -35,7 +35,7 @@ def test_deploy_server_uses_plain_ssh_without_password(monkeypatch) -> None:
 			[
 				"ssh",
 				"vipcup@117.72.217.15",
-				release_deploy._build_remote_command("main", "~/finance--tracker"),
+				release_deploy._build_remote_command("main", "~/opentrifi"),
 			],
 			release_deploy.REPO_ROOT,
 			False,
@@ -60,10 +60,10 @@ def test_deploy_server_uses_password_helper_when_password_present(monkeypatch) -
 	release_deploy._deploy_server(
 		"vipcup@117.72.217.15",
 		"main",
-		"~/finance--tracker",
+		"~/opentrifi",
 		password="secret",
 	)
 
 	assert recorded_calls == [
-		("vipcup@117.72.217.15", "main", "~/finance--tracker", "secret"),
+		("vipcup@117.72.217.15", "main", "~/opentrifi", "secret"),
 	]

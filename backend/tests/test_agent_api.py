@@ -40,6 +40,7 @@ from app.schemas import (
 	AgentTokenCreate,
 	AgentTaskCreate,
 	AllocationSlice,
+	AuthLoginCredentials,
 	CashAccountCreate,
 	CashTransferCreate,
 	DashboardResponse,
@@ -52,6 +53,7 @@ from app.services.market_data import Quote
 from app.services.auth_service import (
 	MAX_ACTIVE_AGENT_TOKENS_PER_USER,
 	create_agent_token_for_current_session,
+	login_user,
 	list_agent_tokens,
 )
 from app.services import dashboard_service, job_service, legacy_service, service_context
@@ -220,6 +222,38 @@ def test_create_agent_token_and_use_bearer_auth(session: Session) -> None:
 	assert registrations[0].active_token_count == 1
 	assert registrations[0].user_id == "tester"
 	assert registrations[0].latest_token_hint == stored_token.token_hint
+
+
+def test_get_current_user_accepts_browser_session_without_bearer(session: Session) -> None:
+	current_user = make_user(session)
+
+	authenticated_user = get_current_user(
+		build_request(session_data={"user_id": current_user.username}),
+		session,
+		None,
+	)
+
+	assert authenticated_user.username == "tester"
+
+
+def test_login_user_sets_session_for_follow_up_browser_requests(session: Session) -> None:
+	make_user(session)
+	request = build_request(
+		method="POST",
+		path="/api/auth/login",
+		headers={"X-Client-Device-Id": "browser-1"},
+		session_data={},
+	)
+
+	response = login_user(
+		request,
+		AuthLoginCredentials(user_id="tester", password="qwer1234"),
+		None,
+		session,
+	)
+
+	assert response.user_id == "tester"
+	assert request.session["user_id"] == "tester"
 
 
 def test_create_agent_token_for_current_session_only_returns_secret_once(session: Session) -> None:

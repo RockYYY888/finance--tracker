@@ -1,36 +1,65 @@
-import { clearStoredRuntimeApiKey, createApiClient, getStoredRuntimeApiKey, setStoredRuntimeApiKey } from "./apiClient";
+import { createApiClient } from "./apiClient";
 import type {
 	ActionMessage,
-	ApiKeyAuthCredentials,
+	AuthLoginCredentials,
+	AuthRegisterCredentials,
 	AuthSession,
+	PasswordResetPayload,
 	UserEmailUpdate,
 } from "../types/auth";
 
 const authApiClient = createApiClient();
+const CLIENT_DEVICE_ID_STORAGE_KEY = "asset-tracker-client-device-id";
+let inMemoryClientDeviceId: string | null = null;
 let authSessionRequestInFlight: Promise<AuthSession> | null = null;
 
-export function hasStoredApiKey(): boolean {
-	return getStoredRuntimeApiKey() !== null;
+function generateClientDeviceId(): string {
+	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+		return crypto.randomUUID();
+	}
+
+	const randomChunk = Math.random().toString(16).slice(2, 10);
+	return `device-${Date.now().toString(36)}-${randomChunk}`;
 }
 
-export async function authenticateWithApiKey(
-	payload: ApiKeyAuthCredentials,
-): Promise<AuthSession> {
-	setStoredRuntimeApiKey(payload.api_key);
+function getOrCreateClientDeviceId(): string {
+	if (inMemoryClientDeviceId) {
+		return inMemoryClientDeviceId;
+	}
+
+	const generatedId = generateClientDeviceId();
+	if (typeof window === "undefined") {
+		inMemoryClientDeviceId = generatedId;
+		return generatedId;
+	}
 
 	try {
-		const session = await authApiClient.request<AuthSession>("/api/auth/session");
-		return session;
-	} catch (error) {
-		clearStoredRuntimeApiKey();
-		throw error;
+		const storedId = window.localStorage.getItem(CLIENT_DEVICE_ID_STORAGE_KEY);
+		if (storedId && storedId.trim()) {
+			inMemoryClientDeviceId = storedId;
+			return storedId;
+		}
+
+		window.localStorage.setItem(CLIENT_DEVICE_ID_STORAGE_KEY, generatedId);
+		inMemoryClientDeviceId = generatedId;
+		return generatedId;
+	} catch {
+		inMemoryClientDeviceId = generatedId;
+		return generatedId;
 	}
+}
+
+function toJsonBody(
+	payload:
+		| AuthLoginCredentials
+		| AuthRegisterCredentials
+		| PasswordResetPayload
+		| UserEmailUpdate,
+): string {
+	return JSON.stringify(payload);
 }
 
 export async function getAuthSession(): Promise<AuthSession> {
-	if (!hasStoredApiKey()) {
-		throw new Error("请先输入 API Key。");
-	}
 	if (authSessionRequestInFlight !== null) {
 		return authSessionRequestInFlight;
 	}
@@ -43,14 +72,41 @@ export async function getAuthSession(): Promise<AuthSession> {
 	}
 }
 
-export async function updateCurrentUserEmail(payload: UserEmailUpdate): Promise<AuthSession> {
-	return authApiClient.request<AuthSession>("/api/auth/email", {
-		method: "PATCH",
-		body: JSON.stringify(payload),
+export async function loginWithPassword(payload: AuthLoginCredentials): Promise<AuthSession> {
+	return authApiClient.request<AuthSession>("/api/auth/login", {
+		method: "POST",
+		body: toJsonBody(payload),
+		headers: {
+			"X-Client-Device-Id": getOrCreateClientDeviceId(),
+		},
 	});
 }
 
-export async function logoutCurrentUser(): Promise<ActionMessage> {
-	clearStoredRuntimeApiKey();
-	return { message: "已清除本地 API Key。" };
+export async function registerWithPassword(payload: AuthRegisterCredentials): Promise<AuthSession> {
+	return authApiClient.request<AuthSession>("/api/auth/register", {
+		method: "POST",
+		body: toJsonBody(payload),
+	});
+}
+
+export async function resetPasswordWithEmail(
+	payload: PasswordResetPayload,
+): Promise<ActionMessage> {
+	return authApiClient.request<ActionMessage>("/api/auth/reset-password", {
+		method: "POST",
+		body: toJsonBody(payload),
+	});
+}
+
+export async function updateCurrentUserEmail(payload: UserEmailUpdate): Promise<AuthSession> {
+	return authApiClient.request<AuthSession>("/api/auth/email", {
+		method: "PATCH",
+		body: toJsonBody(payload),
+	});
+}
+
+export async function logoutCurrentUser(): Promise<void> {
+	return authApiClient.request<void>("/api/auth/logout", {
+		method: "POST",
+	});
 }

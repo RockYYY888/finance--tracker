@@ -45,6 +45,7 @@ EXPECTED_API_ROUTE_METHODS = {
 	("PATCH", "/api/cash-transfers/{transfer_id}"),
 	("PATCH", "/api/holding-transactions/{transaction_id}"),
 	("POST", "/api/accounts"),
+	("POST", "/api/agent/tokens/issue"),
 	("POST", "/api/admin/feedback/{feedback_id}/ack"),
 	("POST", "/api/admin/feedback/{feedback_id}/classify"),
 	("POST", "/api/admin/feedback/{feedback_id}/close"),
@@ -54,6 +55,10 @@ EXPECTED_API_ROUTE_METHODS = {
 	("POST", "/api/admin/release-notes/{release_note_id}/publish"),
 	("POST", "/api/agent/tasks"),
 	("POST", "/api/agent/tokens"),
+	("POST", "/api/auth/login"),
+	("POST", "/api/auth/logout"),
+	("POST", "/api/auth/register"),
+	("POST", "/api/auth/reset-password"),
 	("POST", "/api/cash-ledger/adjustments"),
 	("POST", "/api/cash-transfers"),
 	("POST", "/api/dashboard/corrections"),
@@ -83,7 +88,7 @@ def test_api_route_contract_is_stable() -> None:
 	}
 
 	assert actual_routes == EXPECTED_API_ROUTE_METHODS
-	assert len(actual_routes) == 69
+	assert len(actual_routes) == 74
 
 
 def test_openapi_paths_match_route_contract() -> None:

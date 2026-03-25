@@ -54,7 +54,7 @@ describe("AgentExecutionAuditPanel", () => {
 						created_at: "2026-03-10T10:00:01.000Z",
 					},
 				]}
-				apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
+				apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
 			/>,
 		);
 
@@ -64,7 +64,7 @@ describe("AgentExecutionAuditPanel", () => {
 		expect(screen.getByText("账户划转")).toBeTruthy();
 		expect(
 			screen.getByRole("link", { name: "打开 API 文档" }).getAttribute("href"),
-		).toBe("https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md");
+		).toBe("https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md");
 	});
 
 	it("renders the workspace summary as a dedicated four-card grid and separates direct api records", () => {
@@ -152,7 +152,7 @@ describe("AgentExecutionAuditPanel", () => {
 						created_at: "2026-03-14T10:05:01.000Z",
 					},
 				]}
-				apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
+				apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
 			/>,
 		);
 
@@ -200,7 +200,7 @@ describe("AgentExecutionAuditPanel", () => {
 				registrations={[]}
 				tasks={[]}
 				records={[]}
-				apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
+				apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
 				issuedApiKey={{
 					id: 9,
 					name: "daily-sync",

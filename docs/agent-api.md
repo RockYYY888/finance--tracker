@@ -1,12 +1,12 @@
 # Agent API
 
 This reference defines the HTTP contract for agent runtimes, scheduled jobs, and audited
-automation that operate a Personal Asset Tracker account. It covers every bearer-token-compatible
-operation exposed by the backend, including account identity, portfolio mutation, feedback triage,
-and release-note workflows.
+automation that operate an OpenTraFi account. It covers every bearer-token-compatible operation
+exposed by the backend, including account identity, portfolio mutation, feedback triage, and
+release-note workflows.
 
-Password-only or browser-session-only routes such as user registration, password reset, and logout
-are no longer part of the public API surface.
+Interactive browser login, registration, password reset, and logout remain part of the web
+application session flow. This document is limited to bearer-token agent and developer access.
 
 ## Scope
 
@@ -592,7 +592,7 @@ curl -X POST http://127.0.0.1:8080/api/admin/release-notes/publish-changelog \
     "title": "Chart Comparison and Agent API Updates",
     "content": "- Restored the default full-range comparison values in both trend charts\\n- Expanded the agent API reference with formal parameter tables and examples",
     "source_feedback_ids": [3, 4],
-    "release_url": "https://github.com/example/finance--tracker/releases/tag/v0.7.1"
+    "release_url": "https://github.com/example/opentrifi/releases/tag/v0.7.1"
   }'
 ```
 

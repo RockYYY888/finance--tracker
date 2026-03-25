@@ -1,5 +1,5 @@
 [project]
-name = "personal-asset-tracker-backend"
+name = "opentrifi-backend"
 version = "0.1.0"
 description = "Backend for a personal asset tracking dashboard."
 requires-python = ">=3.11"

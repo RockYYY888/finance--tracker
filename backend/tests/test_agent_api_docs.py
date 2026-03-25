@@ -44,7 +44,10 @@ def _annotation_depends_on_current_user(annotation: Any) -> bool:
 
 
 def _route_supports_agent_runtime(route: APIRoute) -> bool:
-	if route.path == "/api/health" or route.path.startswith("/api/agent/tokens"):
+	if route.path == "/api/health":
+		return True
+
+	if route.path in {"/api/agent/tokens", "/api/agent/tokens/{token_id}"}:
 		return True
 
 	type_hints = get_type_hints(

@@ -11,10 +11,11 @@ const STORAGE_KEY = "asset-tracker-last-session-user";
 const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 
 const authApiMocks = vi.hoisted(() => ({
-	authenticateWithApiKey: vi.fn(),
 	getAuthSession: vi.fn(),
-	hasStoredApiKey: vi.fn(),
+	loginWithPassword: vi.fn(),
 	logoutCurrentUser: vi.fn(),
+	registerWithPassword: vi.fn(),
+	resetPasswordWithEmail: vi.fn(),
 	updateCurrentUserEmail: vi.fn(),
 }));
 
@@ -58,10 +59,11 @@ const assetManagerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./lib/authApi", () => ({
-	authenticateWithApiKey: authApiMocks.authenticateWithApiKey,
 	getAuthSession: authApiMocks.getAuthSession,
-	hasStoredApiKey: authApiMocks.hasStoredApiKey,
+	loginWithPassword: authApiMocks.loginWithPassword,
 	logoutCurrentUser: authApiMocks.logoutCurrentUser,
+	registerWithPassword: authApiMocks.registerWithPassword,
+	resetPasswordWithEmail: authApiMocks.resetPasswordWithEmail,
 	updateCurrentUserEmail: authApiMocks.updateCurrentUserEmail,
 }));
 
@@ -83,11 +85,11 @@ vi.mock("./lib/assetApi", () => ({
 
 vi.mock("./components/auth/LoginScreen", () => ({
 	LoginScreen: ({
-		onAuthenticate,
+		onLogin,
 		errorMessage,
 		checkingSession,
 	}: {
-		onAuthenticate: (payload: { api_key: string }) => Promise<void>;
+		onLogin: (payload: { user_id: string; password: string }) => Promise<void>;
 		errorMessage?: string | null;
 		checkingSession?: boolean;
 	}) => (
@@ -97,9 +99,9 @@ vi.mock("./components/auth/LoginScreen", () => ({
 			{errorMessage ? <p>{errorMessage}</p> : null}
 			<button
 				type="button"
-				onClick={() => void onAuthenticate({ api_key: "atrk_demo_key" })}
+				onClick={() => void onLogin({ user_id: "bob", password: "secret-password" })}
 			>
-				模拟验证 API Key
+				模拟登录
 			</button>
 		</div>
 	),
@@ -195,9 +197,12 @@ describe("App session restore", () => {
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		window.localStorage.clear();
-		authApiMocks.hasStoredApiKey.mockReturnValue(true);
-		authApiMocks.authenticateWithApiKey.mockResolvedValue({ user_id: "bob", email: null });
-		authApiMocks.logoutCurrentUser.mockResolvedValue({ message: "已清除本地 API Key。" });
+		authApiMocks.loginWithPassword.mockResolvedValue({ user_id: "bob", email: null });
+		authApiMocks.registerWithPassword.mockResolvedValue({ user_id: "bob", email: null });
+		authApiMocks.resetPasswordWithEmail.mockResolvedValue({
+			message: "密码已重置，请使用新密码登录。",
+		});
+		authApiMocks.logoutCurrentUser.mockResolvedValue(undefined);
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
 		assetApiMocks.createAgentApiKey.mockResolvedValue({
 			id: 1,
@@ -305,7 +310,7 @@ describe("App session restore", () => {
 		render(<App />);
 
 		expect(screen.queryByTestId("login-screen")).toBeNull();
-		expect(screen.getByText("正在验证 API Key")).not.toBeNull();
+		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
 		expect(screen.queryByText("你好，alice")).toBeNull();
 		expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(6);
 
@@ -336,7 +341,7 @@ describe("App session restore", () => {
 
 		render(<App />);
 
-		expect(screen.getByText("正在验证 API Key")).not.toBeNull();
+		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
 		expect(screen.queryByText("¥25.08万")).toBeNull();
 		expect(screen.queryByText("¥1.43万")).toBeNull();
 		expect(screen.queryByText("¥23.65万")).toBeNull();
@@ -536,7 +541,7 @@ describe("App session restore", () => {
 	});
 
 	it("falls back to the login screen when session restore fails", async () => {
-		authApiMocks.getAuthSession.mockRejectedValue(new Error("API Key 无效。"));
+		authApiMocks.getAuthSession.mockRejectedValue(new Error("请先登录。"));
 		window.sessionStorage.setItem(STORAGE_KEY, "alice");
 
 		render(<App />);
@@ -575,7 +580,7 @@ describe("App session restore", () => {
 		const aliceDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
 		const bobDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
 		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
-		authApiMocks.authenticateWithApiKey.mockResolvedValue({ user_id: "bob", email: null });
+		authApiMocks.loginWithPassword.mockResolvedValue({ user_id: "bob", email: null });
 		dashboardApiMocks.getDashboard
 			.mockReturnValueOnce(aliceDashboard.promise)
 			.mockReturnValueOnce(bobDashboard.promise);
@@ -596,7 +601,7 @@ describe("App session restore", () => {
 		});
 
 		await act(async () => {
-			screen.getByRole("button", { name: "模拟验证 API Key" }).click();
+			screen.getByRole("button", { name: "模拟登录" }).click();
 			await flushMicrotasks();
 		});
 

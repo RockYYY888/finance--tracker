@@ -564,7 +564,7 @@ def test_publish_changelog_release_note_creates_and_pushes_stream_message(
 			version="0.7.1",
 			title="Stability and workflow updates",
 			content="- Standardized the production update flow\n- Added a changelog push entry point",
-			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.1",
+			release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.1",
 		),
 		admin_user,
 		session,
@@ -595,7 +595,7 @@ def test_publish_changelog_release_note_is_idempotent_for_same_payload(
 		version="0.7.2",
 		title="Reliable release-note delivery",
 		content="- Unified the release-note publish path\n- Avoided duplicate user notifications",
-		release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.2",
+		release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.2",
 	)
 
 	first_release_note = publish_changelog_release_note_for_admin(
@@ -629,7 +629,7 @@ def test_publish_changelog_release_note_repairs_missing_admin_delivery_without_r
 		version="0.7.2",
 		title="Reliable release-note delivery",
 		content="- Unified the release-note publish path\n- Avoided duplicate user notifications",
-		release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.2",
+		release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.2",
 	)
 
 	first_release_note = publish_changelog_release_note_for_admin(
@@ -672,7 +672,7 @@ def test_publish_changelog_release_note_rejects_older_than_latest_published_vers
 			version="0.8.0",
 			title="Already published newer version",
 			content="- Version 0.8.0 is already published",
-			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.8.0",
+			release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.8.0",
 		),
 		admin_user,
 		session,
@@ -688,7 +688,7 @@ def test_publish_changelog_release_note_rejects_older_than_latest_published_vers
 				version="0.7.9",
 				title="Backdated version",
 				content="- This version should be rejected",
-				release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.9",
+				release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.9",
 			),
 			admin_user,
 			session,
@@ -717,7 +717,7 @@ def test_publish_changelog_release_note_rejects_unpublished_older_draft_version(
 			version="0.8.0",
 			title="Already published newer version",
 			content="- Version 0.8.0 is already published",
-			release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.8.0",
+			release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.8.0",
 		),
 		admin_user,
 		session,
@@ -733,7 +733,7 @@ def test_publish_changelog_release_note_rejects_unpublished_older_draft_version(
 				version="0.7.9",
 				title="Republished old draft",
 				content="- This older draft should not be published again",
-				release_url="https://github.com/RockYYY888/finance--tracker/releases/tag/v0.7.9",
+				release_url="https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.9",
 			),
 			admin_user,
 			session,
