@@ -1756,7 +1756,7 @@ function App() {
 						<div>
 							<p className="eyebrow">AGENT</p>
 							<h2>Agent 与 API</h2>
-							<p className="section-copy">管理 Bearer API Key，查看活跃 Agent 与真实落库记录。</p>
+							<p className="section-copy">管理 API Key，查看活跃 Agent 与真实落库记录。</p>
 						</div>
 					</div>
 

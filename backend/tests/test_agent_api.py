@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
 import json
+import re
 
 import pytest
 from fastapi import HTTPException
@@ -212,6 +213,7 @@ def test_create_agent_token_and_use_bearer_auth(session: Session) -> None:
 	assert stored_token.agent_registration_id is None
 	assert stored_token.name == "local-cli"
 	assert stored_token.token_hint.startswith("sk-")
+	assert re.fullmatch(r"sk-[A-Za-z0-9_-]{2}\*{11}", stored_token.token_hint) is not None
 	assert session.exec(select(AgentRegistration)).all() == []
 
 	authenticated_user = get_current_user(
@@ -298,6 +300,7 @@ def test_create_agent_token_for_current_session_only_returns_secret_once(session
 
 	assert issued_token.access_token.startswith("sk-")
 	assert issued_token.expires_at is None
+	assert re.fullmatch(r"sk-[A-Za-z0-9_-]{2}\*{11}", issued_token.token_hint) is not None
 
 	listed_tokens = list_agent_tokens(current_user, session)
 	assert len(listed_tokens) == 1
@@ -348,7 +351,7 @@ def test_list_agent_tokens_normalizes_legacy_token_hints(session: Session) -> No
 	listed_tokens = list_agent_tokens(current_user, session)
 
 	assert issued_token.access_token.startswith("sk-")
-	assert listed_tokens[0].token_hint == "sk-*************"
+	assert listed_tokens[0].token_hint == "sk-xx***********"
 
 
 def test_agent_token_creation_rejects_more_than_five_active_keys(session: Session) -> None:

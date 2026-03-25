@@ -48,6 +48,10 @@ const MAX_ACTIVE_API_KEYS = 5;
 const MAX_DAILY_API_KEY_CREATIONS = 10;
 const API_KEY_EXPIRY_WARNING_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const API_KEY_NAME_PATTERN = /^[a-z]+(?:-[a-z]+)*$/;
+const API_KEY_HINT_PREFIX = "sk-";
+const API_KEY_HINT_VISIBLE_CHARS = 2;
+const API_KEY_HINT_MASK = "*".repeat(11);
+const LEGACY_API_KEY_HINT_PLACEHOLDER = `${API_KEY_HINT_PREFIX}xx${API_KEY_HINT_MASK}`;
 const ASSET_CLASS_FILTERS: Array<{
 	value: "ALL" | AssetRecordAssetClass;
 	label: string;
@@ -127,7 +131,17 @@ function isApiKeyExpiringSoon(apiKey: AgentApiKeyRecord): boolean {
 }
 
 function getVisibleTokenHint(tokenHint: string): string {
-	return tokenHint.startsWith("sk-") ? tokenHint : "sk-*************";
+	const normalized = tokenHint.trim();
+	if (!normalized.startsWith(API_KEY_HINT_PREFIX)) {
+		return LEGACY_API_KEY_HINT_PLACEHOLDER;
+	}
+
+	const visibleFragment = normalized
+		.slice(API_KEY_HINT_PREFIX.length)
+		.replace(/\*/g, "")
+		.slice(0, API_KEY_HINT_VISIBLE_CHARS)
+		.padEnd(API_KEY_HINT_VISIBLE_CHARS, "x");
+	return `${API_KEY_HINT_PREFIX}${visibleFragment}${API_KEY_HINT_MASK}`;
 }
 
 function getApiKeyStatus(apiKey: AgentApiKeyRecord): {
@@ -430,7 +444,7 @@ function RegisteredAgentList({
 								</div>
 								<h3>{registration.name}</h3>
 								<p className="asset-manager__card-note">
-									只有带非空 <code>Agent-Name</code> 的 Bearer 请求才会登记到这里。
+									查看这个 Agent 最近一次活跃时使用的 API Key 与接入时间。
 								</p>
 							</div>
 						</div>
@@ -444,16 +458,16 @@ function RegisteredAgentList({
 								<span>请求次数</span>
 								<strong>{registration.request_count}</strong>
 							</div>
-							<div className="asset-manager__metric">
-								<span>最近 API Key</span>
-								<strong>{registration.latest_api_key_name ?? "—"}</strong>
-							</div>
-							<div className="asset-manager__metric">
-								<span>Key 掩码</span>
-								<strong>
-									{latestApiKey ? getVisibleTokenHint(latestApiKey.token_hint) : "—"}
-								</strong>
-							</div>
+								<div className="asset-manager__metric">
+									<span>最近 API Key</span>
+									<strong>{registration.latest_api_key_name ?? "—"}</strong>
+								</div>
+								<div className="asset-manager__metric">
+									<span>Key</span>
+									<strong>
+										{latestApiKey ? getVisibleTokenHint(latestApiKey.token_hint) : "—"}
+									</strong>
+								</div>
 							<div className="asset-manager__metric">
 								<span>最近接入</span>
 								<strong>{formatTimestamp(registration.last_seen_at)}</strong>
@@ -628,7 +642,7 @@ export function AgentExecutionAuditPanel({
 				<div>
 					<p className="asset-manager__eyebrow">AGENT WORKSPACE</p>
 					<h3>智能体工作台</h3>
-					<p>查看已注册的活跃 Agent；直连 API 与 Agent 的落库记录仅在“查看记录”中筛选展示。</p>
+					<p>查看已注册的活跃 Agent，并在“查看记录”里筛选直连 API 与 Agent 的落库记录。</p>
 				</div>
 				<div className="asset-manager__panel-actions">
 					<button
@@ -651,9 +665,9 @@ export function AgentExecutionAuditPanel({
 			<div className="agent-workspace__top-grid">
 				<div className="asset-manager__helper-block">
 					<strong>Agent API</strong>
-					<p>
+					<p className="agent-workspace__doc-copy">
 						文档已整理到 GitHub，供外部 Agent 或自动化服务按约定调用。普通前端登录仍使用账号密码；
-						API Key 只用于 Bearer 鉴权。
+						API Key 只用于外部调用鉴权。
 					</p>
 					<div className="agent-workspace__doc-actions">
 						<a
@@ -685,14 +699,6 @@ export function AgentExecutionAuditPanel({
 						<strong>{activeRegistrations.length}</strong>
 					</div>
 					<div className="asset-manager__summary-card">
-						<span>非活跃 Agent</span>
-						<strong>{inactiveRegistrations.length}</strong>
-					</div>
-					<div className="asset-manager__summary-card">
-						<span>有效 Key</span>
-						<strong>{activeApiKeyCount}</strong>
-					</div>
-					<div className="asset-manager__summary-card">
 						<span>3 天内到期</span>
 						<strong>{expiringApiKeyCount}</strong>
 					</div>
@@ -715,7 +721,7 @@ export function AgentExecutionAuditPanel({
 			{expiringApiKeyCount > 0 ? (
 				<div className="asset-manager__status-note asset-manager__status-note--warning">
 					当前有 {expiringApiKeyCount} 个 API Key 将在 3 天内过期。建议提前轮换并更新调用方配置，
-					避免 Bearer 请求中断。
+					避免自动化请求中断。
 				</div>
 			) : null}
 
@@ -728,15 +734,13 @@ export function AgentExecutionAuditPanel({
 							<div>
 								<p className="asset-manager__eyebrow">ACTIVE AGENTS</p>
 								<h3>活跃 Agent</h3>
-								<p>
-									只有带非空 <code>Agent-Name</code> 的 Bearer 请求才会在这里登记。
-								</p>
+								<p>查看已注册的活跃 Agent。</p>
 							</div>
 						</div>
 						<RegisteredAgentList
 							registrations={activeRegistrations}
 							apiKeyByName={apiKeyByName}
-							emptyMessage="当前还没有活跃的 Agent。只用 API Key 直连请求不会登记到这里。"
+							emptyMessage="当前还没有活跃 Agent。"
 						/>
 					</section>
 
@@ -798,12 +802,12 @@ export function AgentExecutionAuditPanel({
 						<div className="agent-workspace__one-time-secret">
 							<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
 								<strong>{issuedApiKey.name}</strong>
-								<p>这是完整密钥的唯一展示机会。关闭窗口后，平台只会保留掩码提示。</p>
+								<p>这是完整密钥的唯一展示机会。关闭窗口后，平台只会保留 Key 预览。</p>
 							</div>
 							<pre className="asset-manager__code-block">{issuedApiKey.access_token}</pre>
 							<div className="asset-manager__metric-grid">
 								<div className="asset-manager__metric">
-									<span>掩码提示</span>
+									<span>Key</span>
 									<strong>{getVisibleTokenHint(issuedApiKey.token_hint)}</strong>
 								</div>
 								<div className="asset-manager__metric">
@@ -939,7 +943,7 @@ export function AgentExecutionAuditPanel({
 													</div>
 													<h3>{apiKey.name}</h3>
 													<p className="asset-manager__card-note">
-														仅保留掩码提示，完整密钥在创建后不会再次返回。
+														仅保留 Key 预览，完整密钥在创建后不会再次返回。
 													</p>
 												</div>
 												<div className="asset-manager__card-actions">
@@ -960,7 +964,7 @@ export function AgentExecutionAuditPanel({
 											) : null}
 											<div className="asset-manager__metric-grid">
 												<div className="asset-manager__metric">
-													<span>掩码提示</span>
+													<span>Key</span>
 													<strong>{getVisibleTokenHint(apiKey.token_hint)}</strong>
 												</div>
 												<div className="asset-manager__metric">
@@ -999,13 +1003,13 @@ export function AgentExecutionAuditPanel({
 				panelClassName="agent-workspace__confirm-panel"
 			>
 				<div className="agent-workspace__modal-body">
-					<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
-						<strong>{pendingRevokeApiKey?.name ?? "待删除 API Key"}</strong>
-						<p>
-							掩码提示：
-							{" "}
-							<code>
-								{pendingRevokeApiKey
+						<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
+							<strong>{pendingRevokeApiKey?.name ?? "待删除 API Key"}</strong>
+							<p>
+								Key：
+								{" "}
+								<code>
+									{pendingRevokeApiKey
 									? getVisibleTokenHint(pendingRevokeApiKey.token_hint)
 									: "—"}
 							</code>
@@ -1039,7 +1043,7 @@ export function AgentExecutionAuditPanel({
 				onClose={() => setIsActivityDialogOpen(false)}
 				title="记录"
 				eyebrow="API ACTIVITY"
-				description="按来源和资产类别查看 Bearer API 触发的真实落库记录。这里只读展示，不支持撤销。"
+				description="按来源和资产类别查看 API 触发的真实落库记录。这里只读展示，不支持撤销。"
 				dialogScope="agent-workspace-activity"
 			>
 				<div className="agent-workspace__modal-body">

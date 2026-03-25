@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentExecutionAuditPanel } from "./AgentExecutionAuditPanel";
@@ -81,6 +81,14 @@ describe("AgentExecutionAuditPanel", () => {
 		expect(screen.getByText("请求次数")).toBeTruthy();
 		expect(screen.queryByText("API Sandbox Wallet")).toBeNull();
 		expect(screen.queryByText("Agent 任务")).toBeNull();
+		expect(screen.queryByText(/Agent-Name/)).toBeNull();
+		expect(screen.queryByText(/Bearer/)).toBeNull();
+
+		const summary = screen.getByTestId("agent-workspace-summary");
+		expect(within(summary).getByText("活跃 Agent")).toBeTruthy();
+		expect(within(summary).getByText("3 天内到期")).toBeTruthy();
+		expect(within(summary).queryByText("非活跃 Agent")).toBeNull();
+		expect(within(summary).queryByText("有效 Key")).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", { name: "查看记录" }));
 
@@ -133,7 +141,7 @@ describe("AgentExecutionAuditPanel", () => {
 			),
 		).toBeTruthy();
 		expect(screen.getByText("local-cli")).toBeTruthy();
-		expect(screen.getAllByText("sk-loc**********").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("sk-lo***********").length).toBeGreaterThan(0);
 		expect(screen.queryByText("discarded-key")).toBeNull();
 		expect(screen.queryByRole("button", { name: "复制到剪贴板" })).toBeNull();
 		expect(screen.getByText(/2027/)).toBeTruthy();
@@ -178,6 +186,7 @@ describe("AgentExecutionAuditPanel", () => {
 		expect(
 			screen.getByText("这个 API Key 将在 2 天内到期。建议提前完成轮换并更新调用方配置。"),
 		).toBeTruthy();
+		expect(screen.getAllByText("sk-ro***********").length).toBeGreaterThan(0);
 
 		rerender(
 			<AgentExecutionAuditPanel
@@ -231,10 +240,10 @@ describe("AgentExecutionAuditPanel", () => {
 			/>,
 		);
 
-		expect(screen.getAllByText("sk-*************").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("sk-xx***********").length).toBeGreaterThan(0);
 
 		fireEvent.click(screen.getByRole("button", { name: "有效 Key 1 / 5" }));
-		expect(screen.getAllByText("sk-*************").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("sk-xx***********").length).toBeGreaterThan(0);
 	});
 
 	it("validates key naming rules and includes expiry selection when creating a new api key", () => {
@@ -304,7 +313,7 @@ describe("AgentExecutionAuditPanel", () => {
 
 		expect(screen.getByRole("heading", { name: "新 API Key" })).toBeTruthy();
 		expect(screen.getByText("sk_secret_key")).toBeTruthy();
-		expect(screen.getByText("sk-nig**********")).toBeTruthy();
+		expect(screen.getByText("sk-ni***********")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "复制到剪贴板" }));
 		expect(clipboardWriteText).toHaveBeenCalledWith("sk_secret_key");

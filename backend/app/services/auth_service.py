@@ -57,8 +57,9 @@ AUTHENTICATED_REQUESTS_PER_SECOND = 10
 AGENT_REGISTRATION_ACTIVE_WINDOW = timedelta(hours=24)
 SERVER_DAY_TIMEZONE = ZoneInfo("Asia/Shanghai")
 AGENT_RUNTIME_NAME_PATTERN = re.compile(r"^[\w .:/-]{1,80}$", re.UNICODE)
-AGENT_TOKEN_HINT_MASK_LENGTH = 10
-LEGACY_AGENT_TOKEN_HINT_PLACEHOLDER = "sk-*************"
+AGENT_TOKEN_HINT_VISIBLE_LENGTH = 2
+AGENT_TOKEN_HINT_MASK_LENGTH = 11
+LEGACY_AGENT_TOKEN_HINT_PLACEHOLDER = "sk-xx***********"
 
 
 def _coerce_utc_datetime(value: datetime) -> datetime:
@@ -297,14 +298,23 @@ def _resolve_agent_token_expiry(expires_in_days: int | None) -> datetime | None:
 	return utc_now() + timedelta(days=expires_in_days)
 
 
+def _build_agent_token_hint(visible_fragment: str) -> str:
+	visible_value = (visible_fragment or "xx")[:AGENT_TOKEN_HINT_VISIBLE_LENGTH].ljust(
+		AGENT_TOKEN_HINT_VISIBLE_LENGTH,
+		"x",
+	)
+	return f"sk-{visible_value}{'*' * AGENT_TOKEN_HINT_MASK_LENGTH}"
+
+
 def _format_agent_token_hint(raw_token: str) -> str:
-	return f"{raw_token[:6]}{'*' * AGENT_TOKEN_HINT_MASK_LENGTH}"
+	return _build_agent_token_hint(raw_token[3:3 + AGENT_TOKEN_HINT_VISIBLE_LENGTH])
 
 
 def _normalize_agent_token_hint_for_output(token_hint: str) -> str:
 	normalized = token_hint.strip()
 	if normalized.startswith("sk-"):
-		return normalized
+		visible_fragment = normalized[3:].replace("*", "")[:AGENT_TOKEN_HINT_VISIBLE_LENGTH]
+		return _build_agent_token_hint(visible_fragment)
 	return LEGACY_AGENT_TOKEN_HINT_PLACEHOLDER
 
 

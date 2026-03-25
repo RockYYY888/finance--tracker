@@ -33,6 +33,18 @@ Notes:
 - Agent registrations are keyed by account plus normalized non-empty `Agent-Name`. Distinct names
   become distinct registered agents.
 
+### Register An Agent
+
+To register or refresh an agent entry for the current account:
+
+1. Create or reuse an active API key for that account.
+2. Send the API key in `Authorization: Bearer <api_key>`.
+3. Add a non-empty `Agent-Name: <name>` header to any authenticated request in this document.
+4. Keep using the same `Agent-Name` value to continue attributing later activity to that agent.
+
+Requests that omit `Agent-Name`, send it as an empty string, or send the literal string `false`
+stay classified as direct API traffic and do not create or refresh an agent registration.
+
 ### API Key Lifecycle Endpoints
 
 | Method | Path | Auth Context | Purpose |
@@ -50,7 +62,7 @@ Notes:
 
 Notes:
 
-- The backend stores only a one-way digest plus a short hint such as `...a1b2c3`.
+- The backend stores only a one-way digest plus a short key preview such as `sk-ab***********`.
 - The full API key is returned exactly once in the create response.
 - Issued API keys use the `sk-` prefix.
 - Each account may hold up to five active API keys at the same time.
