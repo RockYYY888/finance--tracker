@@ -148,7 +148,7 @@ function getApiKeyStatus(apiKey: AgentApiKeyRecord): {
 	}
 	if (isApiKeyExpiringSoon(apiKey)) {
 		return {
-			label: "即将过期",
+			label: "即将到期",
 			className: "asset-manager__badge asset-manager__badge--warning",
 		};
 	}
@@ -522,6 +522,7 @@ export function AgentExecutionAuditPanel({
 	);
 	const activeApiKeyCount = activeApiKeys.length;
 	const expiringApiKeyCount = expiringApiKeys.length;
+	const activeApiKeySummary = `有效 Key ${activeApiKeyCount} / ${MAX_ACTIVE_API_KEYS}`;
 	const normalizedDraftApiKeyName = draftApiKeyName.trim();
 	const isDraftNameValid = API_KEY_NAME_PATTERN.test(normalizedDraftApiKeyName);
 
@@ -642,7 +643,7 @@ export function AgentExecutionAuditPanel({
 						className="hero-note hero-note--action"
 						onClick={() => setIsManageKeysDialogOpen(true)}
 					>
-						有效 Key {activeApiKeyCount} / {MAX_ACTIVE_API_KEYS}
+						{activeApiKeySummary}
 					</button>
 				</div>
 			</div>
@@ -908,8 +909,8 @@ export function AgentExecutionAuditPanel({
 					<div className="asset-manager__helper-block">
 						<strong>当前状态</strong>
 						<p>
-							有效 Key {activeApiKeyCount} / {MAX_ACTIVE_API_KEYS}。删除后会立即失效并释放名额。
-							列表里只展示当前仍可用的 Key，已删除或已过期的 Key 会直接移出这里。
+							{activeApiKeySummary}。删除后会立即失效并释放名额。已删除或已过期的 API Key
+							将自动移除。
 						</p>
 					</div>
 					{expiringApiKeyCount > 0 ? (

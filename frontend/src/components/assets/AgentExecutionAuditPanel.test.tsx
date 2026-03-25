@@ -5,6 +5,7 @@ import { AgentExecutionAuditPanel } from "./AgentExecutionAuditPanel";
 
 afterEach(() => {
 	cleanup();
+	vi.useRealTimers();
 });
 
 describe("AgentExecutionAuditPanel", () => {
@@ -126,6 +127,11 @@ describe("AgentExecutionAuditPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "有效 Key 1 / 5" }));
 
 		expect(screen.getByRole("heading", { name: "有效 Key" })).toBeTruthy();
+		expect(
+			screen.getByText(
+				"有效 Key 1 / 5。删除后会立即失效并释放名额。已删除或已过期的 API Key 将自动移除。",
+			),
+		).toBeTruthy();
 		expect(screen.getByText("local-cli")).toBeTruthy();
 		expect(screen.getAllByText("sk-loc**********").length).toBeGreaterThan(0);
 		expect(screen.queryByText("discarded-key")).toBeNull();
@@ -139,6 +145,56 @@ describe("AgentExecutionAuditPanel", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 		expect(revokeApiKey).toHaveBeenCalledWith(8);
+	});
+
+	it("marks soon-to-expire keys with a warning badge and updates the active count on rerender", () => {
+		const now = new Date("2026-03-25T12:00:00.000Z");
+		vi.useFakeTimers();
+		vi.setSystemTime(now);
+
+		const expiringKey = {
+			id: 11,
+			name: "rotation-window",
+			token_hint: "sk-rot**********",
+			created_at: "2026-03-20T10:00:00.000Z",
+			updated_at: "2026-03-20T10:00:00.000Z",
+			last_used_at: "2026-03-24T10:05:00.000Z",
+			expires_at: "2026-03-27T12:00:00.000Z",
+			revoked_at: null,
+		} as const;
+		const { rerender } = render(
+			<AgentExecutionAuditPanel
+				apiKeys={[expiringKey]}
+				registrations={[]}
+				records={[]}
+				apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "有效 Key 1 / 5" }));
+
+		const warningBadge = screen.getByText("即将到期");
+		expect(warningBadge.className).toContain("asset-manager__badge--warning");
+		expect(
+			screen.getByText("这个 API Key 将在 2 天内到期。建议提前完成轮换并更新调用方配置。"),
+		).toBeTruthy();
+
+		rerender(
+			<AgentExecutionAuditPanel
+				apiKeys={[]}
+				registrations={[]}
+				records={[]}
+				apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
+			/>,
+		);
+
+		expect(screen.getByRole("button", { name: "有效 Key 0 / 5" })).toBeTruthy();
+		expect(
+			screen.getByText(
+				"有效 Key 0 / 5。删除后会立即失效并释放名额。已删除或已过期的 API Key 将自动移除。",
+			),
+		).toBeTruthy();
+		expect(screen.getByText("当前账号还没有有效的 API Key。")).toBeTruthy();
 	});
 
 	it("falls back to a generic sk- mask for legacy token hints", () => {

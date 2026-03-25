@@ -1335,12 +1335,16 @@ th {
 	}
 
 	.feedback-modal {
-		padding: 14px;
+		padding:
+			max(14px, env(safe-area-inset-top))
+			max(14px, env(safe-area-inset-right))
+			max(14px, env(safe-area-inset-bottom))
+			max(14px, env(safe-area-inset-left));
 	}
 
 	.feedback-modal__panel {
 		width: 100%;
-		max-height: min(88dvh, 720px);
+		max-height: 100%;
 		padding: 18px;
 	}
 

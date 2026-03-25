@@ -464,6 +464,35 @@ def test_listing_tokens_auto_revokes_expired_keys_and_marks_registration_inactiv
 	assert registrations[0].latest_api_key_name is None
 
 
+def test_expired_agent_token_is_rejected_during_bearer_auth(session: Session) -> None:
+	current_user = make_user(session)
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="soon-expired", expires_in_days=7),
+		current_user,
+		session,
+	)
+	token_row = session.exec(
+		select(AgentAccessToken).where(AgentAccessToken.name == "soon-expired"),
+	).one()
+	token_row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+	session.add(token_row)
+	session.commit()
+
+	with pytest.raises(HTTPException) as error:
+		get_current_user(
+			build_request(
+				headers={"Authorization": f"Bearer {issued_token.access_token}"},
+			),
+			session,
+			None,
+		)
+
+	assert error.value.status_code == 401
+	assert error.value.detail == "API Key 已过期。"
+	session.refresh(token_row)
+	assert token_row.revoked_at is not None
+
+
 def test_direct_api_bearer_asset_write_is_recorded_as_api_source(session: Session) -> None:
 	current_user = make_user(session)
 	issued_token = create_agent_token_for_current_session(

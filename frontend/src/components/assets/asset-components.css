@@ -567,6 +567,8 @@
 	display: grid;
 	place-items: center;
 	padding: 1.25rem;
+	overflow: hidden;
+	overscroll-behavior: none;
 }
 
 .asset-manager__modal-backdrop {
@@ -592,6 +594,7 @@
 	gap: 1rem;
 	width: min(100%, 680px);
 	max-height: min(84dvh, 760px);
+	min-height: 0;
 	overflow-y: auto;
 	scrollbar-gutter: stable;
 	padding: 1.15rem;
@@ -1009,6 +1012,7 @@
 	z-index: 1;
 	width: min(100%, 960px);
 	max-height: min(84dvh, 760px);
+	min-height: 0;
 	overflow: hidden;
 }
 
@@ -1024,7 +1028,8 @@
 }
 
 .agent-workspace__modal-body {
-	display: grid;
+	display: flex;
+	flex-direction: column;
 	gap: 1rem;
 	min-height: 0;
 }
@@ -1060,6 +1065,7 @@
 	gap: 1rem;
 	width: min(100%, 960px);
 	max-height: min(84dvh, 720px);
+	min-height: 0;
 	overflow: hidden;
 	overflow-y: hidden;
 }
@@ -1220,6 +1226,28 @@
 	}
 }
 
+@media (max-width: 720px) {
+	.feedback-modal__panel.agent-workspace__modal-panel,
+	.feedback-modal__panel.asset-records__modal-panel,
+	.asset-manager__modal-panel {
+		width: 100%;
+		max-height: 100%;
+	}
+
+	.feedback-modal__panel.agent-workspace__modal-panel,
+	.feedback-modal__panel.asset-records__modal-panel {
+		overflow-y: auto;
+	}
+
+	.agent-workspace__scroll-region,
+	.asset-records__scroll-region {
+		min-height: 0;
+		max-height: none;
+		overflow: visible;
+		padding-right: 0;
+	}
+}
+
 @media (max-width: 520px) {
 	.agent-workspace__summary {
 		grid-template-columns: 1fr;
@@ -1240,7 +1268,7 @@
 	}
 
 	.asset-records__scroll-region {
-		min-height: 16rem;
-		max-height: 16rem;
+		min-height: 0;
+		max-height: none;
 	}
 }

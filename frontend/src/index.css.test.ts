@@ -78,6 +78,12 @@ describe("global layout styles", () => {
 			/\.asset-manager__modal-panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*760px\)\s*;[\s\S]*overflow-y:\s*auto\s*;/,
 		);
 		expect(assetStylesheet).toMatch(
+			/\.feedback-modal__panel\.agent-workspace__modal-panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*760px\)\s*;[\s\S]*overflow:\s*hidden\s*;/,
+		);
+		expect(assetStylesheet).toMatch(
+			/\.feedback-modal__panel\.asset-records__modal-panel\s*\{[\s\S]*max-height:\s*min\(84dvh,\s*720px\)\s*;[\s\S]*overflow-y:\s*hidden\s*;/,
+		);
+		expect(assetStylesheet).toMatch(
 			/\.asset-manager__modal-backdrop\s*\{[\s\S]*border-radius:\s*0\s*;[\s\S]*box-shadow:\s*none\s*;/,
 		);
 		expect(assetStylesheet).toMatch(
@@ -93,6 +99,16 @@ describe("global layout styles", () => {
 		expect(analyticsStylesheet).not.toContain("radial-gradient(");
 		expect(feedbackModalPanelBlock).not.toContain("radial-gradient(");
 		expect(assetModalPanelBlock).not.toContain("radial-gradient(");
+		expect(globalStylesheet).toContain("env(safe-area-inset-top)");
+		expect(globalStylesheet).toContain("env(safe-area-inset-right)");
+		expect(globalStylesheet).toContain("env(safe-area-inset-bottom)");
+		expect(globalStylesheet).toContain("env(safe-area-inset-left)");
+		expect(assetStylesheet).toMatch(
+			/@media \(max-width:\s*720px\)\s*\{[\s\S]*\.feedback-modal__panel\.agent-workspace__modal-panel,[\s\S]*\.feedback-modal__panel\.asset-records__modal-panel,[\s\S]*\.asset-manager__modal-panel\s*\{[\s\S]*max-height:\s*100%\s*;/,
+		);
+		expect(assetStylesheet).toMatch(
+			/@media \(max-width:\s*720px\)\s*\{[\s\S]*\.agent-workspace__scroll-region,[\s\S]*\.asset-records__scroll-region\s*\{[\s\S]*min-height:\s*0\s*;[\s\S]*overflow:\s*visible\s*;/,
+		);
 		expect(analyticsStylesheet).toMatch(
 			/\.analytics-segmented button:focus-visible\s*\{[\s\S]*outline:\s*2px\s+solid/,
 		);
