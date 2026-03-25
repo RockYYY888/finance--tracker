@@ -33,7 +33,7 @@ from app.models import (
 )
 from app.security import normalize_email, normalize_user_id, validate_password_strength
 
-AGENT_TOKEN_NAME_PATTERN = re.compile(r"^[\w .:/-]{3,80}$", re.UNICODE)
+AGENT_TOKEN_NAME_PATTERN = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -334,7 +334,7 @@ class AgentTokenCreate(BaseModel):
 			raise ValueError("API Key 名称不能包含换行或控制字符。")
 		if not AGENT_TOKEN_NAME_PATTERN.fullmatch(name):
 			raise ValueError(
-				"API Key 名称仅支持字母、数字、空格，以及 . _ / : - 。",
+				"API Key 名称仅支持小写字母和连字符（-），例如 daily-sync。",
 			)
 		return name
 

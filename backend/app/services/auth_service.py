@@ -57,6 +57,7 @@ AUTHENTICATED_REQUESTS_PER_SECOND = 10
 AGENT_REGISTRATION_ACTIVE_WINDOW = timedelta(hours=24)
 SERVER_DAY_TIMEZONE = ZoneInfo("Asia/Shanghai")
 AGENT_RUNTIME_NAME_PATTERN = re.compile(r"^[\w .:/-]{1,80}$", re.UNICODE)
+AGENT_TOKEN_HINT_MASK_LENGTH = 10
 
 
 def _coerce_utc_datetime(value: datetime) -> datetime:
@@ -144,6 +145,56 @@ def _is_agent_token_active(token: AgentAccessToken, now: datetime) -> bool:
 	if token.expires_at is not None and _coerce_utc_datetime(token.expires_at) <= now:
 		return False
 	return True
+
+
+def _revoke_agent_token_row(
+	session: SessionDependency,
+	token: AgentAccessToken,
+	*,
+	revoked_at: datetime | None = None,
+) -> bool:
+	if token.revoked_at is not None:
+		return False
+
+	token.revoked_at = revoked_at or utc_now()
+	_touch_model(token)
+	session.add(token)
+	registrations = list(
+		session.exec(
+			select(AgentRegistration)
+			.where(AgentRegistration.user_id == token.user_id)
+			.where(AgentRegistration.latest_api_key_name == token.name),
+		),
+	)
+	for registration in registrations:
+		registration.status = AGENT_REGISTRATION_STATUSES[1]
+		registration.latest_api_key_name = None
+		_touch_model(registration)
+		session.add(registration)
+	return True
+
+
+def _sync_expired_agent_tokens_for_user(
+	session: SessionDependency,
+	*,
+	user_id: str,
+	now: datetime | None = None,
+) -> None:
+	now_value = now or utc_now()
+	updated = False
+	for token in _list_agent_access_tokens_for_user(session, user_id=user_id):
+		if token.revoked_at is not None or token.expires_at is None:
+			continue
+		if _coerce_utc_datetime(token.expires_at) > now_value:
+			continue
+		updated = _revoke_agent_token_row(
+			session,
+			token,
+			revoked_at=now_value,
+		) or updated
+
+	if updated:
+		session.commit()
 
 
 def _current_server_day_window(now: datetime) -> tuple[datetime, datetime]:
@@ -246,7 +297,7 @@ def _resolve_agent_token_expiry(expires_in_days: int | None) -> datetime | None:
 
 
 def _format_agent_token_hint(raw_token: str) -> str:
-	return f"...{raw_token[-6:]}"
+	return f"{raw_token[:6]}{'*' * AGENT_TOKEN_HINT_MASK_LENGTH}"
 
 
 def _to_agent_token_read(token: AgentAccessToken) -> AgentTokenRead:
@@ -272,6 +323,11 @@ def _create_agent_access_token(
 	now = utc_now()
 	lock_name = f"agent-token-create:{current_user.username}"
 	with runtime_state.redis_lock(lock_name, timeout=10, blocking_timeout=10):
+		_sync_expired_agent_tokens_for_user(
+			session,
+			user_id=current_user.username,
+			now=now,
+		)
 		existing_tokens = _list_agent_access_tokens_for_user(
 			session,
 			user_id=current_user.username,
@@ -475,6 +531,8 @@ def _authenticate_agent_access_token(
 
 	now = utc_now()
 	if token.expires_at is not None and _coerce_utc_datetime(token.expires_at) <= now:
+		_revoke_agent_token_row(session, token, revoked_at=now)
+		session.commit()
 		raise HTTPException(status_code=401, detail="API Key 已过期。")
 
 	user = _get_user(session, token.user_id)
@@ -717,6 +775,10 @@ def list_agent_tokens(
 	current_user: CurrentUserDependency,
 	session: SessionDependency,
 ) -> list[AgentTokenRead]:
+	_sync_expired_agent_tokens_for_user(
+		session,
+		user_id=current_user.username,
+	)
 	tokens = _list_active_agent_access_tokens_for_user(
 		session,
 		user_id=current_user.username,
@@ -734,22 +796,7 @@ def revoke_agent_token(
 		raise HTTPException(status_code=404, detail="API Key 不存在。")
 
 	if token.revoked_at is None:
-		now = utc_now()
-		token.revoked_at = now
-		_touch_model(token)
-		session.add(token)
-		registrations = list(
-			session.exec(
-				select(AgentRegistration)
-				.where(AgentRegistration.user_id == current_user.username)
-				.where(AgentRegistration.latest_api_key_name == token.name),
-			),
-		)
-		for registration in registrations:
-			registration.status = AGENT_REGISTRATION_STATUSES[1]
-			registration.latest_api_key_name = None
-			_touch_model(registration)
-			session.add(registration)
+		_revoke_agent_token_row(session, token)
 		session.commit()
 
 	return ActionMessageRead(message="API Key 已撤销。")

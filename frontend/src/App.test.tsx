@@ -757,7 +757,6 @@ describe("App session restore", () => {
 		expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
 		expect(assetApiMocks.listAgentApiKeys).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
-		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
 
 		await act(async () => {
@@ -765,7 +764,6 @@ describe("App session restore", () => {
 		});
 		expect(assetApiMocks.listAgentApiKeys).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
-		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
 
 		await act(async () => {
@@ -779,7 +777,6 @@ describe("App session restore", () => {
 		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledWith({
 			includeAllUsers: false,
 		});
-		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAssetRecords).toHaveBeenNthCalledWith(1, {
 			source: "AGENT",
 			limit: 200,
@@ -807,7 +804,6 @@ describe("App session restore", () => {
 
 		expect(assetApiMocks.listAgentApiKeys).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledTimes(1);
-		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledTimes(2);
 	});
 

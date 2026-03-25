@@ -128,6 +128,27 @@ export function formatTimestamp(value?: string | null): string {
 	}).format(parsedValue);
 }
 
+export function formatTimestampWithYear(value?: string | null): string {
+	if (!value) {
+		return "待更新";
+	}
+
+	const parsedValue = new Date(normalizeUtcTimestampValue(value));
+	if (Number.isNaN(parsedValue.getTime())) {
+		return "待更新";
+	}
+
+	return new Intl.DateTimeFormat("zh-CN", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+		timeZone: DISPLAY_TIME_ZONE,
+	}).format(parsedValue);
+}
+
 function formatTimestampWithMilliseconds(value?: string | null): string | null {
 	if (!value) {
 		return null;

@@ -168,6 +168,15 @@ function getChangeDirection(changeValue: number): string {
 	return "变化";
 }
 
+function getAnalyticsPillToneClass(value: number | null | undefined): string {
+	if (value == null || !Number.isFinite(value) || value === 0) {
+		return "analytics-pill";
+	}
+	return value > 0
+		? "analytics-pill analytics-pill--positive"
+		: "analytics-pill analytics-pill--negative";
+}
+
 function isInteractiveTrendPoint(
 	point: Pick<ThresholdSegmentedPoint, "crossingPoint" | "synthetic"> | null | undefined,
 ): boolean {
@@ -390,18 +399,24 @@ export function PortfolioTrendChart({
 		displayMode === "value"
 			? `区间内${VALUE_STEP_LABELS[activeRange]}`
 			: `区间内${RETURN_STEP_LABELS[activeRange]}`;
-	const activeStepMetricValue =
+	const activeTerminalToneValue =
+		!hasActiveSummaryData
+			? null
+			: displayMode === "value"
+				? intervalChangeValue
+				: intervalLatestValue;
+	const activeStepMetricNumericValue =
 		!hasActiveStepMetric
+			? null
+			: displayMode === "value"
+				? summarizeCompoundedValueStepRate(intervalSelection.intervalPoints)
+				: summarizeAverageStepDelta(intervalSelection.intervalPoints);
+	const activeStepMetricValue =
+		activeStepMetricNumericValue === null
 			? "--"
 			: displayMode === "value"
-				? formatPercentMetric(
-						summarizeCompoundedValueStepRate(intervalSelection.intervalPoints),
-						true,
-					)
-				: formatPercentMetric(
-						summarizeAverageStepDelta(intervalSelection.intervalPoints),
-						true,
-					);
+				? formatPercentMetric(activeStepMetricNumericValue, true)
+				: formatPercentMetric(activeStepMetricNumericValue, true);
 	const comparisonCardDescription = hasData
 		? "以下选择器只用于下方指标比较，不改变上方图像。"
 		: "当前区间数据不足时，下方指标会在累计后自动补齐。";
@@ -642,7 +657,7 @@ export function PortfolioTrendChart({
 					embedded
 				/>
 				<div className="analytics-card__meta analytics-card__meta--trend">
-					<div className="analytics-pill">
+					<div className={getAnalyticsPillToneClass(activeTerminalToneValue)}>
 						<span>{activeValueLabel}</span>
 						<strong>
 							{displayMode === "value"
@@ -654,11 +669,11 @@ export function PortfolioTrendChart({
 									: "--"}
 						</strong>
 					</div>
-					<div className="analytics-pill">
+					<div className={getAnalyticsPillToneClass(intervalChangeValue)}>
 						<span>区间变化</span>
 						<strong>{activePeriodValue}</strong>
 					</div>
-					<div className="analytics-pill">
+					<div className={getAnalyticsPillToneClass(activeStepMetricNumericValue)}>
 						<span>{activeStepMetricLabel}</span>
 						<strong>{activeStepMetricValue}</strong>
 					</div>

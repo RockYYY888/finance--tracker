@@ -104,6 +104,13 @@
 	font-size: 1.3rem;
 }
 
+.asset-manager__summary-card p {
+	margin: 0.4rem 0 0;
+	font-size: 0.82rem;
+	line-height: 1.45;
+	color: var(--text-muted);
+}
+
 .asset-manager__summary-card strong {
 	color: var(--text-main);
 }
@@ -821,6 +828,12 @@
 	line-height: 1.4;
 }
 
+.asset-manager__status-note--warning {
+	border-color: rgba(246, 214, 139, 0.24);
+	background: rgba(246, 214, 139, 0.08);
+	color: #ffe7b8;
+}
+
 .asset-manager__message--error {
 	background: rgba(255, 124, 145, 0.1);
 	border: 1px solid rgba(255, 124, 145, 0.22);
@@ -909,6 +922,11 @@
 	font-size: 0.98rem;
 }
 
+.asset-manager__badge--warning {
+	background: rgba(246, 214, 139, 0.12);
+	color: #f6d68b;
+}
+
 .asset-manager__empty-state {
 	padding: 1.1rem;
 	border-radius: 22px;
@@ -933,6 +951,14 @@
 .agent-workspace__summary .asset-manager__summary-card {
 	min-width: 0;
 	min-height: 100%;
+}
+
+.agent-workspace__disclosure {
+	width: 100%;
+	text-align: left;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
 }
 
 .agent-workspace__section {

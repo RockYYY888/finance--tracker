@@ -1,10 +1,11 @@
 import asyncio
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlmodel import Session, select
 from starlette.requests import Request
 
@@ -61,6 +62,19 @@ from app.services.auth_service import (
 from app.services import dashboard_service, job_service, legacy_service, service_context
 from app.services.agent_demo_service import seed_agent_workspace_demo
 from app.services.asset_record_service import list_asset_records
+
+TOKEN_NAME_SUFFIXES = (
+	"alpha",
+	"beta",
+	"gamma",
+	"delta",
+	"epsilon",
+	"zeta",
+	"eta",
+	"theta",
+	"iota",
+	"kappa",
+)
 
 
 class StaticMarketDataClient:
@@ -197,7 +211,7 @@ def test_create_agent_token_and_use_bearer_auth(session: Session) -> None:
 	assert stored_token.user_id == "tester"
 	assert stored_token.agent_registration_id is None
 	assert stored_token.name == "local-cli"
-	assert stored_token.token_hint.startswith("...")
+	assert stored_token.token_hint.startswith("sk-")
 	assert session.exec(select(AgentRegistration)).all() == []
 
 	authenticated_user = get_current_user(
@@ -322,14 +336,14 @@ def test_agent_token_creation_rejects_more_than_five_active_keys(session: Sessio
 
 	for index in range(MAX_ACTIVE_AGENT_TOKENS_PER_USER):
 		create_agent_token_for_current_session(
-			AgentTokenCreate(name=f"worker-{index + 1}"),
+			AgentTokenCreate(name=f"worker-{TOKEN_NAME_SUFFIXES[index]}"),
 			current_user,
 			session,
 		)
 
 	with pytest.raises(HTTPException) as error:
 		create_agent_token_for_current_session(
-			AgentTokenCreate(name="worker-6"),
+			AgentTokenCreate(name="worker-lambda"),
 			current_user,
 			session,
 		)
@@ -343,19 +357,21 @@ def test_agent_token_creation_rejects_more_than_ten_daily_creations(session: Ses
 
 	for index in range(MAX_DAILY_AGENT_TOKEN_CREATIONS):
 		issued_token = create_agent_token_for_current_session(
-			AgentTokenCreate(name=f"rotation-{index + 1}"),
+			AgentTokenCreate(name=f"rotation-{TOKEN_NAME_SUFFIXES[index]}"),
 			current_user,
 			session,
 		)
 		token_row = session.exec(
-			select(AgentAccessToken).where(AgentAccessToken.name == f"rotation-{index + 1}"),
+			select(AgentAccessToken).where(
+				AgentAccessToken.name == f"rotation-{TOKEN_NAME_SUFFIXES[index]}",
+			),
 		).one()
 		revoke_agent_token(token_row.id or 0, current_user, session)
 		assert issued_token.access_token.startswith("sk-")
 
 	with pytest.raises(HTTPException) as error:
 		create_agent_token_for_current_session(
-			AgentTokenCreate(name="rotation-11"),
+			AgentTokenCreate(name="rotation-lambda"),
 			current_user,
 			session,
 		)
@@ -382,6 +398,50 @@ def test_agent_token_creation_rejects_duplicate_active_names(session: Session) -
 
 	assert error.value.status_code == 409
 	assert error.value.detail == "当前账号已经存在同名的有效 API Key，请使用新的名称。"
+
+
+def test_agent_token_name_must_use_lowercase_slug_format() -> None:
+	with pytest.raises(ValidationError) as error:
+		AgentTokenCreate(name="nightly-1")
+
+	assert "API Key 名称仅支持小写字母和连字符" in str(error.value)
+
+
+def test_listing_tokens_auto_revokes_expired_keys_and_marks_registration_inactive(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="expiring-key", expires_in_days=30),
+		current_user,
+		session,
+	)
+	agent_user = get_current_user(
+		build_request(
+			headers={
+				"Authorization": f"Bearer {issued_token.access_token}",
+				"Agent-Name": "portfolio-copilot",
+			},
+		),
+		session,
+		None,
+	)
+	token_row = session.exec(
+		select(AgentAccessToken).where(AgentAccessToken.name == "expiring-key"),
+	).one()
+	token_row.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+	session.add(token_row)
+	session.commit()
+
+	listed_tokens = list_agent_tokens(current_user, session)
+	registrations = list_agent_registrations(agent_user, session, include_all_users=False)
+
+	assert listed_tokens == []
+	session.refresh(token_row)
+	assert token_row.revoked_at is not None
+	assert len(registrations) == 1
+	assert registrations[0].status == "INACTIVE"
+	assert registrations[0].latest_api_key_name is None
 
 
 def test_direct_api_bearer_asset_write_is_recorded_as_api_source(session: Session) -> None:

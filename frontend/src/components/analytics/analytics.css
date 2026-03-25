@@ -98,6 +98,30 @@
 	color: var(--text-main);
 }
 
+.analytics-pill--positive {
+	background:
+		linear-gradient(135deg, rgba(0, 155, 193, 0.18), rgba(0, 155, 193, 0.06)),
+		rgba(4, 12, 24, 0.34);
+	border-color: rgba(0, 155, 193, 0.28);
+	color: rgba(181, 241, 255, 0.88);
+}
+
+.analytics-pill--positive strong {
+	color: rgba(181, 241, 255, 0.96);
+}
+
+.analytics-pill--negative {
+	background:
+		linear-gradient(135deg, rgba(215, 51, 108, 0.18), rgba(215, 51, 108, 0.06)),
+		rgba(4, 12, 24, 0.34);
+	border-color: rgba(215, 51, 108, 0.28);
+	color: rgba(255, 196, 216, 0.88);
+}
+
+.analytics-pill--negative strong {
+	color: rgba(255, 196, 216, 0.96);
+}
+
 .analytics-segmented {
 	display: inline-flex;
 	padding: 0.22rem;

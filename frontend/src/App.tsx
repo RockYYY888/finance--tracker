@@ -46,9 +46,9 @@ import type {
 	AgentApiKeyIssueRecord,
 	AgentApiKeyRecord,
 	AgentRegistrationRecord,
-	AgentTaskRecord,
 	AssetRecordRecord,
 	CashAccountRecord,
+	CreateAgentApiKeyInput,
 	FixedAssetRecord,
 	HoldingRecord,
 	OtherAssetRecord,
@@ -83,7 +83,6 @@ const AGENT_AUDIT_BACKGROUND_REFRESH_DELAY_MS = 1500;
 const DASHBOARD_CACHE_SCHEMA_VERSION = 1;
 const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
 const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
-const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
 const EMPTY_AGENT_REGISTRATIONS: AgentRegistrationRecord[] = [];
 const EMPTY_AGENT_API_KEYS: AgentApiKeyRecord[] = [];
 const EMPTY_AGENT_RECORDS: AssetRecordRecord[] = [];
@@ -517,7 +516,6 @@ function App() {
 	);
 	const [agentApiKeys, setAgentApiKeys] = useState<AgentApiKeyRecord[]>(EMPTY_AGENT_API_KEYS);
 	const [issuedAgentApiKey, setIssuedAgentApiKey] = useState<AgentApiKeyIssueRecord | null>(null);
-	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
 	const [agentRecords, setAgentRecords] = useState<AssetRecordRecord[]>(EMPTY_AGENT_RECORDS);
 	const [isLoadingAgentAudit, setIsLoadingAgentAudit] = useState(false);
 	const [agentAuditErrorMessage, setAgentAuditErrorMessage] = useState<string | null>(null);
@@ -607,7 +605,6 @@ function App() {
 		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
 		setAgentApiKeys(EMPTY_AGENT_API_KEYS);
 		setIssuedAgentApiKey(null);
-		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
@@ -670,7 +667,6 @@ function App() {
 		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
 		setAgentApiKeys(EMPTY_AGENT_API_KEYS);
 		setIssuedAgentApiKey(null);
-		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
@@ -1341,7 +1337,6 @@ function App() {
 				includeAllUsers: currentUserId === "admin",
 			}),
 			defaultAssetApiClient.listAgentApiKeys(),
-			defaultAssetApiClient.listAgentTasks(),
 			defaultAssetApiClient.listAssetRecords({
 				source: "AGENT",
 				limit: 200,
@@ -1351,13 +1346,12 @@ function App() {
 				limit: 200,
 			}),
 		])
-			.then(([registrations, apiKeys, tasks, agentRecords, directApiRecords]) => {
+			.then(([registrations, apiKeys, agentRecords, directApiRecords]) => {
 				if (latestAgentAuditRequestIdRef.current !== requestId) {
 					return;
 				}
 				setAgentRegistrations(registrations);
 				setAgentApiKeys(apiKeys);
-				setAgentTasks(tasks);
 				setAgentRecords(
 					[...agentRecords, ...directApiRecords].sort((left, right) => {
 						const leftTime = left.created_at ? Date.parse(left.created_at) : 0;
@@ -1391,8 +1385,8 @@ function App() {
 		await requestPromise;
 	}
 
-	async function handleCreateAgentApiKey(name: string): Promise<void> {
-		const normalizedName = name.trim();
+	async function handleCreateAgentApiKey(payload: CreateAgentApiKeyInput): Promise<void> {
+		const normalizedName = payload.name.trim();
 		if (normalizedName.length < 3) {
 			setAgentApiKeyErrorMessage("API Key 名称至少需要 3 个字符。");
 			setAgentApiKeyNoticeMessage(null);
@@ -1406,6 +1400,7 @@ function App() {
 		try {
 			const issuedKey = await defaultAssetApiClient.createAgentApiKey({
 				name: normalizedName,
+				expires_in_days: payload.expires_in_days ?? null,
 			});
 			setIssuedAgentApiKey(issuedKey);
 			setAgentApiKeyNoticeMessage("API Key 已生成。请立即复制并保存，这串密钥只会显示一次。");
@@ -1756,15 +1751,14 @@ function App() {
 					<div className="section-head">
 						<div>
 							<p className="eyebrow">AGENT</p>
-							<h2>任务与审计</h2>
-							<p className="section-copy">查看智能体执行结果与真实落库变更。</p>
+							<h2>Agent 与 API</h2>
+							<p className="section-copy">管理 Bearer API Key，查看活跃 Agent 与真实落库记录。</p>
 						</div>
 					</div>
 
 					<AgentExecutionAuditPanel
 						apiKeys={agentApiKeys}
 						registrations={agentRegistrations}
-						tasks={agentTasks}
 						records={agentRecords}
 						apiDocUrl="https://github.com/RockYYY888/opentrifi/blob/main/docs/agent-api.md"
 						loading={isLoadingAgentAudit}
@@ -1774,7 +1768,7 @@ function App() {
 						issuedApiKey={issuedAgentApiKey}
 						isCreatingApiKey={isCreatingAgentApiKey}
 						revokingApiKeyId={revokingAgentApiKeyId}
-						onCreateApiKey={(name) => void handleCreateAgentApiKey(name)}
+						onCreateApiKey={(payload) => void handleCreateAgentApiKey(payload)}
 						onRevokeApiKey={(tokenId) => void handleRevokeAgentApiKey(tokenId)}
 						onDismissIssuedApiKey={() => setIssuedAgentApiKey(null)}
 					/>

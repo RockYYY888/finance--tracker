@@ -131,6 +131,15 @@ function isInteractiveTrendPoint(
 	return !isThresholdSegmentedCrossingPoint(point);
 }
 
+function getAnalyticsPillToneClass(value: number | null | undefined): string {
+	if (value == null || !Number.isFinite(value) || value === 0) {
+		return "analytics-pill";
+	}
+	return value > 0
+		? "analytics-pill analytics-pill--positive"
+		: "analytics-pill analytics-pill--negative";
+}
+
 function formatHoldingSelectorLabel(item: HoldingReturnSeries): string {
 	const quantity = Number.isFinite(item.quantity) ? formatQuantity(item.quantity) : "0";
 	return `${item.name} (${item.symbol}) · ${quantity} 股/份`;
@@ -534,7 +543,7 @@ export function ReturnTrendChart({
 					embedded
 				/>
 				<div className="analytics-card__meta">
-					<div className="analytics-pill">
+					<div className={getAnalyticsPillToneClass(intervalLatestValue)}>
 						<span>终点收益率</span>
 						<strong>
 							{intervalSummary
@@ -542,7 +551,7 @@ export function ReturnTrendChart({
 								: "--"}
 						</strong>
 					</div>
-					<div className="analytics-pill">
+					<div className={getAnalyticsPillToneClass(intervalChangeValue)}>
 						<span>区间变化</span>
 						<strong>
 							{intervalSummary
@@ -551,7 +560,13 @@ export function ReturnTrendChart({
 						</strong>
 					</div>
 					{showCompoundedStepRate ? (
-						<div className="analytics-pill">
+						<div
+							className={getAnalyticsPillToneClass(
+								intervalSelection.intervalPoints.length >= 2
+									? visibleCompoundedStepRate
+									: null,
+							)}
+						>
 							<span>{`区间内${STEP_DELTA_LABELS[activeRange]}`}</span>
 							<strong>
 								{intervalSelection.intervalPoints.length >= 2

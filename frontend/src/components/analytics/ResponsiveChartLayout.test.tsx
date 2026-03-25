@@ -244,6 +244,12 @@ describe("analytics charts responsive layout", () => {
 				"增加¥4,000.00 / +3.70%",
 			);
 		});
+		expect(screen.getByText("区间变化").parentElement?.className).toContain(
+			"analytics-pill--positive",
+		);
+		expect(screen.getByText("终点净值").parentElement?.className).toContain(
+			"analytics-pill--positive",
+		);
 
 		const baselineAfter = (
 			getLastRecordedProps(rechartsState.referenceLines) as { y: number }
@@ -300,6 +306,12 @@ describe("analytics charts responsive layout", () => {
 				"+0.70%",
 			);
 		});
+		expect(screen.getByText("区间变化").parentElement?.className).toContain(
+			"analytics-pill--positive",
+		);
+		expect(screen.getByText("终点收益率").parentElement?.className).toContain(
+			"analytics-pill--positive",
+		);
 
 		const baselineAfter = (
 			getLastRecordedProps(rechartsState.referenceLines) as { y: number }
@@ -432,6 +444,7 @@ describe("analytics charts responsive layout", () => {
 		const summaryPill = screen.getByText("区间变化").parentElement;
 		expect(summaryPill?.textContent).toContain("-7.56%");
 		expect(summaryPill?.textContent).not.toContain("75600.00%");
+		expect(summaryPill?.className).toContain("analytics-pill--negative");
 	});
 
 	it("keeps headroom above the zero reference in aggregate and holding return charts", async () => {
