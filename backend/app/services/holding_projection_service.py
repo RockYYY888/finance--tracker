@@ -21,11 +21,10 @@ from app.services import service_context
 from app.services.common_service import (
 	_capture_model_state,
 	_coerce_utc_datetime,
-	_current_hour_bucket,
-    _date_start_utc,
-    _normalize_currency,
-    _normalize_optional_text,
-    _record_asset_mutation,
+	_date_start_utc,
+	_normalize_currency,
+	_normalize_optional_text,
+	_record_asset_mutation,
     _server_today_date,
     _touch_model,
 )
@@ -68,8 +67,6 @@ def _holding_transaction_side_priority(side: str) -> int:
 	return 2
 
 def _holding_transaction_event_at(transaction: SecurityHoldingTransaction) -> datetime:
-	if transaction.side == "ADJUST":
-		return _current_hour_bucket(_coerce_utc_datetime(transaction.created_at))
 	return _date_start_utc(transaction.traded_on)
 
 def _holding_transaction_sort_key(

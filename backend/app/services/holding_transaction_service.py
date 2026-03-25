@@ -172,31 +172,88 @@ def update_holding(
 	)
 	if payload.started_on is not None:
 		_ensure_date_not_future(payload.started_on, field_label="买入日期")
+	effective_started_on = payload.started_on if payload.started_on is not None else holding.started_on
+	if creates_adjustment and effective_started_on is None:
+		raise HTTPException(status_code=422, detail="买入日期为必填项。")
 	if payload.quantity is not None:
 		_validate_holding_quantity_for_market(payload.quantity, holding.market)
 
 	if creates_adjustment:
-		adjustment_transaction = SecurityHoldingTransaction(
-			user_id=current_user.username,
-			symbol=holding.symbol,
-			name=holding.name,
-			side="ADJUST",
-			quantity=payload.quantity if payload.quantity is not None else holding.quantity,
-			price=(
-				payload.cost_basis_price
-				if "cost_basis_price" in payload.model_fields_set
-				else holding.cost_basis_price
+		symbol_transactions = list(
+			session.exec(
+				select(SecurityHoldingTransaction)
+				.where(SecurityHoldingTransaction.user_id == current_user.username)
+				.where(SecurityHoldingTransaction.symbol == holding.symbol)
+				.where(SecurityHoldingTransaction.market == holding.market)
+				.order_by(
+					SecurityHoldingTransaction.traded_on.asc(),
+					SecurityHoldingTransaction.created_at.asc(),
+					SecurityHoldingTransaction.id.asc(),
+				),
 			),
-			fallback_currency=_normalize_currency(holding.fallback_currency),
-			market=holding.market,
-			broker=_normalize_optional_text(payload.broker)
-			if "broker" in payload.model_fields_set
-			else holding.broker,
-			traded_on=payload.started_on or holding.started_on,
-			note=_normalize_optional_text(payload.note)
-			if "note" in payload.model_fields_set
-			else holding.note,
 		)
+		earliest_transaction = symbol_transactions[0] if symbol_transactions else None
+		correction_before_state = None
+		correction_operation = "CREATE"
+
+		if (
+			earliest_transaction is not None
+			and effective_started_on is not None
+			and effective_started_on <= earliest_transaction.traded_on
+		):
+			adjustment_transaction = earliest_transaction
+			correction_before_state = _capture_model_state(adjustment_transaction)
+			correction_operation = "UPDATE"
+		else:
+			adjustment_transaction = SecurityHoldingTransaction(
+				user_id=current_user.username,
+				symbol=holding.symbol,
+				name=holding.name,
+				side="ADJUST",
+				quantity=payload.quantity if payload.quantity is not None else holding.quantity,
+				price=(
+					payload.cost_basis_price
+					if "cost_basis_price" in payload.model_fields_set
+					else holding.cost_basis_price
+				),
+				fallback_currency=_normalize_currency(holding.fallback_currency),
+				market=holding.market,
+				broker=_normalize_optional_text(payload.broker)
+				if "broker" in payload.model_fields_set
+				else holding.broker,
+				traded_on=effective_started_on,
+				note=_normalize_optional_text(payload.note)
+				if "note" in payload.model_fields_set
+				else holding.note,
+			)
+
+		adjustment_transaction.user_id = current_user.username
+		adjustment_transaction.symbol = holding.symbol
+		adjustment_transaction.name = holding.name
+		adjustment_transaction.side = "ADJUST"
+		adjustment_transaction.quantity = (
+			payload.quantity if payload.quantity is not None else holding.quantity
+		)
+		adjustment_transaction.price = (
+			payload.cost_basis_price
+			if "cost_basis_price" in payload.model_fields_set
+			else holding.cost_basis_price
+		)
+		adjustment_transaction.fallback_currency = _normalize_currency(holding.fallback_currency)
+		adjustment_transaction.market = holding.market
+		adjustment_transaction.broker = (
+			_normalize_optional_text(payload.broker)
+			if "broker" in payload.model_fields_set
+			else holding.broker
+		)
+		adjustment_transaction.traded_on = effective_started_on
+		adjustment_transaction.note = (
+			_normalize_optional_text(payload.note)
+			if "note" in payload.model_fields_set
+			else holding.note
+		)
+		if correction_operation == "UPDATE":
+			_touch_model(adjustment_transaction)
 		session.add(adjustment_transaction)
 		session.flush()
 		_record_asset_mutation(
@@ -204,8 +261,8 @@ def update_holding(
 			current_user,
 			entity_type="HOLDING_TRANSACTION",
 			entity_id=adjustment_transaction.id,
-			operation="CREATE",
-			before_state=None,
+			operation=correction_operation,
+			before_state=correction_before_state,
 			after_state=_capture_model_state(adjustment_transaction),
 			reason=f"HOLDING_EDIT#{holding.id}",
 		)

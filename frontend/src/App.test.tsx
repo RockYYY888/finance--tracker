@@ -485,6 +485,7 @@ describe("App session restore", () => {
 		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
 		dashboardApiMocks.getDashboard.mockResolvedValue({
 			...EMPTY_DASHBOARD,
+			server_today: "2026-03-10",
 			cash_accounts: [
 				{
 					id: 1,
@@ -531,6 +532,7 @@ describe("App session restore", () => {
 		});
 
 		expect(assetManagerMocks.lastProps).toMatchObject({
+			maxStartedOnDate: "2026-03-10",
 			initialCashAccounts: [
 				expect.objectContaining({ id: 1, name: "主账户" }),
 			],

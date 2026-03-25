@@ -76,7 +76,7 @@ from app.schemas import (
 )
 from app.security import verify_password
 from app.services.market_data import Quote
-from app.services import dashboard_service, history_service, service_context
+from app.services import common_service, dashboard_service, history_service, service_context
 import app.services.dashboard_query_service as dashboard_query_service
 
 
@@ -1894,7 +1894,33 @@ def test_create_holding_rejects_future_started_on_based_on_server_date(
 	assert "持仓日不能晚于今日" in error.value.detail
 
 
-def test_update_holding_creates_adjustment_transaction_for_holding_correction(
+def test_create_holding_transaction_rejects_future_traded_on_based_on_server_date(
+	session: Session,
+) -> None:
+	current_user = make_user(session)
+	future_traded_on = (datetime.now(timezone.utc) + timedelta(days=2)).date()
+
+	with pytest.raises(HTTPException) as error:
+		create_holding_transaction(
+			SecurityHoldingTransactionCreate(
+				side="BUY",
+				symbol="aapl",
+				name="Apple",
+				quantity=1,
+				price=100,
+				fallback_currency="usd",
+				market="us",
+				traded_on=future_traded_on,
+			),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 422
+	assert "交易日不能晚于今日" in error.value.detail
+
+
+def test_update_holding_rebases_earliest_transaction_for_backdated_holding_correction(
 	session: Session,
 ) -> None:
 	current_user = make_user(session)
@@ -1942,9 +1968,9 @@ def test_update_holding_creates_adjustment_transaction_for_holding_correction(
 
 	assert updated_holding.symbol == "AAPL"
 	assert updated_holding.name == "Apple"
-	assert updated_holding.quantity == 4
+	assert updated_holding.quantity == 5
 	assert updated_holding.fallback_currency == "USD"
-	assert updated_holding.cost_basis_price == 118
+	assert updated_holding.cost_basis_price == pytest.approx(114.4)
 	assert updated_holding.market == "US"
 	assert updated_holding.broker == "IBKR"
 	assert updated_holding.note == "legacy note"
@@ -1957,7 +1983,7 @@ def test_update_holding_creates_adjustment_transaction_for_holding_correction(
 		),
 	)
 	adjustments = [item for item in transactions if item.side == "ADJUST"]
-	assert len(transactions) == 3
+	assert len(transactions) == 2
 	assert len(adjustments) == 1
 	assert adjustments[0].symbol == "AAPL"
 	assert adjustments[0].market == "US"
@@ -2609,6 +2635,214 @@ def test_process_pending_holding_history_sync_uses_transaction_state_per_period(
 	}
 	assert row_by_hour[first_bucket] == 0.0
 	assert row_by_hour[second_trade_bucket] == 11.11
+
+
+def test_process_pending_holding_history_sync_preserves_prior_hours_for_backfilled_buy(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session, "backfilled_buy_user")
+	fixed_now = datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc)
+	before_second_buy_bucket = common_service._date_start_utc(date(2026, 3, 21))
+	second_buy_bucket = common_service._date_start_utc(date(2026, 3, 22))
+
+	class ConstantHoldingValueMarketDataClient(StaticMarketDataClient):
+		async def fetch_hourly_price_series(
+			self,
+			symbol: str,
+			*,
+			market: str | None = None,
+			start_at: datetime,
+			end_at: datetime,
+		) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+			hours: list[tuple[datetime, float]] = []
+			cursor = start_at.replace(minute=0, second=0, microsecond=0)
+			while cursor < end_at:
+				hours.append((cursor, 20.0))
+				cursor += timedelta(hours=1)
+			return hours, "USD", []
+
+		async def fetch_quote(
+			self,
+			symbol: str,
+			market: str | None = None,
+			*,
+			prefer_stale: bool = False,
+		) -> tuple[Quote, list[str]]:
+			return (
+				Quote(
+					symbol=symbol,
+					name="Alibaba",
+					price=20.0,
+					currency="USD",
+					market_time=fixed_now,
+				),
+				[],
+			)
+
+	monkeypatch.setattr(service_context, "market_data_client", ConstantHoldingValueMarketDataClient())
+	monkeypatch.setattr(history_service, "utc_now", lambda: fixed_now)
+
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=210_000,
+			account_type="BANK",
+			started_on=date(2026, 3, 1),
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="BABA",
+			name="Alibaba",
+			quantity=1000,
+			price=10,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 1),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="BABA",
+			name="Alibaba",
+			quantity=400,
+			price=10,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 22),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	asyncio.run(main._process_pending_holding_history_sync_requests(session, limit=1))
+
+	portfolio_rows = list(
+		session.exec(
+			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == current_user.username)
+			.order_by(PortfolioSnapshot.created_at.asc()),
+		),
+	)
+	assert portfolio_rows
+
+	row_by_hour = {
+		main._coerce_utc_datetime(row.created_at): row.total_value_cny for row in portfolio_rows
+	}
+	assert row_by_hour[before_second_buy_bucket] == 280_000.0
+	assert row_by_hour[second_buy_bucket] == 308_000.0
+
+
+def test_process_pending_holding_history_sync_applies_holding_adjustment_on_effective_date(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session, "backdated_adjust_user")
+	fixed_now = datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc)
+	before_adjust_bucket = common_service._date_start_utc(date(2026, 3, 21))
+	adjust_bucket = common_service._date_start_utc(date(2026, 3, 22))
+
+	class ConstantHoldingValueMarketDataClient(StaticMarketDataClient):
+		async def fetch_hourly_price_series(
+			self,
+			symbol: str,
+			*,
+			market: str | None = None,
+			start_at: datetime,
+			end_at: datetime,
+		) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+			hours: list[tuple[datetime, float]] = []
+			cursor = start_at.replace(minute=0, second=0, microsecond=0)
+			while cursor < end_at:
+				hours.append((cursor, 20.0))
+				cursor += timedelta(hours=1)
+			return hours, "USD", []
+
+		async def fetch_quote(
+			self,
+			symbol: str,
+			market: str | None = None,
+			*,
+			prefer_stale: bool = False,
+		) -> tuple[Quote, list[str]]:
+			return (
+				Quote(
+					symbol=symbol,
+					name="Alibaba",
+					price=20.0,
+					currency="USD",
+					market_time=fixed_now,
+				),
+				[],
+			)
+
+	monkeypatch.setattr(service_context, "market_data_client", ConstantHoldingValueMarketDataClient())
+	monkeypatch.setattr(history_service, "utc_now", lambda: fixed_now)
+
+	holding = create_holding(
+		SecurityHoldingCreate(
+			symbol="BABA",
+			name="Alibaba",
+			quantity=1000,
+			fallback_currency="USD",
+			cost_basis_price=10,
+			market="US",
+			started_on=date(2026, 3, 1),
+		),
+		current_user,
+		session,
+	)
+
+	update_holding(
+		holding.id or 0,
+		SecurityHoldingUpdate(
+			quantity=1400,
+			cost_basis_price=10,
+			started_on=date(2026, 3, 22),
+		),
+		current_user,
+		session,
+	)
+
+	asyncio.run(main._process_pending_holding_history_sync_requests(session, limit=1))
+
+	portfolio_rows = list(
+		session.exec(
+			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == current_user.username)
+			.order_by(PortfolioSnapshot.created_at.asc()),
+		),
+	)
+	assert portfolio_rows
+
+	row_by_hour = {
+		main._coerce_utc_datetime(row.created_at): row.total_value_cny for row in portfolio_rows
+	}
+	assert row_by_hour[before_adjust_bucket] == 140_000.0
+	assert row_by_hour[adjust_bucket] == 196_000.0
+
+	adjustment_transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == current_user.username)
+			.where(SecurityHoldingTransaction.side == "ADJUST"),
+		),
+	)
+	assert len(adjustment_transactions) == 1
+	assert adjustment_transactions[0].traded_on == date(2026, 3, 22)
 
 
 def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(

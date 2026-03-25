@@ -1805,6 +1805,7 @@ function App() {
 					title="资产管理"
 					description="自动同步。"
 					loadOnMount
+					maxStartedOnDate={dashboard.server_today || undefined}
 					displayFxRates={{
 						CNY: 1,
 						USD: dashboard.usd_cny_rate,
