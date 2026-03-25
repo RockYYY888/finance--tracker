@@ -2845,6 +2845,98 @@ def test_process_pending_holding_history_sync_applies_holding_adjustment_on_effe
 	assert adjustment_transactions[0].traded_on == date(2026, 3, 22)
 
 
+def test_rebuild_user_holding_history_snapshots_backfills_legacy_holdings_without_transactions(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session, "legacy_holding_backfill_user")
+	fixed_now = datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc)
+
+	class ConstantHoldingValueMarketDataClient(StaticMarketDataClient):
+		async def fetch_hourly_price_series(
+			self,
+			symbol: str,
+			*,
+			market: str | None = None,
+			start_at: datetime,
+			end_at: datetime,
+		) -> tuple[list[tuple[datetime, float]], str | None, list[str]]:
+			hours: list[tuple[datetime, float]] = []
+			cursor = start_at.replace(minute=0, second=0, microsecond=0)
+			while cursor < end_at:
+				hours.append((cursor, 20.0))
+				cursor += timedelta(hours=1)
+			return hours, "USD", []
+
+		async def fetch_quote(
+			self,
+			symbol: str,
+			market: str | None = None,
+			*,
+			prefer_stale: bool = False,
+		) -> tuple[Quote, list[str]]:
+			return (
+				Quote(
+					symbol=symbol,
+					name="Legacy Holding",
+					price=20.0,
+					currency="USD",
+					market_time=fixed_now,
+				),
+				[],
+			)
+
+	monkeypatch.setattr(service_context, "market_data_client", ConstantHoldingValueMarketDataClient())
+	monkeypatch.setattr(history_service, "utc_now", lambda: fixed_now)
+
+	session.add(
+		SecurityHolding(
+			user_id=current_user.username,
+			symbol="AAPL",
+			name="Apple",
+			quantity=2,
+			fallback_currency="USD",
+			cost_basis_price=10,
+			market="US",
+			started_on=None,
+			created_at=datetime(2026, 3, 1, 2, 0, tzinfo=timezone.utc),
+		),
+	)
+	session.commit()
+
+	asyncio.run(history_service._rebuild_user_holding_history_snapshots(session, current_user.username))
+
+	backfilled_transactions = list(
+		session.exec(
+			select(SecurityHoldingTransaction)
+			.where(SecurityHoldingTransaction.user_id == current_user.username)
+			.order_by(SecurityHoldingTransaction.id.asc()),
+		),
+	)
+	assert len(backfilled_transactions) == 1
+	assert backfilled_transactions[0].symbol == "AAPL"
+	assert backfilled_transactions[0].side == "BUY"
+	assert backfilled_transactions[0].quantity == 2
+	assert backfilled_transactions[0].traded_on == date(2026, 3, 1)
+
+	holding_rows = list(
+		session.exec(
+			select(HoldingPerformanceSnapshot)
+			.where(HoldingPerformanceSnapshot.user_id == current_user.username)
+			.where(HoldingPerformanceSnapshot.scope == "HOLDING")
+			.where(HoldingPerformanceSnapshot.symbol == "AAPL"),
+		),
+	)
+	portfolio_rows = list(
+		session.exec(
+			select(PortfolioSnapshot)
+			.where(PortfolioSnapshot.user_id == current_user.username),
+		),
+	)
+	assert holding_rows
+	assert portfolio_rows
+
+
 def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
 	session: Session,
 	monkeypatch: pytest.MonkeyPatch,

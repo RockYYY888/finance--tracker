@@ -16,6 +16,7 @@ from app.models import (
 	LiabilityEntry,
 	OtherAsset,
 	PortfolioSnapshot,
+	SecurityHolding,
 	SecurityHoldingTransaction,
 	UserAccount,
 	utc_now,
@@ -37,6 +38,7 @@ from app.services.history_sync_service import (
 from app.services.market_data import QuoteLookupError
 from app.services.portfolio_service import (
 	HOLDING_QUANTITY_EPSILON,
+	_ensure_transaction_baseline_from_holding_snapshot,
 	ProjectedHoldingState,
 	_apply_holding_transaction_to_state,
 	_holding_transaction_event_at,
@@ -45,9 +47,47 @@ from app.services.portfolio_service import (
 	_projected_holding_quantity,
 )
 
+
+def _backfill_missing_holding_transactions(session: Session, user_id: str) -> None:
+	holdings = list(
+		session.exec(
+			select(SecurityHolding)
+			.where(SecurityHolding.user_id == user_id)
+			.order_by(SecurityHolding.symbol.asc(), SecurityHolding.market.asc(), SecurityHolding.id.asc()),
+		),
+	)
+	if not holdings:
+		return
+
+	existing_pairs = set(
+		session.exec(
+			select(
+				SecurityHoldingTransaction.symbol,
+				SecurityHoldingTransaction.market,
+			)
+			.where(SecurityHoldingTransaction.user_id == user_id)
+			.distinct(),
+		).all(),
+	)
+	has_changes = False
+	for holding in holdings:
+		pair = (holding.symbol, holding.market)
+		if pair in existing_pairs:
+			continue
+		_ensure_transaction_baseline_from_holding_snapshot(
+			session,
+			holding=holding,
+		)
+		existing_pairs.add(pair)
+		has_changes = True
+
+	if has_changes:
+		session.flush()
+
 async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str) -> None:
 	now = utc_now()
 	end_hour = _current_hour_bucket(now)
+	_backfill_missing_holding_transactions(session, user_id)
 	transactions = list(
 		session.exec(
 			select(SecurityHoldingTransaction)
@@ -230,6 +270,7 @@ def _resolve_asset_start_date(
 async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> None:
 	now = utc_now()
 	end_hour = _current_hour_bucket(now)
+	_backfill_missing_holding_transactions(session, user_id)
 	cash_accounts = list(
 		session.exec(
 			select(CashAccount)
