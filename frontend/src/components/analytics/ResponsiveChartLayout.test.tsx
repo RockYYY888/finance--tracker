@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,7 @@ const rechartsState = vi.hoisted(() => ({
 	pies: [] as Array<Record<string, unknown>>,
 	cartesianGrids: [] as Array<Record<string, unknown>>,
 	referenceLines: [] as Array<Record<string, unknown>>,
+	composedCharts: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("recharts", () => ({
@@ -39,7 +40,10 @@ vi.mock("recharts", () => ({
 		rechartsState.responsiveContainers.push(props);
 		return <>{children}</>;
 	},
-	ComposedChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
+	ComposedChart: ({ children, ...props }: { children?: ReactNode }) => {
+		rechartsState.composedCharts.push(props);
+		return <>{children}</>;
+	},
 	BarChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	PieChart: ({ children }: { children?: ReactNode }) => <>{children}</>,
 	CartesianGrid: (props: Record<string, unknown>) => {
@@ -139,6 +143,7 @@ describe("analytics charts responsive layout", () => {
 		rechartsState.pies.length = 0;
 		rechartsState.cartesianGrids.length = 0;
 		rechartsState.referenceLines.length = 0;
+		rechartsState.composedCharts.length = 0;
 		currentChartWidth = 220;
 
 		vi.stubGlobal("ResizeObserver", MockResizeObserver);
@@ -201,6 +206,111 @@ describe("analytics charts responsive layout", () => {
 		expect(
 			getLastRecordedProps(rechartsState.responsiveContainers).height,
 		).toBe(280);
+	});
+
+	it("keeps chart rendering stable when portfolio comparison endpoints change", async () => {
+		render(
+			<PortfolioTrendChart
+				defaultRange="day"
+				hour_series={[]}
+				day_series={[
+					{ label: "03-01", value: 100_000 },
+					{ label: "03-02", value: 108_000 },
+					{ label: "03-03", value: 112_000 },
+				]}
+				month_series={[]}
+				year_series={[]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.referenceLines.length).toBeGreaterThan(0);
+		});
+
+		const baselineBefore = (
+			getLastRecordedProps(rechartsState.referenceLines) as { y: number }
+		).y;
+		const chartDataBefore = (
+			getLastRecordedProps(rechartsState.composedCharts) as { data: unknown[] }
+		).data;
+
+		fireEvent.click(screen.getByRole("button", { name: "选择起点时间点" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "03-02" }),
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("区间变化").parentElement?.textContent).toContain(
+				"增加¥4,000.00 / +3.70%",
+			);
+		});
+
+		const baselineAfter = (
+			getLastRecordedProps(rechartsState.referenceLines) as { y: number }
+		).y;
+		const chartDataAfter = (
+			getLastRecordedProps(rechartsState.composedCharts) as { data: unknown[] }
+		).data;
+
+		expect(baselineAfter).toBe(baselineBefore);
+		expect(chartDataAfter).toEqual(chartDataBefore);
+		expect(screen.queryByText("当前区间")).toBeNull();
+	});
+
+	it("keeps chart rendering stable when holding return comparison endpoints change", async () => {
+		render(
+			<ReturnTrendChart
+				defaultRange="day"
+				title="单只持仓收益率"
+				description="测试"
+				seriesOptions={[
+					createAggregateReturnOption(
+						"腾讯控股",
+						[],
+						[
+							{ label: "03-01", value: 2.5 },
+							{ label: "03-02", value: 3.2 },
+							{ label: "03-03", value: 4.1 },
+						],
+						[],
+						[],
+					),
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(rechartsState.referenceLines.length).toBeGreaterThan(0);
+		});
+
+		const baselineBefore = (
+			getLastRecordedProps(rechartsState.referenceLines) as { y: number }
+		).y;
+		const chartDataBefore = (
+			getLastRecordedProps(rechartsState.composedCharts) as { data: unknown[] }
+		).data;
+
+		fireEvent.click(screen.getByRole("button", { name: "选择终点时间点" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "03-02" }),
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("区间变化").parentElement?.textContent).toContain(
+				"+0.70%",
+			);
+		});
+
+		const baselineAfter = (
+			getLastRecordedProps(rechartsState.referenceLines) as { y: number }
+		).y;
+		const chartDataAfter = (
+			getLastRecordedProps(rechartsState.composedCharts) as { data: unknown[] }
+		).data;
+
+		expect(baselineAfter).toBe(baselineBefore);
+		expect(chartDataAfter).toEqual(chartDataBefore);
+		expect(screen.queryByText("当前区间")).toBeNull();
 	});
 
 	it("keeps all portfolio trend ranges visible and derives 24H from sparse history", async () => {
@@ -280,9 +390,13 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.getByText("基准线上方区域")).toBeTruthy();
 		expect(screen.queryByText("最新净值")).toBeNull();
 		expect(screen.getByText("终点投资类收益率")).toBeTruthy();
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"03-01→03-03",
-		);
+		expect(screen.queryByText("当前区间")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "选择起点时间点" }).textContent,
+		).toContain("03-01");
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("03-03");
 		expect(screen.getByText("+2.00%")).toBeTruthy();
 	});
 

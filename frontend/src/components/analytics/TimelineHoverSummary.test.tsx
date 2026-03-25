@@ -147,9 +147,7 @@ describe("timeline range summaries", () => {
 		expect(
 			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
 		).toContain("03-03");
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"03-01→03-03",
-		);
+		expect(screen.queryByText("当前区间")).toBeNull();
 		expectPillToContain("终点净值", "¥150.00");
 		expectPillToContain("区间变化", "增加¥50.00 / +50.00%", 0);
 		expectPillToContain("区间内日均环比", "+22.47%");
@@ -162,9 +160,9 @@ describe("timeline range summaries", () => {
 		await waitFor(() => {
 			expectPillToContain("区间变化", "增加¥30.00 / +25.00%", 0);
 		});
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"03-02→03-03",
-		);
+		expect(
+			screen.getByRole("button", { name: "选择起点时间点" }).textContent,
+		).toContain("03-02");
 		expectPillToContain("终点净值", "¥150.00");
 		expectPillToContain("区间内日均环比", "+25.00%");
 
@@ -233,9 +231,7 @@ describe("timeline range summaries", () => {
 		expect(
 			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
 		).toContain("03-03");
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"03-01→03-03",
-		);
+		expect(screen.queryByText("当前区间")).toBeNull();
 		expectPillToContain("终点收益率", "15.00%");
 		expectPillToContain("区间变化", "+5.00%");
 		expectPillToContain("区间内日均变动", "+2.50%");
@@ -248,9 +244,9 @@ describe("timeline range summaries", () => {
 		await waitFor(() => {
 			expectPillToContain("终点收益率", "12.00%");
 		});
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"03-01→03-02",
-		);
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("03-02");
 		expectPillToContain("区间变化", "+2.00%");
 		expectPillToContain("区间内日均变动", "+2.00%");
 
@@ -265,9 +261,9 @@ describe("timeline range summaries", () => {
 		await waitFor(() => {
 			expectPillToContain("终点收益率", "15.00%");
 		});
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"03-01→03-03",
-		);
+		expect(
+			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
+		).toContain("03-03");
 		expectPillToContain("区间变化", "+5.00%");
 		expectPillToContain("区间内日均变动", "+2.50%");
 
@@ -279,9 +275,7 @@ describe("timeline range summaries", () => {
 		expect(
 			screen.getByRole("button", { name: "选择终点时间点" }).textContent,
 		).toContain("2026-03");
-		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
-			"2026-01→2026-03",
-		);
+		expect(screen.queryByText("当前区间")).toBeNull();
 		expectPillToContain("终点收益率", "11.00%");
 		expectPillToContain("区间变化", "+3.00%");
 		expectPillToContain("区间内月均变动", "+1.50%");

@@ -27,7 +27,6 @@ import {
 	formatPercentMetric,
 	formatPercentage,
 	formatTimelineAxisLabel,
-	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
 	getFirstSelectableTimelineRange,
 	getTimelineChartTickIndices,
@@ -234,10 +233,7 @@ export function PortfolioTrendChart({
 	const intervalSelection = useTimelineRangeSelection(activeSeries);
 	const valueRangeSeries = valueSeriesByRange[activeRange];
 	const valueRangeSummary = summarizeTimeline(valueRangeSeries);
-	const valueBaseline =
-		displayMode === "value"
-			? (intervalSelection.startPoint?.point.value ?? valueRangeSummary.startValue)
-			: valueRangeSummary.startValue;
+	const valueBaseline = valueRangeSummary.startValue;
 	const valueSegmentedData = useMemo(
 		() => buildThresholdSegmentedCoordinateData(valueRangeSeries, valueBaseline),
 		[valueBaseline, valueRangeSeries],
@@ -259,16 +255,6 @@ export function PortfolioTrendChart({
 		intervalSelection.intervalPoints.length > 0
 			? summarizeTimeline(intervalSelection.intervalPoints)
 			: null;
-	const comparisonRangeLabel =
-		intervalSelection.startPoint && intervalSelection.endPoint
-			? formatTimelineRangeLabel(
-					intervalSelection.startPoint.point,
-					intervalSelection.endPoint.point,
-					"终点",
-				)
-			: displayMode === "value"
-				? "暂无净值数据"
-				: "暂无投资类收益率数据";
 	const hasActiveSummaryData = intervalSummary !== null;
 	const hasActiveStepMetric = intervalSelection.intervalPoints.length >= 2;
 	const intervalLatestValue = intervalSummary?.latestValue ?? 0;
@@ -417,7 +403,7 @@ export function PortfolioTrendChart({
 						true,
 					);
 	const comparisonCardDescription = hasData
-		? "选择任意两个时间点，仅更新下方指标，不改变上方图像。"
+		? "以下选择器只用于下方指标比较，不改变上方图像。"
 		: "当前区间数据不足时，下方指标会在累计后自动补齐。";
 
 	return (
@@ -643,10 +629,6 @@ export function PortfolioTrendChart({
 							恢复全区间
 						</button>
 					) : null}
-				</div>
-				<div className="analytics-comparison-card__current">
-					<span>当前区间</span>
-					<strong>{comparisonRangeLabel}</strong>
 				</div>
 				<TimelineRangeSelector
 					selectablePoints={intervalSelection.selectablePoints}

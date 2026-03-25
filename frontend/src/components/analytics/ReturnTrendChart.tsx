@@ -24,7 +24,6 @@ import {
 	buildDisplayTimelineSeriesByRange,
 	calculateTimelineReferenceAxisLayout,
 	formatTimelineAxisLabel,
-	formatTimelineRangeLabel,
 	getAdaptiveYAxisWidth,
 	getFirstSelectableTimelineRange,
 	getTimelineChartTickIndices,
@@ -247,21 +246,13 @@ export function ReturnTrendChart({
 		intervalSelection.intervalPoints.length > 0
 			? summarizeTimeline(intervalSelection.intervalPoints)
 			: null;
-	const comparisonRangeLabel =
-		intervalSelection.startPoint && intervalSelection.endPoint
-			? formatTimelineRangeLabel(
-					intervalSelection.startPoint.point,
-					intervalSelection.endPoint.point,
-					"终点",
-				)
-			: "暂无收益率数据";
 	const intervalLatestValue = intervalSummary?.latestValue ?? 0;
 	const intervalChangeValue = intervalSummary?.changeValue ?? 0;
 	const visibleCompoundedStepRate = hasData
 		? summarizeAverageStepDelta(intervalSelection.intervalPoints)
 		: 0;
 	const comparisonCardDescription = hasData
-		? "选择任意两个时间点，仅更新下方指标，不改变上方图像。"
+		? "以下选择器只用于下方指标比较，不改变上方图像。"
 		: "当前区间数据不足时，下方指标会在累计后自动补齐。";
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
@@ -530,10 +521,6 @@ export function ReturnTrendChart({
 							恢复全区间
 						</button>
 					) : null}
-				</div>
-				<div className="analytics-comparison-card__current">
-					<span>当前区间</span>
-					<strong>{comparisonRangeLabel}</strong>
 				</div>
 				<TimelineRangeSelector
 					selectablePoints={intervalSelection.selectablePoints}
