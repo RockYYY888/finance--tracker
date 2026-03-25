@@ -11,11 +11,10 @@ const STORAGE_KEY = "asset-tracker-last-session-user";
 const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 
 const authApiMocks = vi.hoisted(() => ({
+	authenticateWithApiKey: vi.fn(),
 	getAuthSession: vi.fn(),
-	loginWithPassword: vi.fn(),
+	hasStoredApiKey: vi.fn(),
 	logoutCurrentUser: vi.fn(),
-	registerWithPassword: vi.fn(),
-	resetPasswordWithEmail: vi.fn(),
 	updateCurrentUserEmail: vi.fn(),
 }));
 
@@ -25,9 +24,12 @@ const dashboardApiMocks = vi.hoisted(() => ({
 
 const assetApiMocks = vi.hoisted(() => ({
 	createAssetManagerController: vi.fn(() => ({})),
+	createAgentApiKey: vi.fn(),
+	listAgentApiKeys: vi.fn(),
 	listAgentRegistrations: vi.fn(),
 	listAgentTasks: vi.fn(),
 	listAssetRecords: vi.fn(),
+	revokeAgentApiKey: vi.fn(),
 }));
 
 const feedbackApiMocks = vi.hoisted(() => ({
@@ -56,11 +58,10 @@ const assetManagerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./lib/authApi", () => ({
+	authenticateWithApiKey: authApiMocks.authenticateWithApiKey,
 	getAuthSession: authApiMocks.getAuthSession,
-	loginWithPassword: authApiMocks.loginWithPassword,
+	hasStoredApiKey: authApiMocks.hasStoredApiKey,
 	logoutCurrentUser: authApiMocks.logoutCurrentUser,
-	registerWithPassword: authApiMocks.registerWithPassword,
-	resetPasswordWithEmail: authApiMocks.resetPasswordWithEmail,
 	updateCurrentUserEmail: authApiMocks.updateCurrentUserEmail,
 }));
 
@@ -71,19 +72,22 @@ vi.mock("./lib/dashboardApi", () => ({
 vi.mock("./lib/assetApi", () => ({
 	createAssetManagerController: assetApiMocks.createAssetManagerController,
 	defaultAssetApiClient: {
+		createAgentApiKey: assetApiMocks.createAgentApiKey,
+		listAgentApiKeys: assetApiMocks.listAgentApiKeys,
 		listAgentRegistrations: assetApiMocks.listAgentRegistrations,
 		listAgentTasks: assetApiMocks.listAgentTasks,
 		listAssetRecords: assetApiMocks.listAssetRecords,
+		revokeAgentApiKey: assetApiMocks.revokeAgentApiKey,
 	},
 }));
 
 vi.mock("./components/auth/LoginScreen", () => ({
 	LoginScreen: ({
-		onLogin,
+		onAuthenticate,
 		errorMessage,
 		checkingSession,
 	}: {
-		onLogin: (payload: { user_id: string; password: string }) => Promise<void>;
+		onAuthenticate: (payload: { api_key: string }) => Promise<void>;
 		errorMessage?: string | null;
 		checkingSession?: boolean;
 	}) => (
@@ -93,9 +97,9 @@ vi.mock("./components/auth/LoginScreen", () => ({
 			{errorMessage ? <p>{errorMessage}</p> : null}
 			<button
 				type="button"
-				onClick={() => void onLogin({ user_id: "bob", password: "secret-password" })}
+				onClick={() => void onAuthenticate({ api_key: "atrk_demo_key" })}
 			>
-				模拟登录
+				模拟验证 API Key
 			</button>
 		</div>
 	),
@@ -191,7 +195,22 @@ describe("App session restore", () => {
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		window.localStorage.clear();
+		authApiMocks.hasStoredApiKey.mockReturnValue(true);
+		authApiMocks.authenticateWithApiKey.mockResolvedValue({ user_id: "bob", email: null });
+		authApiMocks.logoutCurrentUser.mockResolvedValue({ message: "已清除本地 API Key。" });
 		authApiMocks.updateCurrentUserEmail.mockResolvedValue({ user_id: "alice", email: null });
+		assetApiMocks.createAgentApiKey.mockResolvedValue({
+			id: 1,
+			name: "local-cli",
+			token_hint: "...abc123",
+			access_token: "atrk_demo_key",
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			last_used_at: null,
+			expires_at: null,
+			revoked_at: null,
+		});
+		assetApiMocks.listAgentApiKeys.mockResolvedValue([]);
 		feedbackApiMocks.getFeedbackSummary.mockResolvedValue({
 			inbox_count: 0,
 			mode: "user-pending",
@@ -286,7 +305,7 @@ describe("App session restore", () => {
 		render(<App />);
 
 		expect(screen.queryByTestId("login-screen")).toBeNull();
-		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
+		expect(screen.getByText("正在验证 API Key")).not.toBeNull();
 		expect(screen.queryByText("你好，alice")).toBeNull();
 		expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(6);
 
@@ -317,7 +336,7 @@ describe("App session restore", () => {
 
 		render(<App />);
 
-		expect(screen.getByText("正在恢复登录状态")).not.toBeNull();
+		expect(screen.getByText("正在验证 API Key")).not.toBeNull();
 		expect(screen.queryByText("¥25.08万")).toBeNull();
 		expect(screen.queryByText("¥1.43万")).toBeNull();
 		expect(screen.queryByText("¥23.65万")).toBeNull();
@@ -517,7 +536,7 @@ describe("App session restore", () => {
 	});
 
 	it("falls back to the login screen when session restore fails", async () => {
-		authApiMocks.getAuthSession.mockRejectedValue(new Error("请先登录。"));
+		authApiMocks.getAuthSession.mockRejectedValue(new Error("API Key 无效。"));
 		window.sessionStorage.setItem(STORAGE_KEY, "alice");
 
 		render(<App />);
@@ -556,8 +575,7 @@ describe("App session restore", () => {
 		const aliceDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
 		const bobDashboard = createDeferredPromise<typeof EMPTY_DASHBOARD>();
 		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
-		authApiMocks.logoutCurrentUser.mockResolvedValue(undefined);
-		authApiMocks.loginWithPassword.mockResolvedValue({ user_id: "bob", email: null });
+		authApiMocks.authenticateWithApiKey.mockResolvedValue({ user_id: "bob", email: null });
 		dashboardApiMocks.getDashboard
 			.mockReturnValueOnce(aliceDashboard.promise)
 			.mockReturnValueOnce(bobDashboard.promise);
@@ -569,7 +587,7 @@ describe("App session restore", () => {
 		});
 
 		await act(async () => {
-			screen.getByRole("button", { name: "退出登录" }).click();
+			screen.getByRole("button", { name: "退出" }).click();
 			await flushMicrotasks();
 		});
 
@@ -578,7 +596,7 @@ describe("App session restore", () => {
 		});
 
 		await act(async () => {
-			screen.getByRole("button", { name: "模拟登录" }).click();
+			screen.getByRole("button", { name: "模拟验证 API Key" }).click();
 			await flushMicrotasks();
 		});
 
@@ -732,6 +750,7 @@ describe("App session restore", () => {
 			await flushMicrotasks();
 		});
 		expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		expect(assetApiMocks.listAgentApiKeys).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
@@ -739,6 +758,7 @@ describe("App session restore", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1499);
 		});
+		expect(assetApiMocks.listAgentApiKeys).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentRegistrations).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAgentTasks).not.toHaveBeenCalled();
 		expect(assetApiMocks.listAssetRecords).not.toHaveBeenCalled();
@@ -750,6 +770,7 @@ describe("App session restore", () => {
 			await flushMicrotasks();
 		});
 
+		expect(assetApiMocks.listAgentApiKeys).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledWith({
 			includeAllUsers: false,
 		});
@@ -775,6 +796,7 @@ describe("App session restore", () => {
 			screen.getByRole("tab", { name: "智能体" }).click();
 		});
 
+		expect(assetApiMocks.listAgentApiKeys).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentTasks).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledTimes(1);

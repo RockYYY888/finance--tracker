@@ -1,5 +1,6 @@
 const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-const DEFAULT_API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
+const RUNTIME_API_KEY_STORAGE_KEY = "asset-tracker-runtime-api-key";
+let inMemoryRuntimeApiKey: string | null = null;
 
 export interface ApiClient {
 	request: <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -7,8 +8,69 @@ export interface ApiClient {
 
 export interface ApiClientOptions {
 	baseUrl?: string;
-	apiToken?: string;
 	fetcher?: typeof fetch;
+}
+
+function normalizeApiKeyValue(value: string | null | undefined): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const normalizedValue = value.trim();
+	return normalizedValue || null;
+}
+
+export function getStoredRuntimeApiKey(): string | null {
+	if (inMemoryRuntimeApiKey) {
+		return inMemoryRuntimeApiKey;
+	}
+
+	if (typeof window === "undefined") {
+		return null;
+	}
+
+	try {
+		const storedApiKey =
+			window.sessionStorage.getItem(RUNTIME_API_KEY_STORAGE_KEY)
+			?? window.localStorage.getItem(RUNTIME_API_KEY_STORAGE_KEY);
+		inMemoryRuntimeApiKey = normalizeApiKeyValue(storedApiKey);
+		return inMemoryRuntimeApiKey;
+	} catch {
+		return inMemoryRuntimeApiKey;
+	}
+}
+
+export function setStoredRuntimeApiKey(value: string): void {
+	const normalizedValue = normalizeApiKeyValue(value);
+	inMemoryRuntimeApiKey = normalizedValue;
+	if (typeof window === "undefined") {
+		return;
+	}
+
+	try {
+		if (normalizedValue) {
+			window.sessionStorage.setItem(RUNTIME_API_KEY_STORAGE_KEY, normalizedValue);
+			window.localStorage.setItem(RUNTIME_API_KEY_STORAGE_KEY, normalizedValue);
+		} else {
+			window.sessionStorage.removeItem(RUNTIME_API_KEY_STORAGE_KEY);
+			window.localStorage.removeItem(RUNTIME_API_KEY_STORAGE_KEY);
+		}
+	} catch {
+		// Ignore storage failures and fall back to in-memory auth state.
+	}
+}
+
+export function clearStoredRuntimeApiKey(): void {
+	inMemoryRuntimeApiKey = null;
+	if (typeof window === "undefined") {
+		return;
+	}
+
+	try {
+		window.sessionStorage.removeItem(RUNTIME_API_KEY_STORAGE_KEY);
+		window.localStorage.removeItem(RUNTIME_API_KEY_STORAGE_KEY);
+	} catch {
+		// Ignore storage failures and fall back to in-memory auth state.
+	}
 }
 
 function parsePayload<T>(responseText: string): T {
@@ -98,7 +160,7 @@ function getStatusFallbackMessage(statusCode: number): string {
 		case 400:
 			return "请求内容不正确，请检查后重试。";
 		case 401:
-			return "登录状态无效或已过期，请重新登录。";
+			return "API Key 无效或已过期，请重新输入。";
 		case 403:
 			return "当前请求被服务器拒绝。";
 		case 404:
@@ -192,7 +254,6 @@ function toNetworkErrorMessage(error: unknown): string {
  */
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 	const baseUrl = options.baseUrl ?? DEFAULT_API_BASE_URL;
-	const apiToken = options.apiToken ?? DEFAULT_API_TOKEN;
 	const fetcher = options.fetcher ?? fetch;
 
 	return {
@@ -201,8 +262,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 			if (!requestHeaders.has("Content-Type") && init?.body) {
 				requestHeaders.set("Content-Type", "application/json");
 			}
-			if (apiToken) {
-				requestHeaders.set("X-API-Key", apiToken);
+			const runtimeApiKey = getStoredRuntimeApiKey();
+			if (runtimeApiKey && !requestHeaders.has("Authorization")) {
+				requestHeaders.set("Authorization", `Bearer ${runtimeApiKey}`);
 			}
 
 			let response: Response;

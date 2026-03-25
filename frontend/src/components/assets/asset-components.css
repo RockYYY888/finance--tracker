@@ -956,6 +956,19 @@
 	font-size: 0.95rem;
 }
 
+.agent-api-keys__layout {
+	display: grid;
+	gap: 1rem;
+}
+
+.agent-api-keys__create {
+	align-content: start;
+}
+
+.agent-api-keys__issued-actions {
+	flex-wrap: wrap;
+}
+
 .feedback-modal__panel.asset-records__modal-panel {
 	display: grid;
 	grid-template-rows: auto auto minmax(0, 1fr);
@@ -1083,6 +1096,11 @@
 	.agent-workspace__summary {
 		grid-template-columns: repeat(4, minmax(0, 1fr));
 	}
+
+	.agent-api-keys__layout {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		align-items: start;
+	}
 }
 
 @media (max-width: 900px) {
@@ -1102,6 +1120,10 @@
 	.asset-records__scroll-region {
 		min-height: 18rem;
 		max-height: 18rem;
+	}
+
+	.agent-api-keys__layout {
+		grid-template-columns: 1fr;
 	}
 }
 

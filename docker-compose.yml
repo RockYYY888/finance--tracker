@@ -53,7 +53,6 @@ services:
       retries: 12
       start_period: 10s
     environment:
-      ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
       ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-postgresql+psycopg://${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}:${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}@postgres:5432/${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}}
       ASSET_TRACKER_PUBLIC_ORIGIN: ${ASSET_TRACKER_PUBLIC_ORIGIN}
@@ -75,7 +74,6 @@ services:
       redis:
         condition: service_healthy
     environment:
-      ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
       ASSET_TRACKER_APP_ENV: ${ASSET_TRACKER_APP_ENV:-development}
       ASSET_TRACKER_DATABASE_URL: ${ASSET_TRACKER_DATABASE_URL:-postgresql+psycopg://${ASSET_TRACKER_POSTGRES_USER:-asset_tracker}:${ASSET_TRACKER_POSTGRES_PASSWORD:-asset_tracker}@postgres:5432/${ASSET_TRACKER_POSTGRES_DB:-asset_tracker}}
       ASSET_TRACKER_PUBLIC_ORIGIN: ${ASSET_TRACKER_PUBLIC_ORIGIN}
@@ -101,8 +99,6 @@ services:
         condition: service_healthy
       frontend:
         condition: service_started
-    environment:
-      ASSET_TRACKER_API_TOKEN: ${ASSET_TRACKER_API_TOKEN}
     ports:
       - "8080:80"
     restart: unless-stopped

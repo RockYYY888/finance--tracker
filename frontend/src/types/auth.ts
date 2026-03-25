@@ -3,21 +3,8 @@ export type AuthSession = {
 	email: string | null;
 };
 
-export type AuthLoginCredentials = {
-	user_id: string;
-	password: string;
-};
-
-export type AuthRegisterCredentials = {
-	user_id: string;
-	email: string;
-	password: string;
-};
-
-export type PasswordResetPayload = {
-	user_id: string;
-	email: string;
-	new_password: string;
+export type ApiKeyAuthCredentials = {
+	api_key: string;
 };
 
 export type ActionMessage = {

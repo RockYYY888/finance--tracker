@@ -1,14 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoginScreen } from "./LoginScreen";
 
 function buildProps(overrides: Partial<ComponentProps<typeof LoginScreen>> = {}) {
 	return {
-		onLogin: vi.fn().mockResolvedValue(undefined),
-		onRegister: vi.fn().mockResolvedValue(undefined),
-		onResetPassword: vi.fn().mockResolvedValue(undefined),
+		onAuthenticate: vi.fn().mockResolvedValue(undefined),
 		loading: false,
 		checkingSession: false,
 		errorMessage: null,
@@ -17,39 +15,30 @@ function buildProps(overrides: Partial<ComponentProps<typeof LoginScreen>> = {})
 	};
 }
 
-describe("LoginScreen forgot-password guidance", () => {
-	it("shows forgot-password prompt after repeated wrong-password hint", () => {
-		render(
-			<LoginScreen
-				{...buildProps({
-					errorMessage:
-						"账号或密码错误。已连续输错 5 次，是否忘记密码？可点击“忘记密码”重设。",
-				})}
-			/>,
-		);
+afterEach(() => {
+	cleanup();
+});
 
-		expect(
-			screen.getByText("连续多次输入密码错误，是否需要改为找回密码？"),
-		).not.toBeNull();
+describe("LoginScreen API key access", () => {
+	it("submits the pasted API key through the authentication callback", async () => {
+		const onAuthenticate = vi.fn().mockResolvedValue(undefined);
+		render(<LoginScreen {...buildProps({ onAuthenticate })} />);
 
-		fireEvent.click(screen.getByRole("button", { name: "去重设密码" }));
+		fireEvent.change(screen.getByLabelText("API Key"), {
+			target: { value: "atrk_demo_key" },
+		});
+		fireEvent.submit(screen.getByRole("button", { name: "进入工作区" }));
 
-		expect(screen.getByText("找回密码")).not.toBeNull();
-		expect(screen.getByText("邮箱")).not.toBeNull();
+		expect(onAuthenticate).toHaveBeenCalledWith({
+			api_key: "atrk_demo_key",
+		});
 	});
 
-	it("does not show forgot-password prompt for normal login errors", () => {
-		render(
-			<LoginScreen
-				{...buildProps({
-					errorMessage: "账号或密码错误。",
-				})}
-			/>,
-		);
+	it("shows the API key verification status copy", () => {
+		render(<LoginScreen {...buildProps({ checkingSession: true })} />);
 
-		expect(
-			screen.queryByText("连续多次输入密码错误，是否需要改为找回密码？"),
-		).toBeNull();
+		expect(screen.getByText("正在验证已保存的 API Key。")).not.toBeNull();
+		expect(screen.getByText("需要新的 API Key？")).not.toBeNull();
 	});
 
 	it("does not render ambient decorative layers", () => {

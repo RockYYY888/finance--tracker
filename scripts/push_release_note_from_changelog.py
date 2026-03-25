@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from typing import Any
-from urllib import error, parse, request
+from urllib import error, request
 
 import release_env
 
@@ -174,13 +174,10 @@ def _json_request(
 	method: str,
 	url: str,
 	payload: dict[str, Any] | None,
-	api_token: str | None,
 	authorization: str | None = None,
 ) -> dict[str, Any]:
 	body = None if payload is None else json.dumps(payload).encode("utf-8")
 	headers = {"Content-Type": "application/json"}
-	if api_token:
-		headers["X-API-Key"] = api_token
 	if authorization:
 		headers["Authorization"] = authorization
 	req = request.Request(url, data=body, headers=headers, method=method)
@@ -193,98 +190,19 @@ def _json_request(
 	return {} if not response_body else json.loads(response_body)
 
 
-def _login(
+def _publish_release_note_with_admin_api_key(
 	opener: request.OpenerDirector,
 	*,
 	origin: str,
-	admin_user: str,
-	admin_password: str,
-	api_token: str | None,
-) -> None:
-	_json_request(
-		opener,
-		method="POST",
-		url=f"{origin}/api/auth/login",
-		payload={"user_id": admin_user, "password": admin_password},
-		api_token=api_token,
-	)
-
-
-def _issue_agent_access_token(
-	opener: request.OpenerDirector,
-	*,
-	origin: str,
-	admin_user: str,
-	admin_password: str,
-	api_token: str | None,
-) -> str:
-	response_payload = _json_request(
-		opener,
-		method="POST",
-		url=f"{origin}/api/agent/tokens/issue",
-		payload={
-			"user_id": admin_user,
-			"password": admin_password,
-			"name": "release-note-publisher",
-			"expires_in_days": 1,
-		},
-		api_token=api_token,
-	)
-	access_token = response_payload.get("access_token")
-	if not isinstance(access_token, str) or not access_token.strip():
-		raise RuntimeError("Agent token issue response did not include access_token.")
-	return access_token
-
-
-def _is_session_auth_failure(exc: RuntimeError) -> bool:
-	message = str(exc)
-	return "401" in message and ("请先登录" in message or "请重新登录" in message)
-
-
-def _publish_release_note_with_admin_auth(
-	opener: request.OpenerDirector,
-	*,
-	origin: str,
-	admin_user: str,
-	admin_password: str,
-	api_token: str | None,
+	admin_api_key: str,
 	payload: dict[str, Any],
 ) -> dict[str, Any]:
-	# Production currently serves HTTP only, so the secure session cookie from login is not
-	# sent back on follow-up requests. Fall back to a short-lived bearer token when that happens.
-	_login(
-		opener,
-		origin=origin,
-		admin_user=admin_user,
-		admin_password=admin_password,
-		api_token=api_token,
-	)
-	try:
-		return _json_request(
-			opener,
-			method="POST",
-			url=f"{origin}/api/admin/release-notes/publish-changelog",
-			payload=payload,
-			api_token=api_token,
-		)
-	except RuntimeError as exc:
-		if not _is_session_auth_failure(exc):
-			raise
-
-	access_token = _issue_agent_access_token(
-		opener,
-		origin=origin,
-		admin_user=admin_user,
-		admin_password=admin_password,
-		api_token=api_token,
-	)
 	return _json_request(
 		opener,
 		method="POST",
 		url=f"{origin}/api/admin/release-notes/publish-changelog",
 		payload=payload,
-		api_token=api_token,
-		authorization=f"Bearer {access_token}",
+		authorization=f"Bearer {admin_api_key}",
 	)
 
 
@@ -297,7 +215,7 @@ def main(argv: list[str] | None = None) -> None:
 		"--env-file",
 		default=str(env_file) if env_file is not None else None,
 		help=(
-			"Optional env file with defaults such as origin, admin credentials, and api token. "
+			"Optional env file with defaults such as origin and the admin API key. "
 			"Defaults to .env.release-deploy.local when present."
 		),
 	)
@@ -310,29 +228,12 @@ def main(argv: list[str] | None = None) -> None:
 		help="Server origin, for example https://finance.example.com or http://127.0.0.1:8080",
 	)
 	parser.add_argument(
-		"--admin-user",
+		"--admin-api-key",
 		default=release_env.get_env_value(
-			"ASSET_TRACKER_ADMIN_USER",
-			"FEEDBACK_ADMIN_USER",
-		)
-		or "admin",
-		help="Admin username used to log in before publishing the release note.",
-	)
-	parser.add_argument(
-		"--admin-password",
-		default=release_env.get_env_value(
-			"ASSET_TRACKER_ADMIN_PASSWORD",
-			"FEEDBACK_ADMIN_PASSWORD",
+			"ASSET_TRACKER_ADMIN_API_KEY",
+			"FEEDBACK_ADMIN_API_KEY",
 		),
-		help="Admin password used to log in before publishing the release note.",
-	)
-	parser.add_argument(
-		"--api-token",
-		default=release_env.get_env_value(
-			"ASSET_TRACKER_API_TOKEN",
-			"FEEDBACK_API_TOKEN",
-		),
-		help="Optional X-API-Key value when the server enforces ASSET_TRACKER_API_TOKEN.",
+		help="Admin API key used to publish the changelog-backed release note.",
 	)
 	parser.add_argument(
 		"--version",
@@ -367,8 +268,8 @@ def main(argv: list[str] | None = None) -> None:
 
 	if not args.origin:
 		raise RuntimeError("--origin or ASSET_TRACKER_SERVER_ORIGIN is required.")
-	if not args.admin_password:
-		raise RuntimeError("--admin-password or ASSET_TRACKER_ADMIN_PASSWORD is required.")
+	if not args.admin_api_key:
+		raise RuntimeError("--admin-api-key or ASSET_TRACKER_ADMIN_API_KEY is required.")
 
 	version = _normalize_version(args.version)
 	_ensure_clean_changelog(args.changelog)
@@ -409,12 +310,10 @@ def main(argv: list[str] | None = None) -> None:
 
 	opener = request.build_opener()
 	origin = _normalize_origin(args.origin)
-	response_payload = _publish_release_note_with_admin_auth(
+	response_payload = _publish_release_note_with_admin_api_key(
 		opener,
 		origin=origin,
-		admin_user=args.admin_user,
-		admin_password=args.admin_password,
-		api_token=args.api_token,
+		admin_api_key=args.admin_api_key,
 		payload=payload,
 	)
 	print(json.dumps(response_payload, ensure_ascii=False, indent=2))

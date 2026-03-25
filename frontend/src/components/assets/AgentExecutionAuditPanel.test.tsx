@@ -1,5 +1,5 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentExecutionAuditPanel } from "./AgentExecutionAuditPanel";
 
 afterEach(() => {
@@ -10,6 +10,7 @@ describe("AgentExecutionAuditPanel", () => {
 	it("renders registered agents, tasks, and linked agent records", () => {
 		render(
 			<AgentExecutionAuditPanel
+				apiKeys={[]}
 				registrations={[
 					{
 						id: 3,
@@ -69,6 +70,18 @@ describe("AgentExecutionAuditPanel", () => {
 	it("renders the workspace summary as a dedicated four-card grid and separates direct api records", () => {
 		render(
 			<AgentExecutionAuditPanel
+				apiKeys={[
+					{
+						id: 8,
+						name: "local-cli",
+						token_hint: "...abc123",
+						created_at: "2026-03-14T10:00:00.000Z",
+						updated_at: "2026-03-14T10:00:00.000Z",
+						last_used_at: "2026-03-14T10:05:00.000Z",
+						expires_at: null,
+						revoked_at: null,
+					},
+				]}
 				registrations={[
 					{
 						id: 3,
@@ -151,5 +164,69 @@ describe("AgentExecutionAuditPanel", () => {
 		expect(screen.getByText("直连 API 记录")).toBeTruthy();
 		expect(screen.getByText("Agent API 沙盒账户")).toBeTruthy();
 		expect(screen.getByText("Agent 直连 API 创建的演示账户")).toBeTruthy();
+		expect(screen.getByText("账户 API Keys")).toBeTruthy();
+		expect(
+			screen.getByRole("heading", {
+				name: "local-cli",
+			}),
+		).toBeTruthy();
+		expect(screen.getByText("...abc123")).toBeTruthy();
+	});
+
+	it("creates, copies, and revokes API keys through the provided callbacks", async () => {
+		const createApiKey = vi.fn();
+		const revokeApiKey = vi.fn();
+		const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+		Object.assign(globalThis.navigator, {
+			clipboard: {
+				writeText: clipboardWriteText,
+			},
+		});
+
+		render(
+			<AgentExecutionAuditPanel
+				apiKeys={[
+					{
+						id: 8,
+						name: "local-cli",
+						token_hint: "...abc123",
+						created_at: "2026-03-14T10:00:00.000Z",
+						updated_at: "2026-03-14T10:00:00.000Z",
+						last_used_at: "2026-03-14T10:05:00.000Z",
+						expires_at: null,
+						revoked_at: null,
+					},
+				]}
+				registrations={[]}
+				tasks={[]}
+				records={[]}
+				apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
+				issuedApiKey={{
+					id: 9,
+					name: "daily-sync",
+					token_hint: "...def456",
+					access_token: "atrk_secret_key",
+					created_at: "2026-03-14T10:10:00.000Z",
+					updated_at: "2026-03-14T10:10:00.000Z",
+					last_used_at: null,
+					expires_at: null,
+					revoked_at: null,
+				}}
+				onCreateApiKey={createApiKey}
+				onRevokeApiKey={revokeApiKey}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("Key 名称"), {
+			target: { value: "nightly-worker" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "生成 API Key" }));
+		expect(createApiKey).toHaveBeenCalledWith("nightly-worker");
+
+		fireEvent.click(screen.getByRole("button", { name: "复制到剪贴板" }));
+		expect(clipboardWriteText).toHaveBeenCalledWith("atrk_secret_key");
+
+		fireEvent.click(screen.getByRole("button", { name: "撤销" }));
+		expect(revokeApiKey).toHaveBeenCalledWith(8);
 	});
 });

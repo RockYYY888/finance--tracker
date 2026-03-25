@@ -37,7 +37,7 @@ describe("apiClient server error handling", () => {
 
 	it("preserves authentication errors instead of masking them as server errors", async () => {
 		const fetcher = vi.fn().mockResolvedValue(
-			new Response(JSON.stringify({ detail: "请先登录。" }), {
+			new Response(JSON.stringify({ detail: "API Key 无效。" }), {
 				status: 401,
 				headers: {
 					"Content-Type": "application/json",
@@ -46,6 +46,6 @@ describe("apiClient server error handling", () => {
 		);
 		const client = createApiClient({ fetcher });
 
-		await expect(client.request("/api/auth/session")).rejects.toThrow("请先登录。");
+		await expect(client.request("/api/auth/session")).rejects.toThrow("API Key 无效。");
 	});
 });

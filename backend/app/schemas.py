@@ -33,6 +33,8 @@ from app.models import (
 )
 from app.security import normalize_email, normalize_user_id, validate_password_strength
 
+AGENT_TOKEN_NAME_PATTERN = re.compile(r"^[\w .:/-]{3,80}$", re.UNICODE)
+
 
 def _normalize_optional_text(value: str | None) -> str | None:
 	if value is None:
@@ -321,13 +323,20 @@ class AuthSessionRead(BaseModel):
 
 
 class AgentTokenCreate(BaseModel):
-	name: str = Field(min_length=1, max_length=80)
-	expires_in_days: int | None = Field(default=180, ge=1, le=3650)
+	name: str = Field(min_length=3, max_length=80)
+	expires_in_days: int | None = Field(default=None, ge=1, le=3650)
 
 	@field_validator("name", mode="before")
 	@classmethod
 	def normalize_name(cls, value: str) -> str:
-		return _normalize_required_text(value, "name")
+		name = _normalize_required_text(value, "name")
+		if any(ord(character) < 32 for character in name):
+			raise ValueError("API Key 名称不能包含换行或控制字符。")
+		if not AGENT_TOKEN_NAME_PATTERN.fullmatch(name):
+			raise ValueError(
+				"API Key 名称仅支持字母、数字、空格，以及 . _ / : - 。",
+			)
+		return name
 
 
 class AgentTokenIssueCreate(AgentTokenCreate):

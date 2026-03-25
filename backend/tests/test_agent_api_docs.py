@@ -89,3 +89,5 @@ def test_agent_api_doc_contains_parameter_tables_and_examples() -> None:
 	assert "| Endpoint | Parameter | Type | Required | Default | Description |" in markdown
 	assert "### Submit A System Feedback Message" in markdown
 	assert "### Publish A Changelog-Backed Release Note" in markdown
+	assert "X-API-Key" not in markdown
+	assert "/api/agent/tokens/issue" not in markdown

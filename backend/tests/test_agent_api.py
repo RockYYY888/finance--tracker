@@ -19,7 +19,6 @@ from app.main import (
 	get_agent_context,
 	get_current_user,
 	get_security_quote,
-	issue_agent_token_with_password,
 	list_agent_registrations,
 	list_all_holding_transactions,
 	list_asset_mutation_audits,
@@ -38,8 +37,8 @@ from app.models import (
 	UserAccount,
 )
 from app.schemas import (
+	AgentTokenCreate,
 	AgentTaskCreate,
-	AgentTokenIssueCreate,
 	AllocationSlice,
 	CashAccountCreate,
 	CashTransferCreate,
@@ -50,6 +49,11 @@ from app.schemas import (
 )
 from app.security import hash_password
 from app.services.market_data import Quote
+from app.services.auth_service import (
+	MAX_ACTIVE_AGENT_TOKENS_PER_USER,
+	create_agent_token_for_current_session,
+	list_agent_tokens,
+)
 from app.services import dashboard_service, job_service, legacy_service, service_context
 from app.services.agent_demo_service import seed_agent_workspace_demo
 from app.services.asset_record_service import list_asset_records
@@ -175,18 +179,12 @@ def run_background_jobs(limit: int = 20) -> int:
 	return asyncio.run(job_service.process_all_pending_background_jobs(limit=limit))
 
 
-def test_issue_agent_token_with_password_and_use_bearer_auth(session: Session) -> None:
-	make_user(session)
+def test_create_agent_token_and_use_bearer_auth(session: Session) -> None:
+	current_user = make_user(session)
 
-	issued_token = issue_agent_token_with_password(
-		build_request(method="POST", path="/api/agent/tokens/issue"),
-		AgentTokenIssueCreate(
-			user_id="tester",
-			password="qwer1234",
-			name="quant-runner",
-			expires_in_days=30,
-		),
-		None,
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="quant-runner", expires_in_days=30),
+		current_user,
 		session,
 	)
 
@@ -221,19 +219,74 @@ def test_issue_agent_token_with_password_and_use_bearer_auth(session: Session) -
 	assert registrations[0].status == "ACTIVE"
 	assert registrations[0].active_token_count == 1
 	assert registrations[0].user_id == "tester"
+	assert registrations[0].latest_token_hint == stored_token.token_hint
+
+
+def test_create_agent_token_for_current_session_only_returns_secret_once(session: Session) -> None:
+	current_user = make_user(session)
+
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="local-cli"),
+		current_user,
+		session,
+	)
+
+	assert issued_token.access_token.startswith("atrk_")
+	assert issued_token.expires_at is None
+
+	listed_tokens = list_agent_tokens(current_user, session)
+	assert len(listed_tokens) == 1
+	assert listed_tokens[0].name == "local-cli"
+	assert listed_tokens[0].token_hint == issued_token.token_hint
+	assert not hasattr(listed_tokens[0], "access_token")
+
+
+def test_agent_token_creation_rejects_more_than_three_active_keys(session: Session) -> None:
+	current_user = make_user(session)
+
+	for index in range(MAX_ACTIVE_AGENT_TOKENS_PER_USER):
+		create_agent_token_for_current_session(
+			AgentTokenCreate(name=f"worker-{index + 1}"),
+			current_user,
+			session,
+		)
+
+	with pytest.raises(HTTPException) as error:
+		create_agent_token_for_current_session(
+			AgentTokenCreate(name="worker-4"),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 409
+	assert error.value.detail == "每个账号最多保留 3 个有效 API Key，请先撤销旧 Key。"
+
+
+def test_agent_token_creation_rejects_duplicate_active_names(session: Session) -> None:
+	current_user = make_user(session)
+
+	create_agent_token_for_current_session(
+		AgentTokenCreate(name="daily-sync"),
+		current_user,
+		session,
+	)
+
+	with pytest.raises(HTTPException) as error:
+		create_agent_token_for_current_session(
+			AgentTokenCreate(name="daily-sync"),
+			current_user,
+			session,
+		)
+
+	assert error.value.status_code == 409
+	assert error.value.detail == "当前账号已经存在同名的有效 API Key，请使用新的名称。"
 
 
 def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) -> None:
-	make_user(session)
-	issued_token = issue_agent_token_with_password(
-		build_request(method="POST", path="/api/agent/tokens/issue"),
-		AgentTokenIssueCreate(
-			user_id="tester",
-			password="qwer1234",
-			name="agent-audit-source",
-			expires_in_days=30,
-		),
-		None,
+	current_user = make_user(session)
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="agent-audit-source", expires_in_days=30),
+		current_user,
 		session,
 	)
 	agent_user = get_current_user(
@@ -271,22 +324,16 @@ def test_agent_bearer_asset_write_is_recorded_as_agent_source(session: Session) 
 
 def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> None:
 	current_user = make_user(session)
-	issued_token = issue_agent_token_with_password(
-		build_request(method="POST", path="/api/agent/tokens/issue"),
-		AgentTokenIssueCreate(
-			user_id=current_user.username,
-			password="qwer1234",
-			name="revoked-token",
-			expires_in_days=30,
-		),
-		None,
+	issued_token = create_agent_token_for_current_session(
+		AgentTokenCreate(name="revoked-token", expires_in_days=30),
+		current_user,
 		session,
 	)
 	token_row = session.exec(select(AgentAccessToken)).one()
 
 	response = revoke_agent_token(token_row.id or 0, current_user, session)
 
-	assert response.message == "智能体访问令牌已撤销。"
+	assert response.message == "API Key 已撤销。"
 	registrations = list_agent_registrations(current_user, session, include_all_users=False)
 	assert len(registrations) == 1
 	assert registrations[0].status == "INACTIVE"
@@ -301,34 +348,22 @@ def test_revoked_agent_token_can_no_longer_authenticate(session: Session) -> Non
 		)
 
 	assert error.value.status_code == 401
-	assert error.value.detail == "Invalid bearer token."
+	assert error.value.detail == "API Key 无效。"
 
 
 def test_admin_can_list_agent_registrations_across_all_accounts(session: Session) -> None:
 	admin_user = make_user(session, "admin")
-	make_user(session, "alice")
-	make_user(session, "bob")
+	alice_user = make_user(session, "alice")
+	bob_user = make_user(session, "bob")
 
-	issue_agent_token_with_password(
-		build_request(method="POST", path="/api/agent/tokens/issue"),
-		AgentTokenIssueCreate(
-			user_id="alice",
-			password="qwer1234",
-			name="alpha",
-			expires_in_days=30,
-		),
-		None,
+	create_agent_token_for_current_session(
+		AgentTokenCreate(name="alpha", expires_in_days=30),
+		alice_user,
 		session,
 	)
-	issue_agent_token_with_password(
-		build_request(method="POST", path="/api/agent/tokens/issue"),
-		AgentTokenIssueCreate(
-			user_id="bob",
-			password="qwer1234",
-			name="beta",
-			expires_in_days=30,
-		),
-		None,
+	create_agent_token_for_current_session(
+		AgentTokenCreate(name="beta", expires_in_days=30),
+		bob_user,
 		session,
 	)
 

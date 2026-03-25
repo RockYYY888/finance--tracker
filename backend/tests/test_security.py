@@ -22,7 +22,6 @@ def reset_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 	for env_name in (
 		"ASSET_TRACKER_ALLOWED_HOSTS",
 		"ASSET_TRACKER_ALLOWED_ORIGINS",
-		"ASSET_TRACKER_API_TOKEN",
 		"ASSET_TRACKER_APP_ENV",
 		"ASSET_TRACKER_DATABASE_URL",
 		"ASSET_TRACKER_PUBLIC_ORIGIN",
@@ -78,7 +77,6 @@ def test_settings_lock_down_same_origin_in_production(monkeypatch: pytest.Monkey
 	settings = get_settings()
 
 	assert settings.is_production is True
-	assert settings.require_api_token is False
 	assert settings.cors_origins() == ["https://finance.example.com"]
 	assert settings.trusted_hosts() == ["finance.example.com"]
 
@@ -135,32 +133,12 @@ def test_verify_api_token_allows_missing_token_when_not_configured() -> None:
 	assert response.status_code == 200
 
 
-def test_verify_api_token_rejects_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.setenv("ASSET_TRACKER_API_TOKEN", "secret-token")
-	client = _build_client()
-	response = client.get("/protected", headers={"X-API-Key": "wrong-token"})
-
-	assert response.status_code == 401
-	assert response.json() == {"detail": "Invalid API token."}
-
-
-def test_verify_api_token_rejects_missing_token_when_required(monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.setenv("ASSET_TRACKER_API_TOKEN", "secret-token")
-	client = _build_client()
-	response = client.get("/protected")
-
-	assert response.status_code == 401
-	assert response.json() == {"detail": "Missing API token."}
-
-
 def test_verify_api_token_rejects_disallowed_origin(monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.setenv("ASSET_TRACKER_API_TOKEN", "secret-token")
 	client = _build_client()
 	response = client.get(
 		"/protected",
 		headers={
 			"Origin": "https://evil.example.com",
-			"X-API-Key": "secret-token",
 		},
 	)
 

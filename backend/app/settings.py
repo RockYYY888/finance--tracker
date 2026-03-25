@@ -48,7 +48,6 @@ class Settings(BaseSettings):
 	_runtime_session_secret: str | None = PrivateAttr(default=None)
 
 	app_env: str = "development"
-	api_token: SecretStr | None = None
 	session_secret: SecretStr | None = None
 	public_origin: str | None = None
 	allowed_origins: str | None = None
@@ -60,23 +59,12 @@ class Settings(BaseSettings):
 	def is_production(self) -> bool:
 		return self.app_env.strip().lower() == "production"
 
-	@property
-	def require_api_token(self) -> bool:
-		return self.api_token_value() is not None
-
 	def _configured_session_secret_value(self) -> str | None:
 		if self.session_secret is None:
 			return None
 
 		secret = self.session_secret.get_secret_value().strip()
 		return secret or None
-
-	def api_token_value(self) -> str | None:
-		if self.api_token is None:
-			return None
-
-		token = self.api_token.get_secret_value().strip()
-		return token or None
 
 	def session_secret_value(self) -> str:
 		configured_secret = self._configured_session_secret_value()

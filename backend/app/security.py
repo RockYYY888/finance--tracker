@@ -4,9 +4,7 @@ import hashlib
 import hmac
 import os
 import re
-from typing import Annotated
-
-from fastapi import Header, HTTPException, Request
+from fastapi import HTTPException, Request
 
 from app.settings import get_settings
 
@@ -127,41 +125,11 @@ def extract_bearer_token(authorization: str | None) -> str | None:
 	return token or None
 
 
-def get_session_user_id(request: Request) -> str | None:
-	user_id = request.session.get("user_id")
-	if not isinstance(user_id, str):
-		return None
-
-	try:
-		return normalize_user_id(user_id)
-	except ValueError:
-		request.session.clear()
-		return None
-
-
-def require_session_user_id(request: Request) -> str:
-	user_id = get_session_user_id(request)
-	if user_id is None:
-		raise HTTPException(status_code=401, detail="请先登录。")
-	return user_id
-
-
 def verify_api_token(
 	request: Request,
-	x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> None:
-	"""Enforce origin checks and optionally require a shared server token."""
+	"""Enforce origin checks for browser-facing requests."""
 	settings = get_settings()
 	origin = request.headers.get("origin")
 	if origin and not settings.is_allowed_origin(origin):
 		raise HTTPException(status_code=403, detail="Origin not allowed.")
-
-	expected_token = settings.api_token_value()
-	if expected_token is None:
-		return
-
-	if x_api_key is None:
-		raise HTTPException(status_code=401, detail="Missing API token.")
-
-	if x_api_key.strip() != expected_token:
-		raise HTTPException(status_code=401, detail="Invalid API token.")

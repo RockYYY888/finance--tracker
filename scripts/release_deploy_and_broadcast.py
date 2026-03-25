@@ -16,7 +16,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
 DEFAULT_BRANCH = "main"
 DEFAULT_SERVER_PATH = "~/finance--tracker"
-DEFAULT_ADMIN_USER = "admin"
 DEFAULT_DEPLOY_COMMAND = (
 	"docker compose -f docker-compose.yml -f docker-compose.production.yml "
 	"-f docker-compose.proxy.yml up -d --build --remove-orphans"
@@ -243,9 +242,7 @@ def _deploy_server(server_ssh: str, branch: str, server_path: str, *, password: 
 def _push_release_note(
 	*,
 	origin: str,
-	admin_user: str,
-	admin_password: str,
-	api_token: str | None,
+	admin_api_key: str,
 	version: str,
 	user_title: str,
 	user_content: str,
@@ -255,10 +252,8 @@ def _push_release_note(
 		str(REPO_ROOT / "scripts" / "push_release_note_from_changelog.py"),
 		"--origin",
 		origin,
-		"--admin-user",
-		admin_user,
-		"--admin-password",
-		admin_password,
+		"--admin-api-key",
+		admin_api_key,
 		"--version",
 		version,
 		"--title",
@@ -266,8 +261,6 @@ def _push_release_note(
 		"--content",
 		user_content,
 	]
-	if api_token:
-		command.extend(["--api-token", api_token])
 	_run(command, cwd=REPO_ROOT, capture_output=False)
 
 
@@ -283,8 +276,8 @@ def main(argv: list[str] | None = None) -> None:
 		"--env-file",
 		default=str(env_file) if env_file is not None else None,
 		help=(
-			"Optional env file with defaults such as server SSH, server origin, admin credentials, "
-			"and API token. Defaults to .env.release-deploy.local when present."
+			"Optional env file with defaults such as server SSH, server origin, and the admin "
+			"API key. Defaults to .env.release-deploy.local when present."
 		),
 	)
 	parser.add_argument("--version", default=None, help="Defaults to the latest version in CHANGELOG.md.")
@@ -305,25 +298,10 @@ def main(argv: list[str] | None = None) -> None:
 		),
 	)
 	parser.add_argument(
-		"--admin-user",
+		"--admin-api-key",
 		default=release_env.get_env_value(
-			"ASSET_TRACKER_ADMIN_USER",
-			"FEEDBACK_ADMIN_USER",
-		)
-		or DEFAULT_ADMIN_USER,
-	)
-	parser.add_argument(
-		"--admin-password",
-		default=release_env.get_env_value(
-			"ASSET_TRACKER_ADMIN_PASSWORD",
-			"FEEDBACK_ADMIN_PASSWORD",
-		),
-	)
-	parser.add_argument(
-		"--api-token",
-		default=release_env.get_env_value(
-			"ASSET_TRACKER_API_TOKEN",
-			"FEEDBACK_API_TOKEN",
+			"ASSET_TRACKER_ADMIN_API_KEY",
+			"FEEDBACK_ADMIN_API_KEY",
 		),
 	)
 	parser.add_argument("--user-title", required=True)
@@ -345,8 +323,8 @@ def main(argv: list[str] | None = None) -> None:
 		raise RuntimeError("--server-ssh or ASSET_TRACKER_SERVER_SSH is required.")
 	if not args.server_origin:
 		raise RuntimeError("--server-origin or ASSET_TRACKER_SERVER_ORIGIN is required.")
-	if not args.admin_password:
-		raise RuntimeError("--admin-password or ASSET_TRACKER_ADMIN_PASSWORD is required.")
+	if not args.admin_api_key:
+		raise RuntimeError("--admin-api-key or ASSET_TRACKER_ADMIN_API_KEY is required.")
 	if not 2 <= len(args.bullets) <= 4:
 		raise RuntimeError("Provide 2 to 4 --bullet values for the user-facing release note.")
 
@@ -380,6 +358,7 @@ def main(argv: list[str] | None = None) -> None:
 		"server_ssh": args.server_ssh,
 		"server_ssh_password_set": bool(args.server_ssh_password),
 		"server_origin": args.server_origin,
+		"admin_api_key_set": bool(args.admin_api_key),
 		"user_title": args.user_title,
 		"user_content": user_content,
 		"changelog_updated": changelog_updated,
@@ -398,9 +377,7 @@ def main(argv: list[str] | None = None) -> None:
 	)
 	_push_release_note(
 		origin=args.server_origin,
-		admin_user=args.admin_user,
-		admin_password=args.admin_password,
-		api_token=args.api_token,
+		admin_api_key=args.admin_api_key,
 		version=version,
 		user_title=args.user_title,
 		user_content=user_content,

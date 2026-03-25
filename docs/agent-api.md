@@ -6,14 +6,13 @@ operation exposed by the backend, including account identity, portfolio mutation
 and release-note workflows.
 
 Password-only or browser-session-only routes such as user registration, password reset, and logout
-are intentionally out of scope for this document.
+are no longer part of the public API surface.
 
 ## Scope
 
 - Supported clients: agent runtimes, CLI automation, and service integrations that act on behalf
   of a single app account.
-- Supported auth contexts: `Authorization: Bearer <agent_token>` for runtime calls, plus browser
-  session auth for interactive token administration.
+- Supported auth context: `Authorization: Bearer <api_key>` for every authenticated call.
 - Authoritative transport: HTTPS JSON over the REST endpoints listed below.
 
 ## Authentication
@@ -22,52 +21,58 @@ are intentionally out of scope for this document.
 
 | Header | Required | Applies To | Description |
 | --- | --- | --- | --- |
-| `Authorization: Bearer <agent_token>` | Yes for agent runtime calls | All authenticated agent operations except password-based token issuance | Per-user runtime credential issued by the backend |
-| `X-API-Key: <server_api_token>` | Conditional | Every request when `ASSET_TRACKER_API_TOKEN` is configured on the server | Deployment-level API gate |
+| `Authorization: Bearer <api_key>` | Yes | Every authenticated route in this document | Account-scoped API key issued by the backend and validated on every request |
 | `Idempotency-Key: <unique_key>` | Recommended for supported create routes | `POST` create routes listed in [Idempotency](#idempotency) | Prevents duplicate side effects for retried calls |
 | `Content-Type: application/json` | Yes for JSON request bodies | All `POST`, `PUT`, and `PATCH` routes with request bodies | JSON request encoding |
 
-### Token Lifecycle Endpoints
+### API Key Lifecycle Endpoints
 
 | Method | Path | Auth Context | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/api/agent/tokens/issue` | Password bootstrap | Exchange a user ID and password for a bearer token |
-| `POST` | `/api/agent/tokens` | Browser session | Create a new bearer token for the current signed-in account |
-| `GET` | `/api/agent/tokens` | Browser session | List existing bearer tokens for the current account |
-| `DELETE` | `/api/agent/tokens/{token_id}` | Browser session | Revoke a bearer token |
-
-### `POST /api/agent/tokens/issue`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `user_id` | `string` | Yes | Application account ID |
-| `password` | `string` | Yes | Current login password for the account |
-| `name` | `string` | Yes | Stable agent registration name |
-| `expires_in_days` | `integer` | No | Token lifetime in days; omit for a non-expiring token |
+| `POST` | `/api/agent/tokens` | Bearer API key | Create a new named API key for the current account |
+| `GET` | `/api/agent/tokens` | Bearer API key | List existing API keys for the current account |
+| `DELETE` | `/api/agent/tokens/{token_id}` | Bearer API key | Revoke an API key |
 
 ### `POST /api/agent/tokens`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `name` | `string` | Yes | Stable agent registration name |
-| `expires_in_days` | `integer` | No | Token lifetime in days; omit for a non-expiring token |
+| `name` | `string` | Yes | Human-readable API key name; must be unique among active keys on the same account |
+| `expires_in_days` | `integer` | No | API key lifetime in days; omit for a non-expiring key |
 
-### Example: Issue A Token
+Notes:
+
+- The backend stores only a one-way digest plus a short hint such as `...a1b2c3`.
+- The full API key is returned exactly once in the create response.
+- Each account may hold up to three active API keys at the same time.
+- API key self-service requires an already valid API key for the same account.
+
+### Example: Create An API Key For The Current Account
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/agent/tokens/issue \
+curl -X POST http://127.0.0.1:8080/api/agent/tokens \
   -H 'Content-Type: application/json' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
+  -H 'Authorization: Bearer <existing_api_key>' \
   -d '{
-    "user_id": "tester",
-    "password": "your-login-password",
-    "name": "quant-runner",
-    "expires_in_days": 180
+    "name": "local-cli"
   }'
 ```
 
-Successful responses return the token metadata plus a one-time `access_token` field. Store the
-token securely and switch all subsequent runtime calls to `Authorization: Bearer <access_token>`.
+### Example: Verify A Newly Issued API Key
+
+```bash
+curl http://127.0.0.1:8080/api/auth/session \
+  -H 'Authorization: Bearer <access_token>'
+```
+
+Expected response:
+
+```json
+{
+  "user_id": "tester",
+  "email": "tester@example.com"
+}
+```
 
 ## Route Catalog
 
@@ -75,7 +80,7 @@ token securely and switch all subsequent runtime calls to `Authorization: Bearer
 
 | Method | Path | Purpose | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/api/auth/session` | Resolve the current authenticated account | Returns the caller identity for either a browser session or bearer token |
+| `GET` | `/api/auth/session` | Resolve the current authenticated account | Returns the caller identity represented by the supplied API key |
 | `PATCH` | `/api/auth/email` | Update the current account email | Updates the email for the authenticated account |
 
 ### Agent Coordination And Health
@@ -497,7 +502,6 @@ curl -X POST http://127.0.0.1:8080/api/holding-transactions \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
   -H 'Idempotency-Key: buy-aapl-20260324-001' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "symbol": "AAPL",
     "name": "Apple",
@@ -520,7 +524,6 @@ curl -X POST http://127.0.0.1:8080/api/cash-transfers \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
   -H 'Idempotency-Key: transfer-20260324-001' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "from_account_id": 3,
     "to_account_id": 9,
@@ -536,7 +539,6 @@ curl -X POST http://127.0.0.1:8080/api/cash-transfers \
 curl -X POST http://127.0.0.1:8080/api/dashboard/corrections \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "series_scope": "PORTFOLIO_TOTAL",
     "granularity": "DAY",
@@ -553,7 +555,6 @@ curl -X POST http://127.0.0.1:8080/api/dashboard/corrections \
 curl -X POST http://127.0.0.1:8080/api/liabilities \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "name": "Mortgage",
     "category": "HOUSING",
@@ -570,7 +571,6 @@ curl -X POST http://127.0.0.1:8080/api/liabilities \
 curl -X POST http://127.0.0.1:8080/api/feedback \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "message": "[SYSTEM] API latency exceeded 5 minutes",
     "category": "SYSTEM_ALERT",
@@ -587,11 +587,10 @@ curl -X POST http://127.0.0.1:8080/api/feedback \
 curl -X POST http://127.0.0.1:8080/api/admin/release-notes/publish-changelog \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <access_token>' \
-  -H 'X-API-Key: <server_api_token_if_configured>' \
   -d '{
     "version": "0.7.1",
-    "title": "时间区间与智能体接口更新",
-    "content": "- 修复趋势图默认全区间比较值\\n- 补齐 agent API 参考文档与示例",
+    "title": "Chart Comparison and Agent API Updates",
+    "content": "- Restored the default full-range comparison values in both trend charts\\n- Expanded the agent API reference with formal parameter tables and examples",
     "source_feedback_ids": [3, 4],
     "release_url": "https://github.com/example/finance--tracker/releases/tag/v0.7.1"
   }'
@@ -599,9 +598,10 @@ curl -X POST http://127.0.0.1:8080/api/admin/release-notes/publish-changelog \
 
 ## Secret Handling
 
-- Send the account password only to `POST /api/agent/tokens/issue`, and only over HTTPS in
-  production.
-- Store bearer tokens in a secret store or environment variable, not in prompt text or source code.
+- Treat the returned API key as a write-capable secret. Store it in a secret manager, keychain, or
+  environment variable immediately after creation.
+- The full API key is intentionally not returned by `GET /api/agent/tokens`; only the masked hint
+  remains available for later administration.
 - Do not send broker passwords, broker API secrets, or unrelated credentials through asset and
   transaction routes.
 

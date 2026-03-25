@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 
 import {
 	formatDateValue,
@@ -13,6 +13,8 @@ import {
 	SOURCE_BADGE_LABELS,
 } from "../../lib/assetRecordMeta";
 import type {
+	AgentApiKeyIssueRecord,
+	AgentApiKeyRecord,
 	AgentRegistrationRecord,
 	AgentTaskRecord,
 	AssetRecordRecord,
@@ -20,12 +22,21 @@ import type {
 import "./asset-components.css";
 
 export interface AgentExecutionAuditPanelProps {
+	apiKeys: AgentApiKeyRecord[];
 	registrations: AgentRegistrationRecord[];
 	tasks: AgentTaskRecord[];
 	records: AssetRecordRecord[];
 	apiDocUrl: string;
 	loading?: boolean;
 	errorMessage?: string | null;
+	apiKeyErrorMessage?: string | null;
+	apiKeyNoticeMessage?: string | null;
+	issuedApiKey?: AgentApiKeyIssueRecord | null;
+	isCreatingApiKey?: boolean;
+	revokingApiKeyId?: number | null;
+	onCreateApiKey?: (name: string) => void;
+	onRevokeApiKey?: (tokenId: number) => void;
+	onDismissIssuedApiKey?: () => void;
 }
 
 const TASK_LABELS: Record<string, string> = {
@@ -58,6 +69,70 @@ function formatRecordAmount(record: AssetRecordRecord): string | null {
 		return formatPriceAmount(record.amount, record.currency);
 	}
 	return formatMoneyAmount(record.amount, record.currency);
+}
+
+function isApiKeyActive(apiKey: AgentApiKeyRecord): boolean {
+	if (apiKey.revoked_at) {
+		return false;
+	}
+	if (!apiKey.expires_at) {
+		return true;
+	}
+	const expiresAt = Date.parse(apiKey.expires_at);
+	return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+function getApiKeyStatus(apiKey: AgentApiKeyRecord): {
+	label: string;
+	className: string;
+} {
+	if (apiKey.revoked_at) {
+		return {
+			label: "已撤销",
+			className: "asset-manager__badge asset-manager__badge--muted",
+		};
+	}
+	if (apiKey.expires_at) {
+		const expiresAt = Date.parse(apiKey.expires_at);
+		if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+			return {
+				label: "已过期",
+				className: "asset-manager__badge asset-manager__badge--muted",
+			};
+		}
+	}
+	return {
+		label: "有效",
+		className: "asset-manager__badge asset-records__source-badge",
+	};
+}
+
+async function copyTextToClipboard(value: string): Promise<void> {
+	if (
+		typeof navigator !== "undefined"
+		&& navigator.clipboard
+		&& typeof navigator.clipboard.writeText === "function"
+	) {
+		await navigator.clipboard.writeText(value);
+		return;
+	}
+
+	if (typeof document === "undefined") {
+		throw new Error("当前环境不支持剪贴板复制。");
+	}
+
+	const textarea = document.createElement("textarea");
+	textarea.value = value;
+	textarea.setAttribute("readonly", "true");
+	textarea.style.position = "absolute";
+	textarea.style.opacity = "0";
+	document.body.appendChild(textarea);
+	textarea.select();
+	try {
+		document.execCommand("copy");
+	} finally {
+		document.body.removeChild(textarea);
+	}
 }
 
 function AgentRecordList({
@@ -151,13 +226,25 @@ function AgentRecordList({
 }
 
 export function AgentExecutionAuditPanel({
+	apiKeys,
 	registrations,
 	tasks,
 	records,
 	apiDocUrl,
 	loading = false,
 	errorMessage = null,
+	apiKeyErrorMessage = null,
+	apiKeyNoticeMessage = null,
+	issuedApiKey = null,
+	isCreatingApiKey = false,
+	revokingApiKeyId = null,
+	onCreateApiKey,
+	onRevokeApiKey,
+	onDismissIssuedApiKey,
 }: AgentExecutionAuditPanelProps) {
+	const [draftApiKeyName, setDraftApiKeyName] = useState("");
+	const [clipboardNotice, setClipboardNotice] = useState<string | null>(null);
+	const [clipboardError, setClipboardError] = useState<string | null>(null);
 	const recordsByTaskId = useMemo(() => {
 		const nextMap = new Map<number, AssetRecordRecord[]>();
 		for (const record of records) {
@@ -180,6 +267,30 @@ export function AgentExecutionAuditPanel({
 		(registration) => registration.status === "ACTIVE",
 	).length;
 	const connectedAccountCount = new Set(registrations.map((registration) => registration.user_id)).size;
+	const activeApiKeyCount = apiKeys.filter((apiKey) => isApiKeyActive(apiKey)).length;
+
+	function handleCreateApiKeySubmit(event: FormEvent<HTMLFormElement>): void {
+		event.preventDefault();
+		setClipboardNotice(null);
+		setClipboardError(null);
+		onCreateApiKey?.(draftApiKeyName);
+		setDraftApiKeyName("");
+	}
+
+	async function handleCopyIssuedApiKey(): Promise<void> {
+		if (!issuedApiKey) {
+			return;
+		}
+
+		try {
+			await copyTextToClipboard(issuedApiKey.access_token);
+			setClipboardError(null);
+			setClipboardNotice("已复制到剪贴板。请立即保存，这串 API Key 不会再次显示。");
+		} catch (error) {
+			setClipboardNotice(null);
+			setClipboardError(error instanceof Error ? error.message : "复制失败，请手动保存。");
+		}
+	}
 
 	return (
 		<section className="asset-manager__panel">
@@ -237,6 +348,169 @@ export function AgentExecutionAuditPanel({
 				<div className="asset-manager__empty-state">正在加载智能体工作台...</div>
 			) : (
 				<div className="agent-workspace__sections">
+					<section className="agent-workspace__section">
+						<div className="asset-manager__list-head">
+							<div>
+								<p className="asset-manager__eyebrow">API KEYS</p>
+								<h3>账户 API Keys</h3>
+								<p>
+									为当前账号生成直连 API 的 Bearer Key。每个账号最多保留 3 个有效 Key，
+									完整密钥只会在创建成功后显示一次。
+								</p>
+							</div>
+							<div className="asset-manager__mini-actions">
+								<span className="asset-manager__status-note">
+									有效 Key {activeApiKeyCount} / 3
+								</span>
+							</div>
+						</div>
+
+						{apiKeyErrorMessage ? (
+							<div className="asset-manager__message asset-manager__message--error">
+								{apiKeyErrorMessage}
+							</div>
+						) : null}
+						{apiKeyNoticeMessage ? (
+							<div className="asset-manager__status-note">{apiKeyNoticeMessage}</div>
+						) : null}
+						{clipboardError ? (
+							<div className="asset-manager__message asset-manager__message--error">
+								{clipboardError}
+							</div>
+						) : null}
+						{clipboardNotice ? (
+							<div className="asset-manager__status-note">{clipboardNotice}</div>
+						) : null}
+
+						<div className="agent-api-keys__layout">
+							<form
+								className="asset-manager__helper-block agent-api-keys__create"
+								onSubmit={handleCreateApiKeySubmit}
+							>
+								<strong>创建新的 API Key</strong>
+								<p>
+									给 Key 一个清晰用途名称，例如 <code>local-cli</code>、<code>daily-sync</code>
+									或 <code>portfolio-agent</code>。
+								</p>
+								<label className="asset-manager__field">
+									<span>Key 名称</span>
+									<input
+										value={draftApiKeyName}
+										onChange={(event) => setDraftApiKeyName(event.target.value)}
+										placeholder="例如：local-cli"
+										maxLength={80}
+										disabled={isCreatingApiKey || activeApiKeyCount >= 3}
+									/>
+								</label>
+								<div className="asset-manager__form-actions">
+									<button
+										type="submit"
+										className="asset-manager__button"
+										disabled={isCreatingApiKey || activeApiKeyCount >= 3}
+									>
+										{isCreatingApiKey ? "生成中..." : "生成 API Key"}
+									</button>
+								</div>
+							</form>
+
+							{issuedApiKey ? (
+								<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
+									<strong>只显示一次的 API Key</strong>
+									<p>
+										请现在复制并保存到密码管理器、系统钥匙串或其他安全的密钥管理位置。
+										关闭这张卡片后，平台只会保留掩码提示，不会再次返回完整 Key。
+									</p>
+									<pre className="asset-manager__code-block">{issuedApiKey.access_token}</pre>
+									<div className="asset-manager__form-actions agent-api-keys__issued-actions">
+										<button
+											type="button"
+											className="asset-manager__button"
+											onClick={() => void handleCopyIssuedApiKey()}
+										>
+											复制到剪贴板
+										</button>
+										<button
+											type="button"
+											className="asset-manager__button asset-manager__button--secondary"
+											onClick={onDismissIssuedApiKey}
+										>
+											我已保存
+										</button>
+									</div>
+								</div>
+							) : (
+								<div className="asset-manager__helper-block">
+									<strong>调用方式</strong>
+									<p>
+										生成后，把完整 Key 放到请求头
+										<code> Authorization: Bearer &lt;your_api_key&gt;</code> 中。
+										可用 <code>GET /api/auth/session</code> 立即验证这串 Key 当前归属的账户。
+									</p>
+								</div>
+							)}
+						</div>
+
+						{apiKeys.length === 0 ? (
+							<div className="asset-manager__empty-state">当前账号还没有 API Key。</div>
+						) : (
+							<ul className="asset-manager__list">
+								{apiKeys.map((apiKey) => {
+									const status = getApiKeyStatus(apiKey);
+									const canRevoke = !apiKey.revoked_at;
+									return (
+										<li key={apiKey.id} className="asset-manager__card">
+											<div className="asset-manager__card-top">
+												<div className="asset-manager__card-title">
+													<div className="asset-manager__badge-row">
+														<span className="asset-manager__badge">API KEY</span>
+														<span className={status.className}>{status.label}</span>
+														<span className="asset-manager__badge asset-manager__badge--muted">
+															{apiKey.token_hint}
+														</span>
+													</div>
+													<h3>{apiKey.name}</h3>
+													<p className="asset-manager__card-note">
+														仅显示掩码提示；完整密钥在创建后不会再次返回。
+													</p>
+												</div>
+												<div className="asset-manager__card-actions">
+													<button
+														type="button"
+														className="asset-manager__button asset-manager__button--secondary"
+														onClick={() => onRevokeApiKey?.(apiKey.id)}
+														disabled={!canRevoke || revokingApiKeyId === apiKey.id}
+													>
+														{revokingApiKeyId === apiKey.id ? "撤销中..." : "撤销"}
+													</button>
+												</div>
+											</div>
+											<div className="asset-manager__metric-grid">
+												<div className="asset-manager__metric">
+													<span>创建时间</span>
+													<strong>{formatTimestamp(apiKey.created_at)}</strong>
+												</div>
+												<div className="asset-manager__metric">
+													<span>最近使用</span>
+													<strong>{formatTimestamp(apiKey.last_used_at)}</strong>
+												</div>
+												<div className="asset-manager__metric">
+													<span>过期时间</span>
+													<strong>
+														{apiKey.expires_at ? formatTimestamp(apiKey.expires_at) : "永不过期"}
+													</strong>
+												</div>
+												<div className="asset-manager__metric">
+													<span>撤销时间</span>
+													<strong>{formatTimestamp(apiKey.revoked_at)}</strong>
+												</div>
+											</div>
+										</li>
+									);
+								})}
+							</ul>
+						)}
+					</section>
+
 					<section className="agent-workspace__section">
 						<div className="asset-manager__list-head">
 							<div>

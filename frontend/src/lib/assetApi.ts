@@ -14,6 +14,9 @@ import type {
 	HoldingTransactionRecord,
 	AgentTaskRecord,
 	AgentRegistrationRecord,
+	AgentApiKeyRecord,
+	AgentApiKeyIssueRecord,
+	CreateAgentApiKeyInput,
 	AssetRecordRecord,
 	AssetMutationAuditRecord,
 	LiabilityInput,
@@ -182,6 +185,16 @@ export function createAssetApiClient(apiClient: ApiClient = createApiClient()): 
 			const query = queryString ? `?${queryString}` : "";
 			return apiClient.request<AgentRegistrationRecord[]>(`/api/agent/registrations${query}`);
 		},
+		listAgentApiKeys: () => apiClient.request<AgentApiKeyRecord[]>("/api/agent/tokens"),
+		createAgentApiKey: (payload: CreateAgentApiKeyInput) =>
+			apiClient.request<AgentApiKeyIssueRecord>("/api/agent/tokens", {
+				method: "POST",
+				body: JSON.stringify(payload),
+			}),
+		revokeAgentApiKey: (tokenId) =>
+			apiClient.request<void>(`/api/agent/tokens/${tokenId}`, {
+				method: "DELETE",
+			}),
 		listAssetMutationAudits: (params) => {
 			const search = new URLSearchParams();
 			if (params?.agentTaskId) {

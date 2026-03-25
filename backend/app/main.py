@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.router import api_router
@@ -48,17 +47,9 @@ def create_app() -> FastAPI:
 	app.add_middleware(
 		CORSMiddleware,
 		allow_origins=settings.cors_origins(),
-		allow_credentials=True,
+		allow_credentials=False,
 		allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-		allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Client-Device-Id"],
-	)
-	app.add_middleware(
-		SessionMiddleware,
-		secret_key=settings.session_secret_value() or "asset-tracker-session-fallback",
-		session_cookie="asset_tracker_session",
-		max_age=60 * 60 * 24 * 30,
-		same_site="lax",
-		https_only=settings.is_production,
+		allow_headers=["Authorization", "Content-Type", "X-Client-Device-Id"],
 	)
 
 	@app.middleware("http")

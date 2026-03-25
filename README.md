@@ -91,7 +91,7 @@ For a full versioned release, server deploy, and in-app release-note push in one
 
 ```bash
 cp .env.release-deploy.example .env.release-deploy.local
-# fill the real ssh / origin / admin credential values first
+# fill the real ssh / origin / admin API key first
 python3 scripts/release_deploy_and_broadcast.py \
   --env-file .env.release-deploy.local \
   --user-title 'Stability and Experience Updates' \
@@ -106,6 +106,9 @@ release-note stream. Keep the bullets user-facing and avoid raw technical intern
 
 For remote access, prefer a non-interactive SSH key. If the server only supports password login,
 set `ASSET_TRACKER_SERVER_SSH_PASSWORD` in `.env.release-deploy.local`.
+
+Release-note publishing now uses the same bearer API key model as the public developer API. Store
+an admin-scoped API key in `ASSET_TRACKER_ADMIN_API_KEY` and keep it out of git.
 
 If the update touches `backend/alembic/versions/`, `backend/app/models.py`,
 `backend/app/database.py`, `backend/app/settings.py`, `backend/pyproject.toml`, or any

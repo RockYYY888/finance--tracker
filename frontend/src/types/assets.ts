@@ -264,6 +264,26 @@ export interface AgentRegistrationRecord {
 	updated_at?: string;
 }
 
+export interface AgentApiKeyRecord {
+	id: number;
+	name: string;
+	token_hint: string;
+	created_at?: string;
+	updated_at?: string;
+	last_used_at?: string | null;
+	expires_at?: string | null;
+	revoked_at?: string | null;
+}
+
+export interface AgentApiKeyIssueRecord extends AgentApiKeyRecord {
+	access_token: string;
+}
+
+export interface CreateAgentApiKeyInput {
+	name: string;
+	expires_in_days?: number | null;
+}
+
 export interface AssetMutationAuditRecord {
 	id: number;
 	agent_task_id?: number | null;
@@ -619,6 +639,9 @@ export interface AssetApiClient {
 	listAgentRegistrations: (params?: {
 		includeAllUsers?: boolean;
 	}) => Promise<AgentRegistrationRecord[]>;
+	listAgentApiKeys: () => Promise<AgentApiKeyRecord[]>;
+	createAgentApiKey: (payload: CreateAgentApiKeyInput) => Promise<AgentApiKeyIssueRecord>;
+	revokeAgentApiKey: (tokenId: number) => Promise<void>;
 	listAssetMutationAudits: (params?: {
 		agentTaskId?: number;
 	}) => Promise<AssetMutationAuditRecord[]>;

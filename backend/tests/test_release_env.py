@@ -19,7 +19,7 @@ def test_parse_env_file_supports_quotes_export_and_comments(tmp_path: Path) -> N
 				"# comment",
 				'ASSET_TRACKER_SERVER_SSH="vipcup@117.72.217.15"',
 				"export ASSET_TRACKER_SERVER_PATH='~/finance--tracker'",
-				"ASSET_TRACKER_API_TOKEN=",
+				"ASSET_TRACKER_ADMIN_API_KEY=",
 			],
 		)
 		+ "\n",
@@ -29,7 +29,7 @@ def test_parse_env_file_supports_quotes_export_and_comments(tmp_path: Path) -> N
 	assert release_env.parse_env_file(env_file) == {
 		"ASSET_TRACKER_SERVER_SSH": "vipcup@117.72.217.15",
 		"ASSET_TRACKER_SERVER_PATH": "~/finance--tracker",
-		"ASSET_TRACKER_API_TOKEN": "",
+		"ASSET_TRACKER_ADMIN_API_KEY": "",
 	}
 
 

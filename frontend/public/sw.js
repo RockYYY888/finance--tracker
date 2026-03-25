@@ -1,4 +1,4 @@
-const CACHE_NAME = "asset-tracker-shell-v2";
+const CACHE_NAME = "asset-tracker-shell-v3";
 const APP_SHELL_PATHS = ["/", "/manifest.webmanifest"];
 const STATIC_ASSET_PREFIX = "/assets/";
 
@@ -8,7 +8,6 @@ function shouldSkipRequest(request, requestUrl) {
 		requestUrl.origin !== self.location.origin ||
 		requestUrl.pathname.startsWith("/api") ||
 		request.headers.has("Authorization") ||
-		request.headers.has("X-API-Key") ||
 		request.cache === "no-store"
 	);
 }

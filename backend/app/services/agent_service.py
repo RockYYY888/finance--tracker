@@ -22,7 +22,6 @@ from app.services.auth_service import (
 	CurrentUserDependency,
 	_is_agent_token_active,
 	create_agent_token_for_current_session,
-	issue_agent_token_with_password,
 	list_agent_tokens,
 	revoke_agent_token,
 )
@@ -245,7 +244,6 @@ __all__ = [
 	'create_agent_task',
 	'create_agent_token_for_current_session',
 	'get_agent_context',
-	'issue_agent_token_with_password',
 	'list_agent_registrations',
 	'list_agent_tasks',
 	'list_agent_tokens',

@@ -9,13 +9,13 @@ import { LoginScreen } from "./components/auth/LoginScreen";
 import { AssetManager } from "./components/assets";
 import { FeedbackDialog } from "./components/feedback/FeedbackDialog";
 import { UserFeedbackInboxDialog } from "./components/feedback/UserFeedbackInboxDialog";
+import { clearStoredRuntimeApiKey } from "./lib/apiClient";
 import { createAssetManagerController, defaultAssetApiClient } from "./lib/assetApi";
 import {
+	authenticateWithApiKey,
 	getAuthSession,
-	loginWithPassword,
+	hasStoredApiKey,
 	logoutCurrentUser,
-	registerWithPassword,
-	resetPasswordWithEmail,
 	updateCurrentUserEmail,
 } from "./lib/authApi";
 import { getDashboard } from "./lib/dashboardApi";
@@ -37,12 +37,12 @@ import {
 	submitUserFeedback,
 } from "./lib/feedbackApi";
 import type {
-	AuthLoginCredentials,
-	AuthRegisterCredentials,
-	PasswordResetPayload,
+	ApiKeyAuthCredentials,
 	UserEmailUpdate,
 } from "./types/auth";
 import type {
+	AgentApiKeyIssueRecord,
+	AgentApiKeyRecord,
 	AgentRegistrationRecord,
 	AgentTaskRecord,
 	AssetRecordRecord,
@@ -83,6 +83,7 @@ const REMEMBERED_SESSION_USER_KEY = "asset-tracker-last-session-user";
 const DASHBOARD_CACHE_KEY_PREFIX = "asset-tracker-dashboard-cache:";
 const EMPTY_AGENT_TASKS: AgentTaskRecord[] = [];
 const EMPTY_AGENT_REGISTRATIONS: AgentRegistrationRecord[] = [];
+const EMPTY_AGENT_API_KEYS: AgentApiKeyRecord[] = [];
 const EMPTY_AGENT_RECORDS: AssetRecordRecord[] = [];
 const DEFAULT_MOUNTED_WORKSPACES: Record<WorkspaceView, boolean> = {
 	manage: true,
@@ -419,7 +420,12 @@ function formatFxRate(rate: number | null | undefined): string {
 }
 
 function isAuthenticationErrorMessage(message: string): boolean {
-	return message.includes("请先登录") || message.includes("请重新登录");
+	return (
+		message.includes("请先提供 API Key") ||
+		message.includes("API Key 无效") ||
+		message.includes("API Key 已过期") ||
+		message.includes("API Key 对应账号不存在")
+	);
 }
 
 async function withTimeout<T>(
@@ -505,10 +511,16 @@ function App() {
 	const [agentRegistrations, setAgentRegistrations] = useState<AgentRegistrationRecord[]>(
 		EMPTY_AGENT_REGISTRATIONS,
 	);
+	const [agentApiKeys, setAgentApiKeys] = useState<AgentApiKeyRecord[]>(EMPTY_AGENT_API_KEYS);
+	const [issuedAgentApiKey, setIssuedAgentApiKey] = useState<AgentApiKeyIssueRecord | null>(null);
 	const [agentTasks, setAgentTasks] = useState<AgentTaskRecord[]>(EMPTY_AGENT_TASKS);
 	const [agentRecords, setAgentRecords] = useState<AssetRecordRecord[]>(EMPTY_AGENT_RECORDS);
 	const [isLoadingAgentAudit, setIsLoadingAgentAudit] = useState(false);
 	const [agentAuditErrorMessage, setAgentAuditErrorMessage] = useState<string | null>(null);
+	const [isCreatingAgentApiKey, setIsCreatingAgentApiKey] = useState(false);
+	const [revokingAgentApiKeyId, setRevokingAgentApiKeyId] = useState<number | null>(null);
+	const [agentApiKeyErrorMessage, setAgentApiKeyErrorMessage] = useState<string | null>(null);
+	const [agentApiKeyNoticeMessage, setAgentApiKeyNoticeMessage] = useState<string | null>(null);
 	const [isAdminInboxOpen, setIsAdminInboxOpen] = useState(false);
 	const [isAdminReleaseNotesOpen, setIsAdminReleaseNotesOpen] = useState(false);
 	const [isUserInboxOpen, setIsUserInboxOpen] = useState(false);
@@ -589,10 +601,16 @@ function App() {
 		setActiveWorkspaceView("manage");
 		setMountedWorkspaceViews(DEFAULT_MOUNTED_WORKSPACES);
 		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
+		setAgentApiKeys(EMPTY_AGENT_API_KEYS);
+		setIssuedAgentApiKey(null);
 		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
+		setIsCreatingAgentApiKey(false);
+		setRevokingAgentApiKeyId(null);
+		setAgentApiKeyErrorMessage(null);
+		setAgentApiKeyNoticeMessage(null);
 		hasLoadedAgentAuditRef.current = false;
 		agentAuditRequestInFlightRef.current = null;
 		latestAgentAuditRequestIdRef.current += 1;
@@ -626,9 +644,14 @@ function App() {
 		setIsLoadingDashboard(!hasUsableCachedDashboard);
 	}
 
-	function markSignedOut(options: { clearRememberedSession?: boolean } = {}): void {
+	function markSignedOut(
+		options: { clearRememberedSession?: boolean; clearStoredApiKey?: boolean } = {},
+	): void {
 		if (options.clearRememberedSession ?? true) {
 			clearRememberedSessionUserId();
+		}
+		if (options.clearStoredApiKey ?? true) {
+			clearStoredRuntimeApiKey();
 		}
 		currentUserIdRef.current = null;
 		authStatusRef.current = "anonymous";
@@ -646,10 +669,16 @@ function App() {
 		setActiveWorkspaceView("manage");
 		setMountedWorkspaceViews(DEFAULT_MOUNTED_WORKSPACES);
 		setAgentRegistrations(EMPTY_AGENT_REGISTRATIONS);
+		setAgentApiKeys(EMPTY_AGENT_API_KEYS);
+		setIssuedAgentApiKey(null);
 		setAgentTasks(EMPTY_AGENT_TASKS);
 		setAgentRecords(EMPTY_AGENT_RECORDS);
 		setIsLoadingAgentAudit(false);
 		setAgentAuditErrorMessage(null);
+		setIsCreatingAgentApiKey(false);
+		setRevokingAgentApiKeyId(null);
+		setAgentApiKeyErrorMessage(null);
+		setAgentApiKeyNoticeMessage(null);
 		hasLoadedAgentAuditRef.current = false;
 		agentAuditRequestInFlightRef.current = null;
 		latestAgentAuditRequestIdRef.current += 1;
@@ -788,32 +817,34 @@ function App() {
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
 
+		if (!hasStoredApiKey()) {
+			markSignedOut();
+			return;
+		}
+
 		try {
 			const session = await withTimeout(
 				getAuthSession(),
 				SESSION_CHECK_TIMEOUT_MS,
-				"会话检查超时",
+				"API Key 验证超时",
 			);
 			markSignedInWithProfile(session.user_id, session.email ?? null);
 		} catch (error) {
 			const nextErrorMessage =
 				error instanceof Error && error.message.trim()
 					? error.message
-					: "暂时无法验证登录状态，请稍后再试。";
+					: "暂时无法验证 API Key，请稍后再试。";
 			if (isAuthenticationErrorMessage(nextErrorMessage)) {
 				markSignedOut();
 				return;
 			}
 
-			markSignedOut({ clearRememberedSession: false });
+			markSignedOut({ clearRememberedSession: false, clearStoredApiKey: false });
 			setAuthErrorMessage(nextErrorMessage);
 		}
 	}
 
-	async function submitAuth(
-		mode: "login" | "register",
-		payload: AuthLoginCredentials | AuthRegisterCredentials,
-	): Promise<void> {
+	async function submitAuth(payload: ApiKeyAuthCredentials): Promise<void> {
 		setIsSubmittingAuth(true);
 		setAuthErrorMessage(null);
 		setAuthNoticeMessage(null);
@@ -821,40 +852,16 @@ function App() {
 
 		try {
 			const session = await withTimeout(
-				mode === "login"
-					? loginWithPassword(payload as AuthLoginCredentials)
-					: registerWithPassword(payload as AuthRegisterCredentials),
+				authenticateWithApiKey(payload),
 				AUTH_SUBMISSION_TIMEOUT_MS,
-				"请求超时，请检查后端服务或网络后重试。",
+				"API Key 验证超时，请检查网络或服务状态后重试。",
 			);
 			markSignedInWithProfile(session.user_id, session.email ?? null);
 		} catch (error) {
 			setAuthErrorMessage(
-				error instanceof Error ? error.message : "登录失败，请稍后再试。",
+				error instanceof Error ? error.message : "API Key 验证失败，请稍后再试。",
 			);
 			setAuthStatus("anonymous");
-		} finally {
-			setIsSubmittingAuth(false);
-		}
-	}
-
-	async function submitPasswordReset(payload: PasswordResetPayload): Promise<void> {
-		setIsSubmittingAuth(true);
-		setAuthErrorMessage(null);
-		setAuthNoticeMessage(null);
-		setAuthStatus("anonymous");
-
-		try {
-			const result = await withTimeout(
-				resetPasswordWithEmail(payload),
-				AUTH_SUBMISSION_TIMEOUT_MS,
-				"请求超时，请检查后端服务或网络后重试。",
-			);
-			setAuthNoticeMessage(result.message);
-		} catch (error) {
-			setAuthErrorMessage(
-				error instanceof Error ? error.message : "密码重置失败，请稍后再试。",
-			);
 		} finally {
 			setIsSubmittingAuth(false);
 		}
@@ -1257,7 +1264,7 @@ function App() {
 			const nextErrorMessage = error instanceof Error
 				? error.message
 				: "无法加载资产总览，请确认后端服务是否启动。";
-			if (nextErrorMessage.includes("请先登录") || nextErrorMessage.includes("请重新登录")) {
+			if (isAuthenticationErrorMessage(nextErrorMessage)) {
 				markSignedOut();
 				return;
 			}
@@ -1312,17 +1319,19 @@ function App() {
 			defaultAssetApiClient.listAgentRegistrations({
 				includeAllUsers: currentUserId === "admin",
 			}),
+			defaultAssetApiClient.listAgentApiKeys(),
 			defaultAssetApiClient.listAgentTasks(),
 			defaultAssetApiClient.listAssetRecords({
 				source: "AGENT",
 				limit: 120,
 			}),
 		])
-			.then(([registrations, tasks, records]) => {
+			.then(([registrations, apiKeys, tasks, records]) => {
 				if (latestAgentAuditRequestIdRef.current !== requestId) {
 					return;
 				}
 				setAgentRegistrations(registrations);
+				setAgentApiKeys(apiKeys);
 				setAgentTasks(tasks);
 				setAgentRecords(records);
 				hasLoadedAgentAuditRef.current = true;
@@ -1348,17 +1357,66 @@ function App() {
 		await requestPromise;
 	}
 
+	async function handleCreateAgentApiKey(name: string): Promise<void> {
+		const normalizedName = name.trim();
+		if (normalizedName.length < 3) {
+			setAgentApiKeyErrorMessage("API Key 名称至少需要 3 个字符。");
+			setAgentApiKeyNoticeMessage(null);
+			return;
+		}
+
+		setIsCreatingAgentApiKey(true);
+		setAgentApiKeyErrorMessage(null);
+		setAgentApiKeyNoticeMessage(null);
+
+		try {
+			const issuedKey = await defaultAssetApiClient.createAgentApiKey({
+				name: normalizedName,
+			});
+			setIssuedAgentApiKey(issuedKey);
+			setAgentApiKeyNoticeMessage("API Key 已生成。请立即复制并保存，这串密钥只会显示一次。");
+			await loadAgentAudit({ force: true });
+		} catch (error) {
+			setAgentApiKeyErrorMessage(
+				error instanceof Error ? error.message : "API Key 创建失败，请稍后再试。",
+			);
+		} finally {
+			setIsCreatingAgentApiKey(false);
+		}
+	}
+
+	async function handleRevokeAgentApiKey(tokenId: number): Promise<void> {
+		setRevokingAgentApiKeyId(tokenId);
+		setAgentApiKeyErrorMessage(null);
+		setAgentApiKeyNoticeMessage(null);
+
+		try {
+			await defaultAssetApiClient.revokeAgentApiKey(tokenId);
+			setIssuedAgentApiKey((currentIssuedKey) =>
+				currentIssuedKey?.id === tokenId ? null : currentIssuedKey,
+			);
+			setAgentApiKeyNoticeMessage("API Key 已撤销。");
+			await loadAgentAudit({ force: true });
+		} catch (error) {
+			setAgentApiKeyErrorMessage(
+				error instanceof Error ? error.message : "API Key 撤销失败，请稍后再试。",
+			);
+		} finally {
+			setRevokingAgentApiKeyId(null);
+		}
+	}
+
 	const isRecoveringSession = authStatus === "checking" && currentUserId !== null;
 
-		if (isRecoveringSession) {
-			return (
-				<div className="app-shell">
-					<header className="hero-panel">
+	if (isRecoveringSession) {
+		return (
+			<div className="app-shell">
+				<header className="hero-panel">
 					<div className="hero-copy-block">
 						<div className="hero-copy-block__main">
-							<p className="eyebrow">SESSION RESTORE</p>
-							<h1>正在恢复登录状态</h1>
-							<p className="hero-copy">确认当前会话之前，不展示本地缓存里的资产数据。</p>
+							<p className="eyebrow">API KEY VERIFY</p>
+							<h1>正在验证 API Key</h1>
+							<p className="hero-copy">确认当前 API Key 之前，不展示本地缓存里的资产数据。</p>
 							<p className="hero-subtle">验证通过后会继续回到你的工作区。</p>
 						</div>
 					</div>
@@ -1383,9 +1441,7 @@ function App() {
 				checkingSession={authStatus === "checking"}
 				errorMessage={authErrorMessage}
 				noticeMessage={authNoticeMessage}
-				onLogin={(payload) => submitAuth("login", payload)}
-				onRegister={(payload) => submitAuth("register", payload)}
-				onResetPassword={submitPasswordReset}
+				onAuthenticate={submitAuth}
 			/>
 		);
 	}
@@ -1431,9 +1487,9 @@ function App() {
 				<div className="hero-copy-block">
 					<p className="eyebrow">HENG CANG</p>
 					<h1>你好，{currentUserId}</h1>
-					<p className="hero-copy">你的资产与会话已隔离保存，并按分钟自动刷新。</p>
+					<p className="hero-copy">你的资产按 API Key 权限隔离保存，并按分钟自动刷新。</p>
 					<p className="hero-subtle">
-						{currentUserEmail ? currentUserEmail : "未绑定邮箱，可用于找回密码。"}
+						{currentUserEmail ? currentUserEmail : "未绑定邮箱。"}
 					</p>
 					<div className="hero-actions">
 						<button
@@ -1499,7 +1555,7 @@ function App() {
 							className="hero-note hero-note--action"
 							onClick={() => void handleLogout()}
 						>
-							退出登录
+							退出
 						</button>
 					</div>
 					<div className="hero-rates" aria-label="实时汇率">
@@ -1670,12 +1726,21 @@ function App() {
 					</div>
 
 					<AgentExecutionAuditPanel
+						apiKeys={agentApiKeys}
 						registrations={agentRegistrations}
 						tasks={agentTasks}
 						records={agentRecords}
 						apiDocUrl="https://github.com/RockYYY888/finance--tracker/blob/main/docs/agent-api.md"
 						loading={isLoadingAgentAudit}
 						errorMessage={agentAuditErrorMessage}
+						apiKeyErrorMessage={agentApiKeyErrorMessage}
+						apiKeyNoticeMessage={agentApiKeyNoticeMessage}
+						issuedApiKey={issuedAgentApiKey}
+						isCreatingApiKey={isCreatingAgentApiKey}
+						revokingApiKeyId={revokingAgentApiKeyId}
+						onCreateApiKey={(name) => void handleCreateAgentApiKey(name)}
+						onRevokeApiKey={(tokenId) => void handleRevokeAgentApiKey(tokenId)}
+						onDismissIssuedApiKey={() => setIssuedAgentApiKey(null)}
 					/>
 				</section>
 			) : null}
