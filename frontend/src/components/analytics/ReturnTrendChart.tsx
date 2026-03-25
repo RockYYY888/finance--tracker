@@ -247,7 +247,7 @@ export function ReturnTrendChart({
 		intervalSelection.intervalPoints.length > 0
 			? summarizeTimeline(intervalSelection.intervalPoints)
 			: null;
-	const periodLabel =
+	const comparisonRangeLabel =
 		intervalSelection.startPoint && intervalSelection.endPoint
 			? formatTimelineRangeLabel(
 					intervalSelection.startPoint.point,
@@ -260,6 +260,9 @@ export function ReturnTrendChart({
 	const visibleCompoundedStepRate = hasData
 		? summarizeAverageStepDelta(intervalSelection.intervalPoints)
 		: 0;
+	const comparisonCardDescription = hasData
+		? "选择任意两个时间点，仅更新下方指标，不改变上方图像。"
+		: "当前区间数据不足时，下方指标会在累计后自动补齐。";
 	const yAxisWidth = getAdaptiveYAxisWidth(
 		[
 			formatCompactPercentMetric(axisLayout.minValue),
@@ -361,50 +364,6 @@ export function ReturnTrendChart({
 				</label>
 			) : null}
 
-			<div className="analytics-card__meta analytics-card__meta--stacked">
-				<TimelineRangeSelector
-					selectablePoints={intervalSelection.selectablePoints}
-					startKey={intervalSelection.startKey}
-					endKey={intervalSelection.endKey}
-					isFullRangeSelected={intervalSelection.isFullRangeSelected}
-					onStartChange={intervalSelection.handleStartKeyChange}
-					onEndChange={intervalSelection.handleEndKeyChange}
-					onReset={intervalSelection.resetSelection}
-				/>
-				<div className="analytics-card__meta">
-					<div className="analytics-pill">
-						<span>{selectorLabel}</span>
-						<strong>{selectedOption?.label ?? "未选择"}</strong>
-					</div>
-					<div className="analytics-pill">
-						<span>终点收益率</span>
-						<strong>
-							{intervalSummary
-								? formatPercentMetric(intervalLatestValue)
-								: "--"}
-						</strong>
-					</div>
-					<div className="analytics-pill">
-						<span>{periodLabel}</span>
-						<strong>
-							{intervalSummary
-								? formatPercentMetric(intervalChangeValue, true)
-								: "--"}
-						</strong>
-					</div>
-					{showCompoundedStepRate ? (
-						<div className="analytics-pill">
-							<span>{`区间内${STEP_DELTA_LABELS[activeRange]}`}</span>
-							<strong>
-								{intervalSelection.intervalPoints.length >= 2
-									? formatPercentMetric(visibleCompoundedStepRate, true)
-									: "--"}
-							</strong>
-						</div>
-					) : null}
-				</div>
-			</div>
-
 			{loading ? (
 				<div className="analytics-empty-state">正在加载收益率数据...</div>
 			) : !hasData ? (
@@ -415,7 +374,7 @@ export function ReturnTrendChart({
 					ref={chartContainerRef}
 					{...chartInteractionHandlers}
 				>
-					<ResponsiveContainer width="100%" height={300}>
+					<ResponsiveContainer width="100%" height={compactAxisMode ? 272 : 300}>
 						<ComposedChart
 							data={chartData}
 							margin={{
@@ -438,10 +397,7 @@ export function ReturnTrendChart({
 								interval={0}
 								minTickGap={compactAxisMode ? 24 : 12}
 								tickMargin={compactAxisMode ? 10 : 8}
-								padding={{
-									left: compactAxisMode ? 8 : 14,
-									right: compactAxisMode ? 16 : 24,
-								}}
+								padding={{ left: 0, right: 0 }}
 								tickFormatter={(xValue: number) =>
 									formatTimelineAxisLabel(
 										xAxisLabelByValue.get(xValue) ?? "",
@@ -558,6 +514,67 @@ export function ReturnTrendChart({
 					</div>
 				</div>
 			)}
+
+			<div className="analytics-comparison-card">
+				<div className="analytics-comparison-card__header">
+					<div className="analytics-comparison-card__copy">
+						<strong>指标比较区间</strong>
+						<p>{comparisonCardDescription}</p>
+					</div>
+					{!intervalSelection.isFullRangeSelected ? (
+						<button
+							type="button"
+							className="analytics-interval-selector__reset"
+							onClick={intervalSelection.resetSelection}
+						>
+							恢复全区间
+						</button>
+					) : null}
+				</div>
+				<div className="analytics-comparison-card__current">
+					<span>当前区间</span>
+					<strong>{comparisonRangeLabel}</strong>
+				</div>
+				<TimelineRangeSelector
+					selectablePoints={intervalSelection.selectablePoints}
+					startKey={intervalSelection.startKey}
+					endKey={intervalSelection.endKey}
+					isFullRangeSelected={intervalSelection.isFullRangeSelected}
+					onStartChange={intervalSelection.handleStartKeyChange}
+					onEndChange={intervalSelection.handleEndKeyChange}
+					onReset={intervalSelection.resetSelection}
+					showHeader={false}
+					embedded
+				/>
+				<div className="analytics-card__meta">
+					<div className="analytics-pill">
+						<span>终点收益率</span>
+						<strong>
+							{intervalSummary
+								? formatPercentMetric(intervalLatestValue)
+								: "--"}
+						</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>区间变化</span>
+						<strong>
+							{intervalSummary
+								? formatPercentMetric(intervalChangeValue, true)
+								: "--"}
+						</strong>
+					</div>
+					{showCompoundedStepRate ? (
+						<div className="analytics-pill">
+							<span>{`区间内${STEP_DELTA_LABELS[activeRange]}`}</span>
+							<strong>
+								{intervalSelection.intervalPoints.length >= 2
+									? formatPercentMetric(visibleCompoundedStepRate, true)
+									: "--"}
+							</strong>
+						</div>
+					) : null}
+				</div>
+			</div>
 		</section>
 	);
 }

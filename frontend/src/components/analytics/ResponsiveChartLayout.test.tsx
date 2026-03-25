@@ -196,8 +196,11 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.dataKey).toBe("xValue");
 		expect(xAxisProps.interval).toBe(0);
 		expect(xAxisProps.ticks).toHaveLength(3);
-		expect(xAxisProps.padding.right).toBeGreaterThan(0);
+		expect(xAxisProps.padding).toEqual({ left: 0, right: 0 });
 		expect(xAxisProps.tickFormatter(xAxisProps.ticks[0]!)).toBe("03-01");
+		expect(
+			getLastRecordedProps(rechartsState.responsiveContainers).height,
+		).toBe(280);
 	});
 
 	it("keeps all portfolio trend ranges visible and derives 24H from sparse history", async () => {
@@ -277,7 +280,9 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.getByText("基准线上方区域")).toBeTruthy();
 		expect(screen.queryByText("最新净值")).toBeNull();
 		expect(screen.getByText("终点投资类收益率")).toBeTruthy();
-		expect(screen.getAllByText("03-01→03-03")).toHaveLength(1);
+		expect(screen.getByText("当前区间").parentElement?.textContent).toContain(
+			"03-01→03-03",
+		);
 		expect(screen.getByText("+2.00%")).toBeTruthy();
 	});
 
@@ -310,7 +315,7 @@ describe("analytics charts responsive layout", () => {
 			);
 		});
 
-		const summaryPill = screen.getByText("03-01→03-14").parentElement;
+		const summaryPill = screen.getByText("区间变化").parentElement;
 		expect(summaryPill?.textContent).toContain("-7.56%");
 		expect(summaryPill?.textContent).not.toContain("75600.00%");
 	});
@@ -411,8 +416,11 @@ describe("analytics charts responsive layout", () => {
 		expect(xAxisProps.dataKey).toBe("xValue");
 		expect(xAxisProps.interval).toBe(0);
 		expect(xAxisProps.ticks).toHaveLength(3);
-		expect(xAxisProps.padding.right).toBeGreaterThan(0);
+		expect(xAxisProps.padding).toEqual({ left: 0, right: 0 });
 		expect(xAxisProps.tickFormatter(2)).toBe("03");
+		expect(
+			getLastRecordedProps(rechartsState.responsiveContainers).height,
+		).toBe(272);
 	});
 
 	it("keeps all return trend ranges visible and derives 24H from sparse history", async () => {

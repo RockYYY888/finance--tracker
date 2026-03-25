@@ -174,27 +174,64 @@
 	width: 100%;
 }
 
-.portfolio-trend-card__summary {
+.analytics-chart--interactive {
+	touch-action: none;
+	overscroll-behavior: contain;
+}
+
+.analytics-comparison-card {
+	display: grid;
+	gap: 0.85rem;
+	padding: 1rem;
+	border-radius: 24px;
+	border: 1px solid rgba(122, 214, 255, 0.12);
+	background:
+		linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 26%),
+		rgba(255, 255, 255, 0.02);
+}
+
+.analytics-comparison-card__header {
 	display: flex;
 	align-items: flex-start;
+	justify-content: space-between;
 	gap: 0.8rem;
 	flex-wrap: wrap;
 }
 
-.portfolio-trend-card__summary-body {
+.analytics-comparison-card__copy {
 	display: grid;
-	flex: 1 1 560px;
-	gap: 0.8rem;
-	min-width: min(100%, 320px);
+	gap: 0.28rem;
 }
 
-.portfolio-trend-card__summary > .analytics-segmented {
-	flex: 0 0 auto;
+.analytics-comparison-card__copy strong {
+	color: var(--text-main);
+	font-size: 0.98rem;
 }
 
-.analytics-chart--interactive {
-	touch-action: none;
-	overscroll-behavior: contain;
+.analytics-comparison-card__copy p {
+	margin: 0;
+	font-size: 0.84rem;
+	line-height: 1.5;
+	color: var(--text-muted);
+}
+
+.analytics-comparison-card__current {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.1rem 0.05rem 0;
+}
+
+.analytics-comparison-card__current span {
+	font-size: 0.8rem;
+	color: var(--text-muted);
+}
+
+.analytics-comparison-card__current strong {
+	color: var(--text-main);
+	font-size: 0.92rem;
+	text-align: right;
 }
 
 .analytics-interval-selector {
@@ -204,6 +241,13 @@
 	border-radius: 22px;
 	border: 1px solid rgba(122, 214, 255, 0.12);
 	background: rgba(255, 255, 255, 0.02);
+}
+
+.analytics-interval-selector--embedded {
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
 }
 
 .analytics-interval-selector__header {
@@ -703,12 +747,13 @@
 		max-width: none;
 	}
 
-	.portfolio-trend-card__summary {
-		flex-direction: column;
-	}
-
 	.analytics-card__meta--trend {
 		flex-basis: auto;
+	}
+
+	.analytics-comparison-card__current {
+		flex-direction: column;
+		align-items: flex-start;
 	}
 
 	.analytics-interval-selector__fields {
@@ -750,10 +795,6 @@
 @media (max-width: 560px) {
 	.analytics-metric-grid {
 		grid-template-columns: 1fr;
-	}
-
-	.analytics-chart {
-		padding-inline: 0.15rem;
 	}
 
 	.analytics-segmented {

@@ -12,6 +12,8 @@ type TimelineRangeSelectorProps = {
 	onStartChange: (nextKey: string) => void;
 	onEndChange: (nextKey: string) => void;
 	onReset: () => void;
+	showHeader?: boolean;
+	embedded?: boolean;
 };
 
 export function TimelineRangeSelector({
@@ -22,6 +24,8 @@ export function TimelineRangeSelector({
 	onStartChange,
 	onEndChange,
 	onReset,
+	showHeader = true,
+	embedded = false,
 }: TimelineRangeSelectorProps) {
 	const options: TimelinePointPickerOption[] = selectablePoints.map((point) => ({
 		key: point.key,
@@ -39,19 +43,28 @@ export function TimelineRangeSelector({
 	const latestEndKey = endOptions[endOptions.length - 1]?.key ?? null;
 
 	return (
-		<div className="analytics-interval-selector">
-			<div className="analytics-interval-selector__header">
-				<span className="analytics-interval-selector__label">比较区间</span>
-				{!isFullRangeSelected ? (
-					<button
-						type="button"
-						className="analytics-interval-selector__reset"
-						onClick={onReset}
-					>
-						恢复全区间
-					</button>
-				) : null}
-			</div>
+		<div
+			className={[
+				"analytics-interval-selector",
+				embedded ? "analytics-interval-selector--embedded" : "",
+			]
+				.filter(Boolean)
+				.join(" ")}
+		>
+			{showHeader ? (
+				<div className="analytics-interval-selector__header">
+					<span className="analytics-interval-selector__label">比较区间</span>
+					{!isFullRangeSelected ? (
+						<button
+							type="button"
+							className="analytics-interval-selector__reset"
+							onClick={onReset}
+						>
+							恢复全区间
+						</button>
+					) : null}
+				</div>
+			) : null}
 			<div className="analytics-interval-selector__fields">
 				<TimelinePointPicker
 					label="起点"

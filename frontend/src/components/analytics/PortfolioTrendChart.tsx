@@ -259,7 +259,7 @@ export function PortfolioTrendChart({
 		intervalSelection.intervalPoints.length > 0
 			? summarizeTimeline(intervalSelection.intervalPoints)
 			: null;
-	const activePeriodLabel =
+	const comparisonRangeLabel =
 		intervalSelection.startPoint && intervalSelection.endPoint
 			? formatTimelineRangeLabel(
 					intervalSelection.startPoint.point,
@@ -416,6 +416,9 @@ export function PortfolioTrendChart({
 						summarizeAverageStepDelta(intervalSelection.intervalPoints),
 						true,
 					);
+	const comparisonCardDescription = hasData
+		? "选择任意两个时间点，仅更新下方指标，不改变上方图像。"
+		: "当前区间数据不足时，下方指标会在累计后自动补齐。";
 
 	return (
 		<section className="analytics-card">
@@ -445,57 +448,22 @@ export function PortfolioTrendChart({
 				</div>
 			</div>
 
-			<div className="portfolio-trend-card__summary">
-				<div
-					className="analytics-segmented"
-					role="tablist"
-					aria-label="选择趋势维度"
-				>
-					{(Object.keys(MODE_LABELS) as PortfolioTrendDisplayMode[]).map((mode) => (
-						<button
-							key={mode}
-							type="button"
-							className={displayMode === mode ? "active" : ""}
-							onClick={() => setDisplayMode(mode)}
-							disabled={fallbackRangeByMode[mode] === null}
-						>
-							{MODE_LABELS[mode]}
-						</button>
-					))}
-				</div>
-				<div className="portfolio-trend-card__summary-body">
-					<TimelineRangeSelector
-						selectablePoints={intervalSelection.selectablePoints}
-						startKey={intervalSelection.startKey}
-						endKey={intervalSelection.endKey}
-						isFullRangeSelected={intervalSelection.isFullRangeSelected}
-						onStartChange={intervalSelection.handleStartKeyChange}
-						onEndChange={intervalSelection.handleEndKeyChange}
-						onReset={intervalSelection.resetSelection}
-					/>
-					<div className="analytics-card__meta analytics-card__meta--trend">
-						<div className="analytics-pill">
-							<span>{activeValueLabel}</span>
-							<strong>
-								{displayMode === "value"
-									? hasActiveSummaryData
-										? formatCny(intervalLatestValue)
-										: "--"
-									: hasActiveSummaryData
-										? formatPercentMetric(intervalLatestValue)
-										: "--"}
-							</strong>
-						</div>
-						<div className="analytics-pill">
-							<span>{activePeriodLabel}</span>
-							<strong>{activePeriodValue}</strong>
-						</div>
-						<div className="analytics-pill">
-							<span>{activeStepMetricLabel}</span>
-							<strong>{activeStepMetricValue}</strong>
-						</div>
-					</div>
-				</div>
+			<div
+				className="analytics-segmented"
+				role="tablist"
+				aria-label="选择趋势维度"
+			>
+				{(Object.keys(MODE_LABELS) as PortfolioTrendDisplayMode[]).map((mode) => (
+					<button
+						key={mode}
+						type="button"
+						className={displayMode === mode ? "active" : ""}
+						onClick={() => setDisplayMode(mode)}
+						disabled={fallbackRangeByMode[mode] === null}
+					>
+						{MODE_LABELS[mode]}
+					</button>
+				))}
 			</div>
 
 			{loading ? (
@@ -512,7 +480,7 @@ export function PortfolioTrendChart({
 					ref={chartContainerRef}
 					{...chartInteractionHandlers}
 				>
-					<ResponsiveContainer width="100%" height={320}>
+					<ResponsiveContainer width="100%" height={compactAxisMode ? 280 : 320}>
 						<ComposedChart
 							data={activeChartData}
 							margin={{
@@ -535,10 +503,7 @@ export function PortfolioTrendChart({
 								interval={0}
 								minTickGap={compactAxisMode ? 24 : 12}
 								tickMargin={compactAxisMode ? 10 : 8}
-								padding={{
-									left: compactAxisMode ? 8 : 14,
-									right: compactAxisMode ? 16 : 24,
-								}}
+								padding={{ left: 0, right: 0 }}
 								tickFormatter={(xValue: number) =>
 									formatTimelineAxisLabel(
 										xAxisLabelByValue.get(xValue) ?? "",
@@ -662,6 +627,61 @@ export function PortfolioTrendChart({
 					</div>
 				</div>
 			)}
+
+			<div className="analytics-comparison-card">
+				<div className="analytics-comparison-card__header">
+					<div className="analytics-comparison-card__copy">
+						<strong>指标比较区间</strong>
+						<p>{comparisonCardDescription}</p>
+					</div>
+					{!intervalSelection.isFullRangeSelected ? (
+						<button
+							type="button"
+							className="analytics-interval-selector__reset"
+							onClick={intervalSelection.resetSelection}
+						>
+							恢复全区间
+						</button>
+					) : null}
+				</div>
+				<div className="analytics-comparison-card__current">
+					<span>当前区间</span>
+					<strong>{comparisonRangeLabel}</strong>
+				</div>
+				<TimelineRangeSelector
+					selectablePoints={intervalSelection.selectablePoints}
+					startKey={intervalSelection.startKey}
+					endKey={intervalSelection.endKey}
+					isFullRangeSelected={intervalSelection.isFullRangeSelected}
+					onStartChange={intervalSelection.handleStartKeyChange}
+					onEndChange={intervalSelection.handleEndKeyChange}
+					onReset={intervalSelection.resetSelection}
+					showHeader={false}
+					embedded
+				/>
+				<div className="analytics-card__meta analytics-card__meta--trend">
+					<div className="analytics-pill">
+						<span>{activeValueLabel}</span>
+						<strong>
+							{displayMode === "value"
+								? hasActiveSummaryData
+									? formatCny(intervalLatestValue)
+									: "--"
+								: hasActiveSummaryData
+									? formatPercentMetric(intervalLatestValue)
+									: "--"}
+						</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>区间变化</span>
+						<strong>{activePeriodValue}</strong>
+					</div>
+					<div className="analytics-pill">
+						<span>{activeStepMetricLabel}</span>
+						<strong>{activeStepMetricValue}</strong>
+					</div>
+				</div>
+			</div>
 		</section>
 	);
 }
