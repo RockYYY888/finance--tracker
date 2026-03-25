@@ -4,7 +4,6 @@ import {
 	CartesianGrid,
 	ComposedChart,
 	Line,
-	ReferenceDot,
 	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
@@ -48,6 +47,7 @@ import {
 import {
 	buildChartTradeMarkers,
 } from "./chartTradeMarkers";
+import { TradeMarkerScatter } from "./TradeMarkerScatter";
 import { TimelineRangeSelector } from "./TimelineRangeSelector";
 import { useChartInteractionLock } from "./useChartInteractionLock";
 import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
@@ -660,26 +660,7 @@ export function PortfolioTrendChart({
 								activeDot={false}
 								connectNulls
 							/>
-							{activeTradeMarkers.map((marker) => (
-								<ReferenceDot
-									key={`trade-marker-${marker.xValue}`}
-									x={marker.xValue}
-									y={marker.yValue}
-									r={5.5}
-									fill={marker.fill}
-									stroke={marker.stroke}
-									strokeWidth={2}
-									ifOverflow="extendDomain"
-									label={{
-										value: marker.label,
-										position: "top",
-										fill: marker.labelColor,
-										fontSize: 12,
-										fontWeight: 700,
-										offset: 8,
-									}}
-								/>
-							))}
+							<TradeMarkerScatter markers={activeTradeMarkers} />
 							<Line
 								type="linear"
 								dataKey="value"

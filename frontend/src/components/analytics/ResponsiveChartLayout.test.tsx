@@ -20,7 +20,7 @@ const rechartsState = vi.hoisted(() => ({
 	tooltips: [] as Array<Record<string, unknown>>,
 	lines: [] as Array<Record<string, unknown>>,
 	areas: [] as Array<Record<string, unknown>>,
-	referenceDots: [] as Array<Record<string, unknown>>,
+	scatters: [] as Array<Record<string, unknown>>,
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
@@ -63,8 +63,8 @@ vi.mock("recharts", () => ({
 		rechartsState.areas.push(props);
 		return null;
 	},
-	ReferenceDot: (props: Record<string, unknown>) => {
-		rechartsState.referenceDots.push(props);
+	Scatter: (props: Record<string, unknown>) => {
+		rechartsState.scatters.push(props);
 		return null;
 	},
 	Line: (props: Record<string, unknown>) => {
@@ -143,7 +143,7 @@ describe("analytics charts responsive layout", () => {
 		rechartsState.tooltips.length = 0;
 		rechartsState.lines.length = 0;
 		rechartsState.areas.length = 0;
-		rechartsState.referenceDots.length = 0;
+		rechartsState.scatters.length = 0;
 		rechartsState.xAxes.length = 0;
 		rechartsState.yAxes.length = 0;
 		rechartsState.pies.length = 0;
@@ -776,22 +776,24 @@ describe("analytics charts responsive layout", () => {
 			/>,
 		);
 
-		expect(rechartsState.referenceDots).toHaveLength(0);
+		expect(rechartsState.scatters).toHaveLength(0);
 		fireEvent.click(screen.getByRole("button", { name: "投资类收益率" }));
 
 		await waitFor(() => {
-			expect(rechartsState.referenceDots.length).toBeGreaterThanOrEqual(2);
+			expect(rechartsState.scatters.length).toBeGreaterThanOrEqual(1);
 		});
 
 		const portfolioMarkerLabels = [...new Set(
-			rechartsState.referenceDots.map(
-				(dot) => (dot.label as { value?: string }).value,
+			rechartsState.scatters.flatMap((scatter) =>
+				((scatter.data as Array<{ label?: string }> | undefined) ?? []).map(
+					(marker) => marker.label,
+				),
 			),
 		)];
 		expect(portfolioMarkerLabels).toEqual(["B/S", "S"]);
 
 		portfolioRender.unmount();
-		rechartsState.referenceDots.length = 0;
+		rechartsState.scatters.length = 0;
 
 		render(
 			<ReturnTrendChart
@@ -849,18 +851,20 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(rechartsState.referenceDots.length).toBeGreaterThanOrEqual(1);
+			expect(rechartsState.scatters.length).toBeGreaterThanOrEqual(1);
 		});
 
-		const singleHoldingMarker = rechartsState.referenceDots[
-			rechartsState.referenceDots.length - 1
+		const singleHoldingMarker = rechartsState.scatters[
+			rechartsState.scatters.length - 1
 		] as {
-			label?: { value?: string };
+			data?: Array<{ label?: string }>;
 		};
-		expect(singleHoldingMarker.label?.value).toBe("B");
+		expect(singleHoldingMarker.data?.[0]?.label).toBe("B");
 		expect(
-			[...new Set(rechartsState.referenceDots.map(
-				(dot) => (dot.label as { value?: string }).value,
+			[...new Set(rechartsState.scatters.flatMap((scatter) =>
+				((scatter.data as Array<{ label?: string }> | undefined) ?? []).map(
+					(marker) => marker.label,
+				),
 			))],
 		).toEqual(["B"]);
 	});
