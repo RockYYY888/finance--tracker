@@ -15,7 +15,7 @@ import release_env
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
 DEFAULT_BRANCH = "main"
-DEFAULT_SERVER_PATH = "~/opentrifi"
+DEFAULT_SERVER_PATH = "~/finance--tracker"
 DEFAULT_DEPLOY_COMMAND = (
 	"docker compose -f docker-compose.yml -f docker-compose.production.yml "
 	"-f docker-compose.proxy.yml up -d --build --remove-orphans"
