@@ -87,6 +87,10 @@ export function TradeMarkerScatter({
 			viewBox={`0 0 ${chartWidth} ${chartHeight}`}
 			aria-hidden="true"
 			pointerEvents="none"
+			style={{
+				width: `${chartWidth}px`,
+				height: `${chartHeight}px`,
+			}}
 		>
 			{markers.map((marker) => {
 				const cx = resolveHorizontalPosition(
