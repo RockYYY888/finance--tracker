@@ -47,6 +47,7 @@ async def _load_display_fx_rates(
 					currency_code,
 					"CNY",
 					prefer_stale=True,
+					schedule_stale_refresh=False,
 				)
 			else:
 				rate, rate_warnings = await service_context.market_data_client.fetch_fx_rate(
@@ -95,6 +96,7 @@ async def _value_cash_accounts(
 						currency_code,
 						"CNY",
 						prefer_stale=True,
+						schedule_stale_refresh=False,
 					)
 				else:
 					fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
@@ -142,6 +144,7 @@ async def _value_holding(
 				holding.symbol,
 				holding.market,
 				prefer_stale=True,
+				schedule_stale_refresh=False,
 			)
 		else:
 			quote, quote_warnings = await service_context.market_data_client.fetch_quote(
@@ -159,6 +162,7 @@ async def _value_holding(
 					currency_code,
 					"CNY",
 					prefer_stale=True,
+					schedule_stale_refresh=False,
 				)
 			else:
 				fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
@@ -292,6 +296,7 @@ async def _value_liabilities(
 						currency_code,
 						"CNY",
 						prefer_stale=True,
+						schedule_stale_refresh=False,
 					)
 				else:
 					fx_rate, fx_warnings = await service_context.market_data_client.fetch_fx_rate(

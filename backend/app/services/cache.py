@@ -63,10 +63,12 @@ class RedisBackedTTLCache(Generic[CacheValue]):
 		redis_client: Redis,
 		prefix: str,
 		now: Callable[[], float] | None = None,
+		stale_ttl_seconds: float | None = None,
 	) -> None:
 		self._redis = redis_client
 		self._prefix = prefix
 		self._now = now or time
+		self._stale_ttl_seconds = stale_ttl_seconds
 
 	def _entry_key(self, key: str) -> str:
 		encoded_key = base64.urlsafe_b64encode(key.encode("utf-8")).decode("ascii")
@@ -97,7 +99,14 @@ class RedisBackedTTLCache(Generic[CacheValue]):
 			value=value,
 			expires_at=self._now() + ttl_seconds,
 		)
-		self._redis.set(self._entry_key(key), pickle.dumps(entry, protocol=pickle.HIGHEST_PROTOCOL))
+		redis_ttl_seconds = self._stale_ttl_seconds
+		if redis_ttl_seconds is None:
+			redis_ttl_seconds = max(float(ttl_seconds) * 60, 60 * 60)
+		self._redis.set(
+			self._entry_key(key),
+			pickle.dumps(entry, protocol=pickle.HIGHEST_PROTOCOL),
+			ex=max(1, int(redis_ttl_seconds)),
+		)
 		return value
 
 	def clear(self) -> None:
@@ -114,4 +123,9 @@ class RedisBackedTTLCache(Generic[CacheValue]):
 				continue
 			entry: CacheEntry[CacheValue] = pickle.loads(raw_value)
 			entry.expires_at = now
-			self._redis.set(redis_key, pickle.dumps(entry, protocol=pickle.HIGHEST_PROTOCOL))
+			redis_ttl_seconds = self._stale_ttl_seconds or 60 * 60
+			self._redis.set(
+				redis_key,
+				pickle.dumps(entry, protocol=pickle.HIGHEST_PROTOCOL),
+				ex=max(1, int(redis_ttl_seconds)),
+			)

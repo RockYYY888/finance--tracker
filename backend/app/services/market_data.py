@@ -1231,6 +1231,7 @@ class MarketDataClient:
 		market: str | None = None,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[Quote, list[str]]:
 		"""Fetch a quote, preferring a fresh cache hit and falling back to stale data."""
 		normalized_market = (market or "").strip().upper() or None
@@ -1241,8 +1242,11 @@ class MarketDataClient:
 			return cached_quote, []
 		stale_quote = self.quote_cache.get_stale(normalized_symbol)
 		if prefer_stale and stale_quote is not None:
-			self._ensure_quote_refresh(normalized_symbol, resolved_market)
+			if schedule_stale_refresh:
+				self._ensure_quote_refresh(normalized_symbol, resolved_market)
 			return stale_quote, []
+		if prefer_stale and not schedule_stale_refresh:
+			raise QuoteLookupError(f"{normalized_symbol} quote cache is still warming.")
 
 		try:
 			quote = await self._fetch_quote_from_providers(normalized_symbol, resolved_market)
@@ -1264,6 +1268,7 @@ class MarketDataClient:
 		to_currency: str,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[float, list[str]]:
 		"""Fetch an FX rate from the dedicated FX provider and fall back to stale cache."""
 		from_code = from_currency.strip().upper()
@@ -1277,8 +1282,11 @@ class MarketDataClient:
 			return cached_rate, []
 		stale_rate = self.fx_cache.get_stale(cache_key)
 		if prefer_stale and stale_rate is not None:
-			self._ensure_fx_refresh(from_code, to_code)
+			if schedule_stale_refresh:
+				self._ensure_fx_refresh(from_code, to_code)
 			return stale_rate, []
+		if prefer_stale and not schedule_stale_refresh:
+			raise QuoteLookupError(f"{from_code}/{to_code} FX cache is still warming.")
 
 		try:
 			rate = await self._fetch_fx_rate_from_providers(from_code, to_code)

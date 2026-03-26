@@ -117,7 +117,7 @@ function buildNumericXAxisDomain(
 const RANGE_LABELS: Record<TimelineRange, string> = {
 	second: "分钟",
 	minute: "小时",
-	hour: "1天",
+	hour: "天",
 	day: "周",
 	month: "月",
 	year: "年",
@@ -216,7 +216,7 @@ export function PortfolioTrendChart({
 	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
-	description = "查看资产总额与投资类收益率在分钟、小时、1 天、周、月和近一年内的变化。",
+	description = "查看资产总额与投资类收益率在分钟、小时、天、周、月和近一年内的变化。",
 }: PortfolioTrendChartProps) {
 	const [displayMode, setDisplayMode] =
 		useState<PortfolioTrendDisplayMode>("value");

@@ -84,9 +84,16 @@ def _runtime_lock_key(name: str) -> str:
 
 
 class RedisBackedDict(MutableMapping[KeyType, ValueType], Generic[KeyType, ValueType]):
-	def __init__(self, redis_client: Redis, prefix: str) -> None:
+	def __init__(
+		self,
+		redis_client: Redis,
+		prefix: str,
+		*,
+		ttl_seconds: int | None = None,
+	) -> None:
 		self._redis = redis_client
 		self._prefix = prefix
+		self._ttl_seconds = ttl_seconds
 
 	def _entry_key(self, key: KeyType) -> str:
 		return f"{self._prefix}:{_serialize_key(key)}"
@@ -98,7 +105,11 @@ class RedisBackedDict(MutableMapping[KeyType, ValueType], Generic[KeyType, Value
 		return value
 
 	def __setitem__(self, key: KeyType, value: ValueType) -> None:
-		self._redis.set(self._entry_key(key), _serialize(value))
+		self._redis.set(
+			self._entry_key(key),
+			_serialize(value),
+			ex=self._ttl_seconds,
+		)
 
 	def __delitem__(self, key: KeyType) -> None:
 		if self._redis.delete(self._entry_key(key)) == 0:
@@ -218,16 +229,21 @@ class RedisBackedScalar(Generic[ScalarType]):
 
 settings = get_settings()
 DEFAULT_LOCAL_REDIS_URL = "redis://127.0.0.1:6380/0"
+DASHBOARD_CACHE_TTL_SECONDS = 10 * 60
+LIVE_RUNTIME_STATE_TTL_SECONDS = 2 * 60 * 60
+LOGIN_ATTEMPT_TTL_SECONDS = 24 * 60 * 60
 redis_url = settings.redis_url_value() or DEFAULT_LOCAL_REDIS_URL
 redis_client: Redis = Redis.from_url(redis_url)
 
 dashboard_cache: MutableMapping[str, DashboardCacheEntry] = RedisBackedDict[str, DashboardCacheEntry](
 	redis_client,
 	"asset-tracker:runtime:dashboard-cache",
+	ttl_seconds=DASHBOARD_CACHE_TTL_SECONDS,
 )
 live_portfolio_states: MutableMapping[str, LivePortfolioState] = RedisBackedDict[str, LivePortfolioState](
 	redis_client,
 	"asset-tracker:runtime:live-portfolio",
+	ttl_seconds=LIVE_RUNTIME_STATE_TTL_SECONDS,
 )
 live_holdings_return_states: MutableMapping[str, LiveHoldingsReturnState] = RedisBackedDict[
 	str,
@@ -235,6 +251,7 @@ live_holdings_return_states: MutableMapping[str, LiveHoldingsReturnState] = Redi
 ](
 	redis_client,
 	"asset-tracker:runtime:live-holdings-return",
+	ttl_seconds=LIVE_RUNTIME_STATE_TTL_SECONDS,
 )
 login_attempt_states: MutableMapping[tuple[str, str], LoginAttemptState] = RedisBackedDict[
 	tuple[str, str],
@@ -242,6 +259,7 @@ login_attempt_states: MutableMapping[tuple[str, str], LoginAttemptState] = Redis
 ](
 	redis_client,
 	"asset-tracker:runtime:login-attempts",
+	ttl_seconds=LOGIN_ATTEMPT_TTL_SECONDS,
 )
 snapshot_rebuild_queue = RedisBackedQueue(
 	redis_client,

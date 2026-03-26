@@ -31,7 +31,6 @@ from app.services.common_service import (
 	_coerce_utc_datetime,
 	_current_hour_bucket,
 	_current_second_bucket,
-	_invalidate_dashboard_cache,
 	_is_current_second,
 	_normalize_currency,
 )
@@ -40,6 +39,7 @@ from app.services.market_data import Quote, QuoteLookupError
 REALTIME_SERIES_RETENTION = timedelta(hours=1, minutes=5)
 REALTIME_SAMPLER_INTERVAL_SECONDS = 1.0
 REALTIME_SAMPLER_LOCK_NAME = "realtime-analytics-sampler"
+REALTIME_MARKET_DATA_CONCURRENCY = 16
 GroupedItem = TypeVar("GroupedItem")
 
 
@@ -62,67 +62,65 @@ def _group_by_user_id(
 	return grouped
 
 
-def _list_active_user_ids(session: Session) -> list[str]:
-	user_ids: set[str] = set()
-	for model in (CashAccount, SecurityHolding, FixedAsset, LiabilityEntry, OtherAsset):
-		user_ids.update(session.exec(select(model.user_id).distinct()).all())
-	return sorted(user_ids)
-
-
-def _load_assets_for_users(
+def _load_assets_for_all_users(
 	session: Session,
-	user_ids: list[str],
 ) -> tuple[
+	list[str],
 	dict[str, list[CashAccount]],
 	dict[str, list[SecurityHolding]],
 	dict[str, list[FixedAsset]],
 	dict[str, list[LiabilityEntry]],
 	dict[str, list[OtherAsset]],
 ]:
-	if not user_ids:
-		return {}, {}, {}, {}, {}
-
 	accounts = list(
 		session.exec(
 			select(CashAccount)
-			.where(CashAccount.user_id.in_(user_ids))
 			.order_by(CashAccount.user_id.asc(), CashAccount.id.asc()),
 		),
 	)
 	holdings = list(
 		session.exec(
 			select(SecurityHolding)
-			.where(SecurityHolding.user_id.in_(user_ids))
 			.order_by(SecurityHolding.user_id.asc(), SecurityHolding.symbol.asc(), SecurityHolding.id.asc()),
 		),
 	)
 	fixed_assets = list(
 		session.exec(
 			select(FixedAsset)
-			.where(FixedAsset.user_id.in_(user_ids))
 			.order_by(FixedAsset.user_id.asc(), FixedAsset.id.asc()),
 		),
 	)
 	liabilities = list(
 		session.exec(
 			select(LiabilityEntry)
-			.where(LiabilityEntry.user_id.in_(user_ids))
 			.order_by(LiabilityEntry.user_id.asc(), LiabilityEntry.id.asc()),
 		),
 	)
 	other_assets = list(
 		session.exec(
 			select(OtherAsset)
-			.where(OtherAsset.user_id.in_(user_ids))
 			.order_by(OtherAsset.user_id.asc(), OtherAsset.id.asc()),
 		),
 	)
+	accounts_by_user = _group_by_user_id(accounts, lambda item: item.user_id)
+	holdings_by_user = _group_by_user_id(holdings, lambda item: item.user_id)
+	fixed_assets_by_user = _group_by_user_id(fixed_assets, lambda item: item.user_id)
+	liabilities_by_user = _group_by_user_id(liabilities, lambda item: item.user_id)
+	other_assets_by_user = _group_by_user_id(other_assets, lambda item: item.user_id)
+	user_ids = sorted({
+		*accounts_by_user.keys(),
+		*holdings_by_user.keys(),
+		*fixed_assets_by_user.keys(),
+		*liabilities_by_user.keys(),
+		*other_assets_by_user.keys(),
+	})
 	return (
-		_group_by_user_id(accounts, lambda item: item.user_id),
-		_group_by_user_id(holdings, lambda item: item.user_id),
-		_group_by_user_id(fixed_assets, lambda item: item.user_id),
-		_group_by_user_id(liabilities, lambda item: item.user_id),
-		_group_by_user_id(other_assets, lambda item: item.user_id),
+		user_ids,
+		accounts_by_user,
+		holdings_by_user,
+		fixed_assets_by_user,
+		liabilities_by_user,
+		other_assets_by_user,
 	)
 
 
@@ -135,19 +133,21 @@ async def _prefetch_quotes(
 	}
 	if not unique_pairs:
 		return {}
+	semaphore = asyncio.Semaphore(REALTIME_MARKET_DATA_CONCURRENCY)
 
 	async def load_quote(symbol: str, market: str) -> tuple[tuple[str, str], Quote | None]:
-		try:
-			quote, _warnings = await service_context.market_data_client.fetch_quote(symbol, market)
-		except QuoteLookupError as exc:
-			service_context.logger.warning(
-				"Realtime analytics sampler could not load quote for %s (%s): %s",
-				symbol,
-				market,
-				exc,
-			)
-			return (symbol, market), None
-		return (symbol, market), quote
+		async with semaphore:
+			try:
+				quote, _warnings = await service_context.market_data_client.fetch_quote(symbol, market)
+			except QuoteLookupError as exc:
+				service_context.logger.warning(
+					"Realtime analytics sampler could not load quote for %s (%s): %s",
+					symbol,
+					market,
+					exc,
+				)
+				return (symbol, market), None
+			return (symbol, market), quote
 
 	quote_results = await asyncio.gather(
 		*(load_quote(symbol, market) for symbol, market in sorted(unique_pairs)),
@@ -171,21 +171,23 @@ async def _prefetch_fx_rates(
 	requested_codes = sorted(code for code in normalized_codes if code != "CNY")
 	if not requested_codes:
 		return rates
+	semaphore = asyncio.Semaphore(REALTIME_MARKET_DATA_CONCURRENCY)
 
 	async def load_rate(currency_code: str) -> tuple[str, float | None]:
-		try:
-			rate, _warnings = await service_context.market_data_client.fetch_fx_rate(
-				currency_code,
-				"CNY",
-			)
-		except (QuoteLookupError, ValueError) as exc:
-			service_context.logger.warning(
-				"Realtime analytics sampler could not load FX rate for %s/CNY: %s",
-				currency_code,
-				exc,
-			)
-			return currency_code, None
-		return currency_code, rate
+		async with semaphore:
+			try:
+				rate, _warnings = await service_context.market_data_client.fetch_fx_rate(
+					currency_code,
+					"CNY",
+				)
+			except (QuoteLookupError, ValueError) as exc:
+				service_context.logger.warning(
+					"Realtime analytics sampler could not load FX rate for %s/CNY: %s",
+					currency_code,
+					exc,
+				)
+				return currency_code, None
+			return currency_code, rate
 
 	for currency_code, rate in await asyncio.gather(
 		*(load_rate(currency_code) for currency_code in requested_codes),
@@ -488,16 +490,19 @@ async def _sample_realtime_analytics_once_with_session(
 ) -> list[str]:
 	second_bucket = _current_second_bucket(sampled_at)
 	hour_bucket = _current_hour_bucket(sampled_at)
-	user_ids = _list_active_user_ids(session)
+	(
+		user_ids,
+		accounts_by_user,
+		holdings_by_user,
+		fixed_assets_by_user,
+		liabilities_by_user,
+		other_assets_by_user,
+	) = _load_assets_for_all_users(session)
 	if not user_ids:
 		if second_bucket.second == 0:
 			_purge_expired_realtime_snapshots(session, now=sampled_at)
 			session.commit()
 		return []
-
-	accounts_by_user, holdings_by_user, fixed_assets_by_user, liabilities_by_user, other_assets_by_user = (
-		_load_assets_for_users(session, user_ids)
-	)
 	all_holdings = [holding for holdings in holdings_by_user.values() for holding in holdings]
 	quotes_by_pair = await _prefetch_quotes(all_holdings)
 	fx_rates = await _prefetch_fx_rates(
@@ -546,19 +551,16 @@ async def sample_realtime_analytics_once(
 ) -> None:
 	sampled_at = _coerce_utc_datetime(now or utc_now())
 	if session is not None:
-		user_ids = await _sample_realtime_analytics_once_with_session(
+		await _sample_realtime_analytics_once_with_session(
 			session,
 			sampled_at=sampled_at,
 		)
 	else:
 		with Session(engine) as owned_session:
-			user_ids = await _sample_realtime_analytics_once_with_session(
+			await _sample_realtime_analytics_once_with_session(
 				owned_session,
 				sampled_at=sampled_at,
 			)
-
-	for user_id in user_ids:
-		_invalidate_dashboard_cache(user_id)
 
 
 async def realtime_analytics_sampler() -> None:

@@ -25,7 +25,9 @@ class StaticDashboardMarketDataClient:
 		to_currency: str,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[float, list[str]]:
+		del prefer_stale, schedule_stale_refresh
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
@@ -36,7 +38,9 @@ class StaticDashboardMarketDataClient:
 		market: str | None = None,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	):
+		del symbol, market, prefer_stale, schedule_stale_refresh
 		raise AssertionError("Quote lookup should not run for an empty dashboard test.")
 
 	async def fetch_hourly_price_series(self, *args, **kwargs):

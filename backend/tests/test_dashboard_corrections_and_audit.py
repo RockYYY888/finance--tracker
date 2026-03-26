@@ -30,7 +30,9 @@ class StaticMarketDataClient:
 		to_currency: str,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[float, list[str]]:
+		del prefer_stale, schedule_stale_refresh
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
@@ -41,7 +43,9 @@ class StaticMarketDataClient:
 		market: str | None = None,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[object, list[str]]:
+		del symbol, market, prefer_stale, schedule_stale_refresh
 		raise AssertionError("Quote fetching is not expected in this test.")
 
 	def clear_runtime_caches(self, *, clear_search: bool = False) -> None:

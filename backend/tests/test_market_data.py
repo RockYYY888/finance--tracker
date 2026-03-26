@@ -127,6 +127,7 @@ class SequenceSearchProvider:
 class FakeRedis:
 	def __init__(self) -> None:
 		self._values: dict[str, bytes] = {}
+		self._ttls: dict[str, int] = {}
 
 	def _normalize_key(self, key: str | bytes) -> str:
 		if isinstance(key, bytes):
@@ -136,8 +137,13 @@ class FakeRedis:
 	def get(self, key: str | bytes) -> bytes | None:
 		return self._values.get(self._normalize_key(key))
 
-	def set(self, key: str | bytes, value: bytes) -> bool:
-		self._values[self._normalize_key(key)] = value
+	def set(self, key: str | bytes, value: bytes, ex: int | None = None) -> bool:
+		normalized_key = self._normalize_key(key)
+		self._values[normalized_key] = value
+		if ex is None:
+			self._ttls.pop(normalized_key, None)
+		else:
+			self._ttls[normalized_key] = ex
 		return True
 
 	def delete(self, *keys: str | bytes) -> int:
@@ -146,12 +152,16 @@ class FakeRedis:
 			normalized_key = self._normalize_key(key)
 			if normalized_key in self._values:
 				del self._values[normalized_key]
+				self._ttls.pop(normalized_key, None)
 				deleted += 1
 		return deleted
 
 	def scan_iter(self, pattern: str) -> list[str]:
 		prefix = pattern[:-1] if pattern.endswith("*") else pattern
 		return [key for key in sorted(self._values) if key.startswith(prefix)]
+
+	def ttl(self, key: str | bytes) -> int:
+		return self._ttls.get(self._normalize_key(key), -1)
 
 
 def test_build_fx_symbol_uses_yahoo_pair_format() -> None:
@@ -239,6 +249,20 @@ def test_redis_backed_ttl_cache_keeps_stale_entries_after_expiry() -> None:
 
 	assert cache.get("AAPL") is None
 	assert cache.get_stale("AAPL") is not None
+
+
+def test_redis_backed_ttl_cache_sets_physical_expiry_for_stale_entries() -> None:
+	redis_client = FakeRedis()
+	cache = RedisBackedTTLCache[Quote](
+		redis_client,
+		"asset-tracker:test:quotes",
+		stale_ttl_seconds=180,
+	)
+	cache.set("AAPL", _make_quote(price=123.4), ttl_seconds=30)
+
+	redis_keys = list(redis_client.scan_iter("asset-tracker:test:quotes:*"))
+	assert len(redis_keys) == 1
+	assert redis_client.ttl(redis_keys[0]) == 180
 
 
 def test_fetch_quote_uses_redis_backed_cache_after_client_recreation() -> None:
@@ -389,6 +413,56 @@ def test_fetch_quote_prefers_stale_cache_and_refreshes_in_background() -> None:
 		refreshed_quote, refreshed_warnings = await client.fetch_quote("AAPL")
 		assert refreshed_quote.price == 99.9
 		assert refreshed_warnings == []
+
+	asyncio.run(scenario())
+
+
+def test_fetch_quote_prefers_stale_cache_without_background_refresh_when_disabled() -> None:
+	async def scenario() -> None:
+		clock = [0.0]
+		provider = DeferredQuoteProvider(
+			_make_quote(price=88.8),
+			_make_quote(price=99.9),
+		)
+		client = MarketDataClient(
+			quote_provider=provider,
+			quote_cache=TTLCache[Quote](now=lambda: clock[0]),
+			quote_ttl_seconds=30,
+		)
+
+		await client.fetch_quote("AAPL")
+		clock[0] = 31.0
+		stale_quote, stale_warnings = await client.fetch_quote(
+			"AAPL",
+			prefer_stale=True,
+			schedule_stale_refresh=False,
+		)
+
+		assert stale_quote.price == 88.8
+		assert stale_warnings == []
+		await asyncio.sleep(0)
+		assert provider.calls == 1
+
+	asyncio.run(scenario())
+
+
+def test_fetch_quote_does_not_hit_provider_when_cache_only_path_has_no_value() -> None:
+	async def scenario() -> None:
+		provider = SequenceQuoteProvider([_make_quote(price=88.8)])
+		client = MarketDataClient(
+			quote_provider=provider,
+			quote_cache=TTLCache[Quote](),
+			quote_ttl_seconds=30,
+		)
+
+		with pytest.raises(QuoteLookupError, match="cache is still warming"):
+			await client.fetch_quote(
+				"AAPL",
+				prefer_stale=True,
+				schedule_stale_refresh=False,
+			)
+
+		assert provider.calls == 0
 
 	asyncio.run(scenario())
 
@@ -903,6 +977,57 @@ def test_fetch_fx_rate_prefers_stale_cache_and_refreshes_in_background() -> None
 		refreshed_rate, refreshed_warnings = await client.fetch_fx_rate("USD", "CNY")
 		assert refreshed_rate == 7.3
 		assert refreshed_warnings == []
+
+	asyncio.run(scenario())
+
+
+def test_fetch_fx_rate_prefers_stale_cache_without_background_refresh_when_disabled() -> None:
+	async def scenario() -> None:
+		clock = [0.0]
+		provider = DeferredRateProvider(7.2, 7.3)
+		client = MarketDataClient(
+			fx_provider=provider,
+			fallback_fx_provider=SequenceRateProvider([QuoteLookupError("unused")]),
+			fx_cache=TTLCache[float](now=lambda: clock[0]),
+			fx_ttl_seconds=30,
+		)
+
+		await client.fetch_fx_rate("USD", "CNY")
+		clock[0] = 31.0
+		stale_rate, stale_warnings = await client.fetch_fx_rate(
+			"USD",
+			"CNY",
+			prefer_stale=True,
+			schedule_stale_refresh=False,
+		)
+
+		assert stale_rate == 7.2
+		assert stale_warnings == []
+		await asyncio.sleep(0)
+		assert provider.calls == 1
+
+	asyncio.run(scenario())
+
+
+def test_fetch_fx_rate_does_not_hit_provider_when_cache_only_path_has_no_value() -> None:
+	async def scenario() -> None:
+		provider = SequenceRateProvider([7.2])
+		client = MarketDataClient(
+			fx_provider=provider,
+			fallback_fx_provider=SequenceRateProvider([QuoteLookupError("unused")]),
+			fx_cache=TTLCache[float](),
+			fx_ttl_seconds=30,
+		)
+
+		with pytest.raises(QuoteLookupError, match="cache is still warming"):
+			await client.fetch_fx_rate(
+				"USD",
+				"CNY",
+				prefer_stale=True,
+				schedule_stale_refresh=False,
+			)
+
+		assert provider.calls == 0
 
 	asyncio.run(scenario())
 

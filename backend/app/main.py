@@ -27,7 +27,6 @@ from app.services import (
 	core_support,
 	dashboard_service,
 	history_service,
-	realtime_analytics_service,
 	service_context,
 )
 
@@ -41,11 +40,10 @@ async def lifespan(_: FastAPI):
 	settings.validate_runtime()
 	validate_runtime_redis_connection()
 	init_db()
-	realtime_analytics_service.start_realtime_analytics_sampler()
 	try:
 		yield
 	finally:
-		await realtime_analytics_service.stop_realtime_analytics_sampler()
+		pass
 
 
 def create_app() -> FastAPI:

@@ -758,7 +758,13 @@ async def get_dashboard(
 
 	if refresh:
 		if await _consume_global_force_refresh_slot():
+			from app.services import realtime_analytics_service
+
 			service_context.market_data_client.clear_runtime_caches()
+			await realtime_analytics_service.sample_realtime_analytics_once(
+				utc_now(),
+				session=session,
+			)
 		_invalidate_dashboard_cache(current_user.username)
 		return await dashboard_service._get_cached_dashboard(
 			session,

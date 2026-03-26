@@ -379,7 +379,7 @@ it("keeps all portfolio trend ranges visible and derives the 1-day view from spa
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "1天" }).className).toContain(
+			expect(screen.getByRole("button", { name: "天" }).className).toContain(
 				"active",
 			);
 		});
@@ -389,6 +389,47 @@ it("keeps all portfolio trend ranges visible and derives the 1-day view from spa
 		expect(screen.getByRole("button", { name: "周" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "月" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
+	});
+
+	it("defaults the portfolio trend chart to day granularity under the 天 label", async () => {
+		render(
+			<PortfolioTrendChart
+				hour_series={[
+					{
+						label: "03-14 10:00",
+						value: 99_000,
+						timestamp_utc: "2026-03-14T02:00:00Z",
+					},
+					{
+						label: "03-14 18:00",
+						value: 100_000,
+						timestamp_utc: "2026-03-14T10:00:00Z",
+					},
+				]}
+				day_series={[]}
+				month_series={[]}
+				year_series={[]}
+				holdings_return_hour_series={[
+					{
+						label: "03-14 10:00",
+						value: 0.4,
+						timestamp_utc: "2026-03-14T02:00:00Z",
+					},
+					{
+						label: "03-14 18:00",
+						value: 0.6,
+						timestamp_utc: "2026-03-14T10:00:00Z",
+					},
+				]}
+				holdings_return_day_series={[]}
+				holdings_return_month_series={[]}
+				holdings_return_year_series={[]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "天" }).className).toContain("active");
+		});
 	});
 
 	it("switches the portfolio trend card between total value and aggregate return", async () => {
@@ -577,7 +618,7 @@ it("keeps all portfolio trend ranges visible and derives the 1-day view from spa
 		).toBe(272);
 	});
 
-it("keeps all return trend ranges visible and derives the 1-day view from sparse history", async () => {
+	it("keeps all return trend ranges visible and derives the 1-day view from sparse history", async () => {
 		render(
 			<ReturnTrendChart
 				defaultRange="hour"
@@ -613,7 +654,7 @@ it("keeps all return trend ranges visible and derives the 1-day view from sparse
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "1天" }).className).toContain(
+			expect(screen.getByRole("button", { name: "天" }).className).toContain(
 				"active",
 			);
 		});
@@ -623,6 +664,42 @@ it("keeps all return trend ranges visible and derives the 1-day view from sparse
 		expect(screen.getByRole("button", { name: "周" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "月" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
+	});
+
+	it("defaults the holding return chart to day granularity under the 天 label", async () => {
+		render(
+			<ReturnTrendChart
+				title="单只持仓收益率"
+				description="desc"
+				seriesOptions={[
+					{
+						key: "aapl",
+						label: "Apple",
+						summaryLabel: "Apple (AAPL)",
+						quantityLabel: "1 股/份",
+						hour_series: [
+							{
+								label: "03-14 10:00",
+								value: 0.4,
+								timestamp_utc: "2026-03-14T02:00:00Z",
+							},
+							{
+								label: "03-14 18:00",
+								value: 0.8,
+								timestamp_utc: "2026-03-14T10:00:00Z",
+							},
+						],
+						day_series: [],
+						month_series: [],
+						year_series: [],
+					},
+				]}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "天" }).className).toContain("active");
+		});
 	});
 
 	it("renders active dots for timeline buckets, including carried-forward ones", async () => {

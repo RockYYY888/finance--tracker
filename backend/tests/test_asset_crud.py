@@ -120,7 +120,9 @@ class StaticMarketDataClient:
 		to_currency: str,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[float, list[str]]:
+		del prefer_stale, schedule_stale_refresh
 		if from_currency.upper() == to_currency.upper():
 			return 1.0, []
 		return 7.0, []
@@ -141,7 +143,9 @@ class StaticMarketDataClient:
 		market: str | None = None,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[Quote, list[str]]:
+		del market, prefer_stale, schedule_stale_refresh
 		return (
 			Quote(
 				symbol=symbol,
@@ -170,8 +174,14 @@ class WarningMarketDataClient(StaticMarketDataClient):
 		market: str | None = None,
 		*,
 		prefer_stale: bool = False,
+		schedule_stale_refresh: bool = True,
 	) -> tuple[Quote, list[str]]:
-		quote, _warnings = await super().fetch_quote(symbol, market)
+		quote, _warnings = await super().fetch_quote(
+			symbol,
+			market,
+			prefer_stale=prefer_stale,
+			schedule_stale_refresh=schedule_stale_refresh,
+		)
 		return quote, [self.FALLBACK_WARNING, self.DELAY_WARNING]
 
 
@@ -1974,6 +1984,116 @@ def test_realtime_sampler_populates_second_and_minute_dashboard_series(
 	]
 
 
+def test_realtime_sampler_samples_all_users_with_one_quote_fetch_per_unique_symbol(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	first_user = make_user(session, "first_sampler_user")
+	second_user = make_user(session, "second_sampler_user")
+	quote_calls: list[tuple[str, str | None]] = []
+	fx_calls: list[tuple[str, str]] = []
+
+	class CountingMarketDataClient(StaticMarketDataClient):
+		async def fetch_quote(
+			self,
+			symbol: str,
+			market: str | None = None,
+			*,
+			prefer_stale: bool = False,
+			schedule_stale_refresh: bool = True,
+		) -> tuple[Quote, list[str]]:
+			del prefer_stale, schedule_stale_refresh
+			quote_calls.append((symbol, market))
+			return await super().fetch_quote(
+				symbol,
+				market,
+				prefer_stale=False,
+				schedule_stale_refresh=True,
+			)
+
+		async def fetch_fx_rate(
+			self,
+			from_currency: str,
+			to_currency: str,
+			*,
+			prefer_stale: bool = False,
+			schedule_stale_refresh: bool = True,
+		) -> tuple[float, list[str]]:
+			del prefer_stale, schedule_stale_refresh
+			fx_calls.append((from_currency, to_currency))
+			return await super().fetch_fx_rate(
+				from_currency,
+				to_currency,
+				prefer_stale=False,
+				schedule_stale_refresh=True,
+			)
+
+	monkeypatch.setattr(service_context, "market_data_client", CountingMarketDataClient())
+
+	first_account = create_account(
+		CashAccountCreate(
+			name="主账户 A",
+			platform="Bank",
+			currency="CNY",
+			balance=1000,
+			account_type="BANK",
+		),
+		first_user,
+		session,
+	)
+	second_account = create_account(
+		CashAccountCreate(
+			name="主账户 B",
+			platform="Bank",
+			currency="CNY",
+			balance=1000,
+			account_type="BANK",
+		),
+		second_user,
+		session,
+	)
+	for current_user, account_id in (
+		(first_user, first_account.id),
+		(second_user, second_account.id),
+	):
+		create_holding_transaction(
+			SecurityHoldingTransactionCreate(
+				side="BUY",
+				symbol="AAPL",
+				name="Apple",
+				quantity=1,
+				price=100,
+				fallback_currency="USD",
+				market="US",
+				traded_on=date(2026, 3, 26),
+				buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+				buy_funding_account_id=account_id,
+			),
+			current_user,
+			session,
+		)
+
+	quote_calls.clear()
+	fx_calls.clear()
+
+	asyncio.run(
+		realtime_analytics_service.sample_realtime_analytics_once(
+			datetime(2026, 3, 26, 3, 0, 1, tzinfo=timezone.utc),
+			session=session,
+		),
+	)
+
+	assert quote_calls == [("AAPL", "US")]
+	assert fx_calls == [("USD", "CNY")]
+	portfolio_user_ids = {
+		row.user_id
+		for row in session.exec(
+			select(RealtimePortfolioSnapshot).order_by(RealtimePortfolioSnapshot.user_id.asc()),
+		)
+	}
+	assert portfolio_user_ids == {first_user.username, second_user.username}
+
+
 def test_create_holding_rejects_future_started_on_based_on_server_date(
 	session: Session,
 ) -> None:
@@ -2772,7 +2892,9 @@ def test_process_pending_holding_history_sync_preserves_prior_hours_for_backfill
 			market: str | None = None,
 			*,
 			prefer_stale: bool = False,
+			schedule_stale_refresh: bool = True,
 		) -> tuple[Quote, list[str]]:
+			del market, prefer_stale, schedule_stale_refresh
 			return (
 				Quote(
 					symbol=symbol,
@@ -2881,7 +3003,9 @@ def test_process_pending_holding_history_sync_applies_holding_adjustment_on_effe
 			market: str | None = None,
 			*,
 			prefer_stale: bool = False,
+			schedule_stale_refresh: bool = True,
 		) -> tuple[Quote, list[str]]:
+			del market, prefer_stale, schedule_stale_refresh
 			return (
 				Quote(
 					symbol=symbol,
@@ -2978,7 +3102,9 @@ def test_rebuild_user_holding_history_snapshots_backfills_legacy_holdings_withou
 			market: str | None = None,
 			*,
 			prefer_stale: bool = False,
+			schedule_stale_refresh: bool = True,
 		) -> tuple[Quote, list[str]]:
+			del market, prefer_stale, schedule_stale_refresh
 			return (
 				Quote(
 					symbol=symbol,
@@ -3046,12 +3172,22 @@ def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	refresh_calls = {"cache_clear": 0}
+	refresh_calls = {"cache_clear": 0, "global_sample": 0}
 	captured_args: dict[str, bool] = {}
 
 	class RefreshAwareClient(StaticMarketDataClient):
 		def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
 			refresh_calls["cache_clear"] += 1
+
+	async def fake_sample_realtime_analytics_once(
+		now: datetime | None = None,
+		*,
+		session: Session | None = None,
+	) -> None:
+		del now
+		assert session is not None
+		assert session is session_ref
+		refresh_calls["global_sample"] += 1
 
 	async def fake_get_cached_dashboard(
 		db_session: Session,
@@ -3089,12 +3225,19 @@ def test_get_dashboard_refresh_clears_runtime_cache_and_forces_rebuild(
 			warnings=[],
 		)
 
+	session_ref = session
 	monkeypatch.setattr(service_context, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(
+		realtime_analytics_service,
+		"sample_realtime_analytics_once",
+		fake_sample_realtime_analytics_once,
+	)
 	monkeypatch.setattr(dashboard_service, "_get_cached_dashboard", fake_get_cached_dashboard)
 
 	asyncio.run(main.get_dashboard(current_user, session, True))
 
 	assert refresh_calls["cache_clear"] == 1
+	assert refresh_calls["global_sample"] == 1
 	assert captured_args["force_refresh"] is True
 
 
@@ -3103,11 +3246,21 @@ def test_get_dashboard_refresh_only_clears_runtime_cache_once_within_global_wind
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	current_user = make_user(session)
-	refresh_calls = {"cache_clear": 0, "dashboard_rebuild": 0}
+	refresh_calls = {"cache_clear": 0, "dashboard_rebuild": 0, "global_sample": 0}
 
 	class RefreshAwareClient(StaticMarketDataClient):
 		def clear_runtime_caches(self, *, clear_search: bool = False) -> None:
 			refresh_calls["cache_clear"] += 1
+
+	async def fake_sample_realtime_analytics_once(
+		now: datetime | None = None,
+		*,
+		session: Session | None = None,
+	) -> None:
+		del now
+		assert session is not None
+		assert session is session_ref
+		refresh_calls["global_sample"] += 1
 
 	async def fake_get_cached_dashboard(
 		db_session: Session,
@@ -3146,7 +3299,13 @@ def test_get_dashboard_refresh_only_clears_runtime_cache_once_within_global_wind
 			warnings=[],
 		)
 
+	session_ref = session
 	monkeypatch.setattr(service_context, "market_data_client", RefreshAwareClient())
+	monkeypatch.setattr(
+		realtime_analytics_service,
+		"sample_realtime_analytics_once",
+		fake_sample_realtime_analytics_once,
+	)
 	monkeypatch.setattr(dashboard_service, "_get_cached_dashboard", fake_get_cached_dashboard)
 	runtime_state.set_last_global_force_refresh_at(None)
 
@@ -3154,6 +3313,7 @@ def test_get_dashboard_refresh_only_clears_runtime_cache_once_within_global_wind
 	asyncio.run(main.get_dashboard(current_user, session, True))
 
 	assert refresh_calls["cache_clear"] == 1
+	assert refresh_calls["global_sample"] == 1
 	assert refresh_calls["dashboard_rebuild"] == 2
 
 
