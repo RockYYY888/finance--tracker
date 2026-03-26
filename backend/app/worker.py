@@ -6,7 +6,7 @@ import signal
 
 from app.runtime_state import validate_runtime_redis_connection
 from app.services.job_service import start_background_job_worker, stop_background_job_worker
-from app.services import service_context
+from app.services import realtime_analytics_service, service_context
 
 logger = logging.getLogger(__name__)
 settings = service_context.settings
@@ -25,9 +25,11 @@ async def run_worker() -> None:
 			logger.debug("Signal handlers are unavailable on this platform.")
 
 	start_background_job_worker()
+	realtime_analytics_service.start_realtime_analytics_sampler()
 	try:
 		await stop_event.wait()
 	finally:
+		await realtime_analytics_service.stop_realtime_analytics_sampler()
 		await stop_background_job_worker()
 
 

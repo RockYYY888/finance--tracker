@@ -50,6 +50,8 @@ from app.models import (
 	LiabilityEntry,
 	OtherAsset,
 	PortfolioSnapshot,
+	RealtimeHoldingPerformanceSnapshot,
+	RealtimePortfolioSnapshot,
 	SecurityHolding,
 	SecurityHoldingTransaction,
 	UserAccount,
@@ -78,6 +80,7 @@ from app.security import verify_password
 from app.services.market_data import Quote
 from app.services import common_service, dashboard_service, history_service, service_context
 import app.services.dashboard_query_service as dashboard_query_service
+import app.services.realtime_analytics_service as realtime_analytics_service
 
 
 class _InMemoryRedisLock:
@@ -174,6 +177,7 @@ class WarningMarketDataClient(StaticMarketDataClient):
 
 def _reset_async_runtime_state() -> None:
 	runtime_state.set_last_global_force_refresh_at(None)
+	runtime_state.set_last_realtime_analytics_sampled_at(None)
 	runtime_state.snapshot_rebuild_users_in_queue.clear()
 	runtime_state.snapshot_rebuild_worker_task = None
 	while True:
@@ -1217,6 +1221,7 @@ def test_holding_buy_transaction_can_deduct_from_existing_cash_account(
 ) -> None:
 	current_user = make_user(session)
 	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
+	monkeypatch.setattr(realtime_analytics_service, "engine", session.get_bind())
 	cash_account = create_account(
 		CashAccountCreate(
 			name="主账户",
@@ -1871,6 +1876,102 @@ def test_build_dashboard_persists_previous_live_hour_snapshot_when_hour_rolls(
 		microsecond=0,
 	)
 	assert second_snapshots[0].total_value_cny == 100.0
+
+
+def test_realtime_sampler_populates_second_and_minute_dashboard_series(
+	session: Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	current_user = make_user(session)
+	monkeypatch.setattr(service_context, "market_data_client", StaticMarketDataClient())
+	cash_account = create_account(
+		CashAccountCreate(
+			name="主账户",
+			platform="Bank",
+			currency="CNY",
+			balance=1000,
+			account_type="BANK",
+		),
+		current_user,
+		session,
+	)
+	create_holding_transaction(
+		SecurityHoldingTransactionCreate(
+			side="BUY",
+			symbol="AAPL",
+			name="Apple",
+			quantity=1,
+			price=100,
+			fallback_currency="USD",
+			market="US",
+			traded_on=date(2026, 3, 26),
+			buy_funding_handling="DEDUCT_FROM_EXISTING_CASH",
+			buy_funding_account_id=cash_account.id,
+		),
+		current_user,
+		session,
+	)
+
+	first_sample_at = datetime(2026, 3, 26, 3, 0, 1, tzinfo=timezone.utc)
+	second_sample_at = first_sample_at + timedelta(minutes=1, seconds=1)
+	asyncio.run(
+		realtime_analytics_service.sample_realtime_analytics_once(
+			first_sample_at,
+			session=session,
+		),
+	)
+	asyncio.run(
+		realtime_analytics_service.sample_realtime_analytics_once(
+			second_sample_at,
+			session=session,
+		),
+	)
+
+	portfolio_rows = list(
+		session.exec(
+			select(RealtimePortfolioSnapshot)
+			.where(RealtimePortfolioSnapshot.user_id == current_user.username)
+			.order_by(RealtimePortfolioSnapshot.created_at.asc()),
+		),
+	)
+	return_rows = list(
+		session.exec(
+			select(RealtimeHoldingPerformanceSnapshot)
+			.where(RealtimeHoldingPerformanceSnapshot.user_id == current_user.username)
+			.order_by(RealtimeHoldingPerformanceSnapshot.created_at.asc()),
+		),
+	)
+	assert len(portfolio_rows) == 2
+	assert any(row.scope == "TOTAL" for row in return_rows)
+	assert any(row.scope == "HOLDING" and row.symbol == "AAPL" for row in return_rows)
+
+	monkeypatch.setattr(dashboard_query_service, "utc_now", lambda: second_sample_at)
+	dashboard = asyncio.run(main._build_dashboard(session, current_user))
+
+	assert [point.label for point in dashboard.second_series] == [
+		"03-26 11:00:01",
+		"03-26 11:01:02",
+	]
+	assert [point.value for point in dashboard.second_series] == [1000.0, 1000.0]
+	assert [point.label for point in dashboard.minute_series] == [
+		"03-26 11:00",
+		"03-26 11:01",
+	]
+	assert [point.value for point in dashboard.minute_series] == [1000.0, 1000.0]
+	assert [point.label for point in dashboard.holdings_return_second_series] == [
+		"03-26 11:00:01",
+		"03-26 11:01:02",
+	]
+	assert [point.label for point in dashboard.holdings_return_minute_series] == [
+		"03-26 11:00",
+		"03-26 11:01",
+	]
+	assert dashboard.holding_return_series[0].second_series is not None
+	assert dashboard.holding_return_series[0].minute_series is not None
+	assert [point.label for point in (dashboard.holding_return_series[0].second_series or [])] == [
+		"03-26 11:00:01",
+		"03-26 11:01:02",
+	]
 
 
 def test_create_holding_rejects_future_started_on_based_on_server_date(

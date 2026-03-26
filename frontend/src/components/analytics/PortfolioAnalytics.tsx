@@ -26,10 +26,14 @@ export function PortfolioAnalytics({
 	liabilities: _liabilities,
 	other_assets,
 	allocation,
+	second_series = [],
+	minute_series = [],
 	hour_series,
 	day_series,
 	month_series,
 	year_series,
+	holdings_return_second_series = [],
+	holdings_return_minute_series = [],
 	holdings_return_hour_series,
 	holdings_return_day_series,
 	holdings_return_month_series,
@@ -55,10 +59,14 @@ export function PortfolioAnalytics({
 			<div className="portfolio-analytics__columns">
 				<div className="portfolio-analytics__column">
 					<PortfolioTrendChart
+						second_series={second_series}
+						minute_series={minute_series}
 						hour_series={hour_series}
 						day_series={day_series}
 						month_series={month_series}
 						year_series={year_series}
+						holdings_return_second_series={holdings_return_second_series}
+						holdings_return_minute_series={holdings_return_minute_series}
 						holdings_return_hour_series={holdings_return_hour_series}
 						holdings_return_day_series={holdings_return_day_series}
 						holdings_return_month_series={holdings_return_month_series}
@@ -69,7 +77,7 @@ export function PortfolioAnalytics({
 					/>
 					<ReturnTrendChart
 						title="单只持仓收益率"
-						description="查看任一持仓收益率在小时、1 天、周、月和近一年内的变化。"
+						description="查看任一持仓收益率在分钟、小时、1 天、周、月和近一年内的变化。"
 						seriesOptions={createHoldingReturnOptions(holding_return_series)}
 						recentHoldingTransactions={recent_holding_transactions}
 						loading={loading}

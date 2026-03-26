@@ -403,6 +403,23 @@ class HoldingPerformanceSnapshot(SQLModel, table=True):
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
+class RealtimePortfolioSnapshot(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	total_value_cny: float = Field(default=0)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
+class RealtimeHoldingPerformanceSnapshot(SQLModel, table=True):
+	id: Optional[int] = Field(default=None, primary_key=True)
+	user_id: str = Field(index=True, max_length=32)
+	scope: str = Field(default="TOTAL", max_length=16, index=True)
+	symbol: Optional[str] = Field(default=None, index=True)
+	name: Optional[str] = Field(default=None, max_length=120)
+	return_pct: float = Field(default=0)
+	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+
+
 class DashboardCorrection(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)

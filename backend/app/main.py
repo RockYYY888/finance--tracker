@@ -23,7 +23,13 @@ from app.runtime_state import (
 	login_attempt_states,
 	validate_runtime_redis_connection,
 )
-from app.services import core_support, dashboard_service, history_service, service_context
+from app.services import (
+	core_support,
+	dashboard_service,
+	history_service,
+	realtime_analytics_service,
+	service_context,
+)
 
 logger = logging.getLogger(__name__)
 settings = service_context.settings
@@ -35,7 +41,11 @@ async def lifespan(_: FastAPI):
 	settings.validate_runtime()
 	validate_runtime_redis_connection()
 	init_db()
-	yield
+	realtime_analytics_service.start_realtime_analytics_sampler()
+	try:
+		yield
+	finally:
+		await realtime_analytics_service.stop_realtime_analytics_sampler()
 
 
 def create_app() -> FastAPI:

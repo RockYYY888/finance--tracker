@@ -54,6 +54,8 @@ type ReturnTrendSeriesOption = {
 	label: string;
 	summaryLabel?: string;
 	quantityLabel?: string;
+	second_series?: TimelinePoint[];
+	minute_series?: TimelinePoint[];
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
@@ -73,6 +75,7 @@ type ReturnTrendChartProps = {
 };
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
+	second: "分钟",
 	minute: "小时",
 	hour: "1天",
 	day: "周",
@@ -81,7 +84,8 @@ const RANGE_LABELS: Record<TimelineRange, string> = {
 };
 
 const STEP_DELTA_LABELS: Record<TimelineRange, string> = {
-	minute: "小时变动",
+	second: "秒均变动",
+	minute: "分钟均变动",
 	hour: "小时均变动",
 	day: "日均变动",
 	month: "日均变动",
@@ -167,6 +171,8 @@ function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[
 		label: formatHoldingSelectorLabel(item),
 		summaryLabel: formatHoldingSummaryLabel(item),
 		quantityLabel: formatHoldingQuantityLabel(item),
+		second_series: item.second_series,
+		minute_series: item.minute_series,
 		hour_series: item.hour_series,
 		day_series: item.day_series,
 		month_series: item.month_series,
@@ -176,18 +182,29 @@ function toSeriesOptions(items: HoldingReturnSeries[]): ReturnTrendSeriesOption[
 
 export function createAggregateReturnOption(
 	label: string,
-	hour_series: TimelinePoint[],
-	day_series: TimelinePoint[],
-	month_series: TimelinePoint[],
-	year_series: TimelinePoint[],
+	second_or_hour_series: TimelinePoint[],
+	minute_or_day_series: TimelinePoint[],
+	hour_or_month_series: TimelinePoint[],
+	day_or_year_series: TimelinePoint[],
+	month_series?: TimelinePoint[],
+	year_series?: TimelinePoint[],
 ): ReturnTrendSeriesOption {
+	const second_series = year_series === undefined ? [] : second_or_hour_series;
+	const minute_series = year_series === undefined ? [] : minute_or_day_series;
+	const hour_series = year_series === undefined ? second_or_hour_series : hour_or_month_series;
+	const day_series = year_series === undefined ? minute_or_day_series : day_or_year_series;
+	const resolvedMonthSeries = year_series === undefined ? hour_or_month_series : (month_series ?? []);
+	const resolvedYearSeries = year_series === undefined ? day_or_year_series : year_series;
+
 	return {
 		key: "aggregate",
 		label,
+		second_series,
+		minute_series,
 		hour_series,
 		day_series,
-		month_series,
-		year_series,
+		month_series: resolvedMonthSeries,
+		year_series: resolvedYearSeries,
 	};
 }
 
@@ -235,12 +252,15 @@ export function ReturnTrendChart({
 		() =>
 			selectedOption
 				? buildDisplayTimelineSeriesByRange(
+					selectedOption.second_series ?? [],
+					selectedOption.minute_series ?? [],
 					selectedOption.hour_series,
 					selectedOption.day_series,
 					selectedOption.month_series,
 					selectedOption.year_series,
 				)
 				: {
+					second: [],
 					minute: [],
 					hour: [],
 					day: [],

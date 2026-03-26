@@ -385,6 +385,7 @@ it("keeps all portfolio trend ranges visible and derives the 1-day view from spa
 		});
 
 		expect(screen.getByRole("button", { name: "小时" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "分钟" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "周" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "月" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
@@ -618,6 +619,7 @@ it("keeps all return trend ranges visible and derives the 1-day view from sparse
 		});
 
 		expect(screen.getByRole("button", { name: "小时" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "分钟" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "周" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "月" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();

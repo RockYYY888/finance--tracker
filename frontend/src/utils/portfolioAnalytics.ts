@@ -30,7 +30,13 @@ const CHART_COLORS = [
 ];
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
-export type TimelineBucketGranularity = "hour" | "day" | "month" | "year";
+export type TimelineBucketGranularity =
+	| "second"
+	| "minute"
+	| "hour"
+	| "day"
+	| "month"
+	| "year";
 
 export const ANALYTICS_TOOLTIP_STYLE = {
 	backgroundColor: "rgba(8, 18, 34, 0.96)",
@@ -119,12 +125,20 @@ export function getChartColors(): string[] {
 
 export function getTimelineSeries(
 	range: TimelineRange,
+	secondSeries: TimelinePoint[],
+	minuteSeries: TimelinePoint[],
 	hourSeries: TimelinePoint[],
 	daySeries: TimelinePoint[],
 	monthSeries: TimelinePoint[],
 	yearSeries: TimelinePoint[],
 ): TimelinePoint[] {
-	if (range === "minute" || range === "hour") {
+	if (range === "second") {
+		return secondSeries;
+	}
+	if (range === "minute") {
+		return minuteSeries;
+	}
+	if (range === "hour") {
 		return hourSeries;
 	}
 	if (range === "month") {
@@ -178,6 +192,27 @@ function formatTimelineBucketLabel(
 	timestampMs: number,
 	granularity: TimelineBucketGranularity,
 ): string {
+	if (granularity === "second") {
+		return formatDisplayDatePart(timestampMs, {
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hour12: false,
+		}).replace("/", "-");
+	}
+
+	if (granularity === "minute") {
+		return formatDisplayDatePart(timestampMs, {
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
+		}).replace("/", "-");
+	}
+
 	if (granularity === "hour") {
 		return formatDisplayDatePart(timestampMs, {
 			month: "2-digit",
@@ -236,6 +271,16 @@ function bucketStartTimestampMs(
 ): number {
 	const localDate = toShanghaiShiftedDate(timestampMs);
 
+	if (granularity === "second") {
+		localDate.setUTCMilliseconds(0);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	if (granularity === "minute") {
+		localDate.setUTCSeconds(0, 0);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
 	if (granularity === "hour") {
 		localDate.setUTCMinutes(0, 0, 0);
 		return fromShanghaiShiftedDate(localDate);
@@ -270,6 +315,16 @@ function addBucketSteps(
 	stepCount: number,
 ): number {
 	const localDate = toShanghaiShiftedDate(timestampMs);
+
+	if (granularity === "second") {
+		localDate.setUTCSeconds(localDate.getUTCSeconds() + stepCount);
+		return fromShanghaiShiftedDate(localDate);
+	}
+
+	if (granularity === "minute") {
+		localDate.setUTCMinutes(localDate.getUTCMinutes() + stepCount);
+		return fromShanghaiShiftedDate(localDate);
+	}
 
 	if (granularity === "hour") {
 		localDate.setUTCHours(localDate.getUTCHours() + stepCount);
@@ -474,39 +529,63 @@ export function prepareTimelineSeries(series: TimelinePoint[]): TimelinePoint[] 
 export type PreparedTimelineSeriesByRange = Record<TimelineRange, TimelinePoint[]>;
 
 export function buildPreparedTimelineSeriesByRange(
-	hourSeries: TimelinePoint[],
-	daySeries: TimelinePoint[],
-	monthSeries: TimelinePoint[],
-	yearSeries: TimelinePoint[],
+	secondOrHourSeries: TimelinePoint[],
+	minuteOrDaySeries: TimelinePoint[],
+	hourOrMonthSeries: TimelinePoint[],
+	dayOrYearSeries: TimelinePoint[],
+	monthSeries?: TimelinePoint[],
+	yearSeries?: TimelinePoint[],
 ): PreparedTimelineSeriesByRange {
+	const secondSeries = yearSeries === undefined ? [] : secondOrHourSeries;
+	const minuteSeries = yearSeries === undefined ? secondOrHourSeries : minuteOrDaySeries;
+	const hourSeries = yearSeries === undefined ? secondOrHourSeries : hourOrMonthSeries;
+	const daySeries = yearSeries === undefined ? minuteOrDaySeries : dayOrYearSeries;
+	const resolvedMonthSeries = yearSeries === undefined ? hourOrMonthSeries : (monthSeries ?? []);
+	const resolvedYearSeries = yearSeries === undefined ? dayOrYearSeries : yearSeries;
+
 	return {
-		minute: prepareTimelineSeries(hourSeries),
+		second: prepareTimelineSeries(secondSeries),
+		minute: prepareTimelineSeries(minuteSeries),
 		hour: prepareTimelineSeries(hourSeries),
 		day: prepareTimelineSeries(daySeries),
-		month: prepareTimelineSeries(monthSeries),
-		year: prepareTimelineSeries(yearSeries),
+		month: prepareTimelineSeries(resolvedMonthSeries),
+		year: prepareTimelineSeries(resolvedYearSeries),
 	};
 }
 
 export function buildDisplayTimelineSeriesByRange(
-	hourSeries: TimelinePoint[],
-	daySeries: TimelinePoint[],
-	monthSeries: TimelinePoint[],
-	yearSeries: TimelinePoint[],
+	secondOrHourSeries: TimelinePoint[],
+	minuteOrDaySeries: TimelinePoint[],
+	hourOrMonthSeries: TimelinePoint[],
+	dayOrYearSeries: TimelinePoint[],
+	monthSeries?: TimelinePoint[],
+	yearSeries?: TimelinePoint[],
 ): PreparedTimelineSeriesByRange {
+	const legacyFourRangeMode = yearSeries === undefined;
+	const secondSeries = yearSeries === undefined ? [] : secondOrHourSeries;
+	const minuteSeries = yearSeries === undefined ? secondOrHourSeries : minuteOrDaySeries;
+	const hourSeries = yearSeries === undefined ? secondOrHourSeries : hourOrMonthSeries;
+	const daySeries = yearSeries === undefined ? minuteOrDaySeries : dayOrYearSeries;
+	const resolvedMonthSeries = yearSeries === undefined ? hourOrMonthSeries : (monthSeries ?? []);
+	const resolvedYearSeries = yearSeries === undefined ? dayOrYearSeries : yearSeries;
 	const preparedDaySeries = prepareTimelineSeries(daySeries);
-	const preparedMonthSeries = prepareTimelineSeries(monthSeries);
-	const preparedYearSeries = prepareTimelineSeries(yearSeries);
+	const preparedMonthSeries = prepareTimelineSeries(resolvedMonthSeries);
+	const preparedYearSeries = prepareTimelineSeries(resolvedYearSeries);
 	const yearUsesMonthlyBuckets = preparedMonthSeries.length >= 2;
 	const yearSourceSeries = yearUsesMonthlyBuckets
 		? preparedMonthSeries
 		: preparedYearSeries;
 
 	return {
+		second: buildRegularizedWindowedTimelineSeries(
+			prepareTimelineSeries(secondSeries),
+			"second",
+			60,
+		),
 		minute: buildRegularizedWindowedTimelineSeries(
-			prepareTimelineSeries(hourSeries),
-			"hour",
-			1,
+			prepareTimelineSeries(minuteSeries),
+			legacyFourRangeMode ? "hour" : "minute",
+			legacyFourRangeMode ? 1 : 60,
 		),
 		hour: buildRegularizedWindowedTimelineSeries(
 			mergeTimelineSeries(daySeries, hourSeries),
@@ -527,7 +606,15 @@ export function getTimelineDisplayGranularity(
 	range: TimelineRange,
 	series: TimelinePoint[],
 ): TimelineBucketGranularity {
-	if (range === "minute" || range === "hour") {
+	if (range === "second") {
+		return "second";
+	}
+
+	if (range === "minute") {
+		return "minute";
+	}
+
+	if (range === "hour") {
 		return "hour";
 	}
 
@@ -551,7 +638,7 @@ export function getTimelineDisplayGranularity(
 export function getFirstRenderableTimelineRange(
 	seriesByRange: PreparedTimelineSeriesByRange,
 ): TimelineRange | null {
-	for (const range of ["hour", "day", "month", "year", "minute"] satisfies TimelineRange[]) {
+	for (const range of ["hour", "day", "month", "year", "minute", "second"] satisfies TimelineRange[]) {
 		if (seriesByRange[range].length >= 2) {
 			return range;
 		}
@@ -589,7 +676,7 @@ export function buildSelectableTimelinePoints(
 export function getFirstSelectableTimelineRange(
 	seriesByRange: PreparedTimelineSeriesByRange,
 ): TimelineRange | null {
-	for (const range of ["hour", "day", "month", "year", "minute"] satisfies TimelineRange[]) {
+	for (const range of ["hour", "day", "month", "year", "minute", "second"] satisfies TimelineRange[]) {
 		if (buildSelectableTimelinePoints(seriesByRange[range]).length >= 2) {
 			return range;
 		}
@@ -649,6 +736,13 @@ export function formatTimelineAxisLabel(
 
 	if (!range && normalizedLabel.length <= 8) {
 		return normalizedLabel;
+	}
+
+	if (range === "second") {
+		const timeMatch = normalizedLabel.match(/(\d{1,2}:\d{2}:\d{2})$/);
+		if (timeMatch) {
+			return timeMatch[1];
+		}
 	}
 
 	if (range === "minute" || range === "hour") {

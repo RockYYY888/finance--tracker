@@ -1231,6 +1231,8 @@ class HoldingReturnSeries(BaseModel):
 	symbol: str
 	name: str
 	quantity: float
+	second_series: list[TimelinePoint] = Field(default_factory=list)
+	minute_series: list[TimelinePoint] = Field(default_factory=list)
 	hour_series: list[TimelinePoint]
 	day_series: list[TimelinePoint]
 	month_series: list[TimelinePoint]
@@ -1253,10 +1255,14 @@ class DashboardResponse(BaseModel):
 	liabilities: list[ValuedLiabilityEntry]
 	other_assets: list[ValuedOtherAsset]
 	allocation: list[AllocationSlice]
+	second_series: list[TimelinePoint] = Field(default_factory=list)
+	minute_series: list[TimelinePoint] = Field(default_factory=list)
 	hour_series: list[TimelinePoint]
 	day_series: list[TimelinePoint]
 	month_series: list[TimelinePoint]
 	year_series: list[TimelinePoint]
+	holdings_return_second_series: list[TimelinePoint] = Field(default_factory=list)
+	holdings_return_minute_series: list[TimelinePoint] = Field(default_factory=list)
 	holdings_return_hour_series: list[TimelinePoint]
 	holdings_return_day_series: list[TimelinePoint]
 	holdings_return_month_series: list[TimelinePoint]

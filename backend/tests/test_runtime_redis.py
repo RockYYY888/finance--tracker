@@ -11,7 +11,7 @@ from sqlalchemy import text
 import app.database as database
 from app import runtime_state
 
-CURRENT_SCHEMA_REVISION = "20260325_01"
+CURRENT_SCHEMA_REVISION = "20260326_01"
 
 
 def test_validate_runtime_redis_connection_raises_when_ping_fails(

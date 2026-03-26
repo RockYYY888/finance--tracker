@@ -275,6 +275,10 @@ def _current_minute_bucket(value: datetime | None = None) -> datetime:
 	timestamp = _coerce_utc_datetime(value or utc_now())
 	return timestamp.replace(second=0, microsecond=0)
 
+def _current_second_bucket(value: datetime | None = None) -> datetime:
+	timestamp = _coerce_utc_datetime(value or utc_now())
+	return timestamp.replace(microsecond=0)
+
 def _current_hour_bucket(value: datetime | None = None) -> datetime:
 	timestamp = _coerce_utc_datetime(value or utc_now())
 	return timestamp.replace(minute=0, second=0, microsecond=0)
@@ -315,6 +319,12 @@ def _is_current_minute(value: datetime | None, now: datetime | None = None) -> b
 		return False
 
 	return _current_minute_bucket(value) == _current_minute_bucket(now)
+
+def _is_current_second(value: datetime | None, now: datetime | None = None) -> bool:
+	if value is None:
+		return False
+
+	return _current_second_bucket(value) == _current_second_bucket(now)
 
 async def _consume_global_force_refresh_slot() -> bool:
 	"""Allow at most one cache-clearing force refresh every 60 seconds across all workers."""
@@ -367,4 +377,4 @@ def _require_admin_user(current_user: UserAccount) -> None:
 	if current_user.username != "admin":
 		raise HTTPException(status_code=403, detail="仅管理员可访问。")
 
-__all__ = ['_is_cache_fallback_warning', '_filter_dashboard_warnings_for_user', '_normalize_idempotency_key', '_build_idempotency_request_hash', '_load_idempotency_record', '_load_idempotent_response', '_store_idempotent_response', '_normalize_currency', '_normalize_symbol', '_normalize_optional_text', '_json_ready', '_capture_model_state', '_serialize_audit_state', '_record_asset_mutation', '_touch_model', '_calculate_return_pct', '_coerce_utc_datetime', '_current_minute_bucket', '_current_hour_bucket', '_feedback_day_window', '_server_today_date', '_ensure_date_not_future', '_date_start_utc', '_is_current_minute', '_consume_global_force_refresh_slot', '_is_same_hour', '_invalidate_dashboard_cache', '_to_asset_mutation_audit_read', '_require_admin_user', 'CACHE_FALLBACK_WARNING_MARKERS', 'DASHBOARD_CORRECTION_ACTIONS', 'DASHBOARD_CORRECTION_GRANULARITIES', 'DASHBOARD_SERIES_SCOPES', 'FEEDBACK_TIMEZONE', 'GLOBAL_FORCE_REFRESH_INTERVAL', 'MAX_DAILY_FEEDBACK_SUBMISSIONS']
+__all__ = ['_is_cache_fallback_warning', '_filter_dashboard_warnings_for_user', '_normalize_idempotency_key', '_build_idempotency_request_hash', '_load_idempotency_record', '_load_idempotent_response', '_store_idempotent_response', '_normalize_currency', '_normalize_symbol', '_normalize_optional_text', '_json_ready', '_capture_model_state', '_serialize_audit_state', '_record_asset_mutation', '_touch_model', '_calculate_return_pct', '_coerce_utc_datetime', '_current_second_bucket', '_current_minute_bucket', '_current_hour_bucket', '_feedback_day_window', '_server_today_date', '_ensure_date_not_future', '_date_start_utc', '_is_current_second', '_is_current_minute', '_consume_global_force_refresh_slot', '_is_same_hour', '_invalidate_dashboard_cache', '_to_asset_mutation_audit_read', '_require_admin_user', 'CACHE_FALLBACK_WARNING_MARKERS', 'DASHBOARD_CORRECTION_ACTIONS', 'DASHBOARD_CORRECTION_GRANULARITIES', 'DASHBOARD_SERIES_SCOPES', 'FEEDBACK_TIMEZONE', 'GLOBAL_FORCE_REFRESH_INTERVAL', 'MAX_DAILY_FEEDBACK_SUBMISSIONS']

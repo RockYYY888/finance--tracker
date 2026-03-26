@@ -24,6 +24,7 @@ market_data_client = MarketDataClient(
 		runtime_state.redis_client,
 		"asset-tracker:runtime:market-fx",
 	),
+	quote_ttl_seconds=1,
 )
 logger = logging.getLogger(__name__)
 

@@ -87,6 +87,8 @@ export type HoldingReturnSeries = {
 	symbol: string;
 	name: string;
 	quantity: number;
+	second_series?: TimelinePoint[];
+	minute_series?: TimelinePoint[];
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
@@ -98,7 +100,7 @@ export type AllocationSlice = {
 	value: number;
 };
 
-export type TimelineRange = "minute" | "hour" | "day" | "month" | "year";
+export type TimelineRange = "second" | "minute" | "hour" | "day" | "month" | "year";
 
 export type PortfolioAnalyticsData = {
 	total_value_cny: number;
@@ -108,10 +110,14 @@ export type PortfolioAnalyticsData = {
 	liabilities: ValuedLiability[];
 	other_assets: ValuedOtherAsset[];
 	allocation: AllocationSlice[];
+	second_series?: TimelinePoint[];
+	minute_series?: TimelinePoint[];
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
 	year_series: TimelinePoint[];
+	holdings_return_second_series?: TimelinePoint[];
+	holdings_return_minute_series?: TimelinePoint[];
 	holdings_return_hour_series: TimelinePoint[];
 	holdings_return_day_series: TimelinePoint[];
 	holdings_return_month_series: TimelinePoint[];

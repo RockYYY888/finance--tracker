@@ -188,10 +188,14 @@ function sanitizeCachedDashboard(value: unknown): DashboardResponse | null {
 		liabilities: toObjectArray<ValuedLiability>(dashboard.liabilities),
 		other_assets: toObjectArray<ValuedOtherAsset>(dashboard.other_assets),
 		allocation: toObjectArray<AllocationSlice>(dashboard.allocation),
+		second_series: toObjectArray<TimelinePoint>(dashboard.second_series),
+		minute_series: toObjectArray<TimelinePoint>(dashboard.minute_series),
 		hour_series: toObjectArray<TimelinePoint>(dashboard.hour_series),
 		day_series: toObjectArray<TimelinePoint>(dashboard.day_series),
 		month_series: toObjectArray<TimelinePoint>(dashboard.month_series),
 		year_series: toObjectArray<TimelinePoint>(dashboard.year_series),
+		holdings_return_second_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_second_series),
+		holdings_return_minute_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_minute_series),
 		holdings_return_hour_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_hour_series),
 		holdings_return_day_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_day_series),
 		holdings_return_month_series: toObjectArray<TimelinePoint>(dashboard.holdings_return_month_series),
@@ -380,6 +384,11 @@ function isDashboardSnapshotEmpty(dashboard: DashboardResponse): boolean {
 function getMillisecondsUntilNextMinute(): number {
 	const now = new Date();
 	return ((60 - now.getSeconds()) * 1000) - now.getMilliseconds();
+}
+
+function getMillisecondsUntilNextSecond(): number {
+	const now = new Date();
+	return 1000 - now.getMilliseconds();
 }
 
 function formatLastUpdated(timestamp: string | null): string {
@@ -769,6 +778,7 @@ function App() {
 		}
 
 		let refreshTimer = 0;
+		const useSecondLevelRefresh = activeWorkspaceView === "insights";
 		const initialDelay = window.setTimeout(() => {
 			void loadDashboard();
 			refreshTimer = window.setInterval(() => {
@@ -776,8 +786,8 @@ function App() {
 					return;
 				}
 				void loadDashboard();
-			}, 60 * 1000);
-		}, getMillisecondsUntilNextMinute());
+			}, useSecondLevelRefresh ? 1000 : 60 * 1000);
+		}, useSecondLevelRefresh ? getMillisecondsUntilNextSecond() : getMillisecondsUntilNextMinute());
 
 		return () => {
 			window.clearTimeout(initialDelay);
@@ -785,7 +795,7 @@ function App() {
 				window.clearInterval(refreshTimer);
 			}
 		};
-	}, [authStatus, isAutoRefreshBlocked]);
+	}, [activeWorkspaceView, authStatus, isAutoRefreshBlocked]);
 
 	useEffect(() => {
 		if (
@@ -1739,10 +1749,14 @@ function App() {
 							liabilities={dashboard.liabilities}
 							other_assets={dashboard.other_assets}
 							allocation={dashboard.allocation}
+							second_series={dashboard.second_series}
+							minute_series={dashboard.minute_series}
 							hour_series={dashboard.hour_series}
 							day_series={dashboard.day_series}
 							month_series={dashboard.month_series}
 							year_series={dashboard.year_series}
+							holdings_return_second_series={dashboard.holdings_return_second_series}
+							holdings_return_minute_series={dashboard.holdings_return_minute_series}
 							holdings_return_hour_series={dashboard.holdings_return_hour_series}
 							holdings_return_day_series={dashboard.holdings_return_day_series}
 							holdings_return_month_series={dashboard.holdings_return_month_series}

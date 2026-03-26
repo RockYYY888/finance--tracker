@@ -255,6 +255,10 @@ _last_global_force_refresh_at_store = RedisBackedScalar[datetime](
 	redis_client,
 	"asset-tracker:runtime:last-global-force-refresh-at",
 )
+_last_realtime_analytics_sampled_at_store = RedisBackedScalar[datetime](
+	redis_client,
+	"asset-tracker:runtime:last-realtime-analytics-sampled-at",
+)
 
 dashboard_cache_lock = asyncio.Lock()
 global_force_refresh_lock = asyncio.Lock()
@@ -279,6 +283,7 @@ current_agent_name_context: ContextVar[str | None] = ContextVar(
 background_refresh_task: asyncio.Task[None] | None = None
 snapshot_rebuild_worker_task: asyncio.Task[None] | None = None
 background_job_worker_task: asyncio.Task[None] | None = None
+realtime_analytics_sampler_task: asyncio.Task[None] | None = None
 
 
 def validate_runtime_redis_connection() -> None:
@@ -298,6 +303,14 @@ def get_last_global_force_refresh_at() -> datetime | None:
 
 def set_last_global_force_refresh_at(value: datetime | None) -> None:
 	_last_global_force_refresh_at_store.set(value)
+
+
+def get_last_realtime_analytics_sampled_at() -> datetime | None:
+	return _last_realtime_analytics_sampled_at_store.get()
+
+
+def set_last_realtime_analytics_sampled_at(value: datetime | None) -> None:
+	_last_realtime_analytics_sampled_at_store.set(value)
 
 
 @contextmanager
@@ -349,8 +362,10 @@ async def async_redis_lock(
 
 
 def clear_snapshot_runtime_state() -> None:
-	global snapshot_rebuild_worker_task, background_job_worker_task
+	global snapshot_rebuild_worker_task, background_job_worker_task, realtime_analytics_sampler_task
 	snapshot_rebuild_users_in_queue.clear()
 	snapshot_rebuild_worker_task = None
 	snapshot_rebuild_queue.clear()
 	background_job_worker_task = None
+	realtime_analytics_sampler_task = None
+	set_last_realtime_analytics_sampled_at(None)

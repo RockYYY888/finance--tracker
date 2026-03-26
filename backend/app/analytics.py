@@ -20,6 +20,10 @@ def _coerce_utc_datetime(value: datetime) -> datetime:
 
 def _bucket_label(timestamp: datetime, granularity: str) -> str:
 	normalized_timestamp = _coerce_utc_datetime(timestamp).astimezone(DISPLAY_TIMEZONE)
+	if granularity == "second":
+		return normalized_timestamp.strftime("%m-%d %H:%M:%S")
+	if granularity == "minute":
+		return normalized_timestamp.strftime("%m-%d %H:%M")
 	if granularity == "hour":
 		return normalized_timestamp.strftime("%m-%d %H:00")
 	if granularity == "day":
@@ -34,7 +38,11 @@ def _bucket_label(timestamp: datetime, granularity: str) -> str:
 
 def bucket_start_utc(timestamp: datetime, granularity: str) -> datetime:
 	normalized_timestamp = _coerce_utc_datetime(timestamp).astimezone(DISPLAY_TIMEZONE)
-	if granularity == "hour":
+	if granularity == "second":
+		bucket_start_local = normalized_timestamp.replace(microsecond=0)
+	elif granularity == "minute":
+		bucket_start_local = normalized_timestamp.replace(second=0, microsecond=0)
+	elif granularity == "hour":
 		bucket_start_local = normalized_timestamp.replace(minute=0, second=0, microsecond=0)
 	elif granularity == "day":
 		bucket_start_local = normalized_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)

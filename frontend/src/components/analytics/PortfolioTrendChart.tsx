@@ -54,10 +54,14 @@ import { useResponsiveChartFrame } from "./useResponsiveChartFrame";
 import { useTimelineRangeSelection } from "./useTimelineRangeSelection";
 
 type PortfolioTrendChartProps = {
+	second_series?: TimelinePoint[];
+	minute_series?: TimelinePoint[];
 	hour_series: TimelinePoint[];
 	day_series: TimelinePoint[];
 	month_series: TimelinePoint[];
 	year_series: TimelinePoint[];
+	holdings_return_second_series?: TimelinePoint[];
+	holdings_return_minute_series?: TimelinePoint[];
 	holdings_return_hour_series?: TimelinePoint[];
 	holdings_return_day_series?: TimelinePoint[];
 	holdings_return_month_series?: TimelinePoint[];
@@ -111,6 +115,7 @@ function buildNumericXAxisDomain(
 }
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
+	second: "分钟",
 	minute: "小时",
 	hour: "1天",
 	day: "周",
@@ -124,7 +129,8 @@ const MODE_LABELS: Record<PortfolioTrendDisplayMode, string> = {
 };
 
 const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
-	minute: "小时环比",
+	second: "秒均环比",
+	minute: "分钟均环比",
 	hour: "小时平均环比",
 	day: "日均环比",
 	month: "日均环比",
@@ -132,7 +138,8 @@ const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
 };
 
 const RETURN_STEP_LABELS: Record<TimelineRange, string> = {
-	minute: "小时变动",
+	second: "秒均变动",
+	minute: "分钟均变动",
 	hour: "小时均变动",
 	day: "日均变动",
 	month: "日均变动",
@@ -193,10 +200,14 @@ function isInteractiveTrendPoint(
 }
 
 export function PortfolioTrendChart({
+	second_series = [],
+	minute_series = [],
 	hour_series,
 	day_series,
 	month_series,
 	year_series,
+	holdings_return_second_series = [],
+	holdings_return_minute_series = [],
 	holdings_return_hour_series = [],
 	holdings_return_day_series = [],
 	holdings_return_month_series = [],
@@ -205,7 +216,7 @@ export function PortfolioTrendChart({
 	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
-	description = "查看资产总额与投资类收益率在小时、1 天、周、月和近一年内的变化。",
+	description = "查看资产总额与投资类收益率在分钟、小时、1 天、周、月和近一年内的变化。",
 }: PortfolioTrendChartProps) {
 	const [displayMode, setDisplayMode] =
 		useState<PortfolioTrendDisplayMode>("value");
@@ -215,16 +226,20 @@ export function PortfolioTrendChart({
 	const valueSeriesByRange = useMemo(
 		() =>
 			buildDisplayTimelineSeriesByRange(
+				second_series,
+				minute_series,
 				hour_series,
 				day_series,
 				month_series,
 				year_series,
 			),
-		[day_series, hour_series, month_series, year_series],
+		[day_series, hour_series, minute_series, month_series, second_series, year_series],
 	);
 	const returnSeriesByRange = useMemo(
 		() =>
 			buildDisplayTimelineSeriesByRange(
+				holdings_return_second_series,
+				holdings_return_minute_series,
 				holdings_return_hour_series,
 				holdings_return_day_series,
 				holdings_return_month_series,
@@ -233,7 +248,9 @@ export function PortfolioTrendChart({
 		[
 			holdings_return_day_series,
 			holdings_return_hour_series,
+			holdings_return_minute_series,
 			holdings_return_month_series,
+			holdings_return_second_series,
 			holdings_return_year_series,
 		],
 	);

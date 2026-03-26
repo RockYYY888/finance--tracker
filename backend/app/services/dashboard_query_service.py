@@ -14,9 +14,11 @@ from app.models import (
     LiabilityEntry,
     OtherAsset,
     PortfolioSnapshot,
+    RealtimeHoldingPerformanceSnapshot,
+    RealtimePortfolioSnapshot,
     SecurityHolding,
     UserAccount,
-    utc_now,
+	utc_now,
 )
 from app.runtime_state import (
 	DashboardCacheEntry,
@@ -39,10 +41,9 @@ from app.services.common_service import (
 	DASHBOARD_SERIES_SCOPES,
 	_consume_global_force_refresh_slot,
 	_coerce_utc_datetime,
-    _current_hour_bucket,
     _filter_dashboard_warnings_for_user,
     _invalidate_dashboard_cache,
-    _is_current_minute,
+    _is_current_second,
     _server_today_date,
 )
 from app.services.history_sync_service import _has_holding_history_sync_pending
@@ -108,6 +109,41 @@ def _load_series_with_live_snapshot(
 		snapshots.append(live_snapshot)
 	return snapshots
 
+def _load_realtime_portfolio_series(
+	session: Session,
+	user_id: str,
+	since: datetime,
+) -> list[PortfolioSnapshot]:
+	return [
+		PortfolioSnapshot(
+			user_id=snapshot.user_id,
+			total_value_cny=snapshot.total_value_cny,
+			created_at=snapshot.created_at,
+		)
+		for snapshot in session.exec(
+			select(RealtimePortfolioSnapshot)
+			.where(RealtimePortfolioSnapshot.user_id == user_id)
+			.where(RealtimePortfolioSnapshot.created_at >= since)
+			.order_by(RealtimePortfolioSnapshot.created_at.asc()),
+		)
+	]
+
+def _load_hybrid_portfolio_series_with_live_snapshot(
+	session: Session,
+	user_id: str,
+	*,
+	historical_since: datetime | None = None,
+	realtime_since: datetime,
+	live_snapshot: PortfolioSnapshot | None = None,
+) -> list[PortfolioSnapshot]:
+	snapshots: list[PortfolioSnapshot] = []
+	if historical_since is not None:
+		snapshots.extend(_load_series(session, user_id, historical_since))
+	snapshots.extend(_load_realtime_portfolio_series(session, user_id, realtime_since))
+	if live_snapshot is not None and live_snapshot.created_at >= _coerce_utc_datetime(realtime_since):
+		snapshots.append(live_snapshot)
+	return snapshots
+
 def _load_holdings_return_series(
 	session: Session,
 	user_id: str,
@@ -145,6 +181,76 @@ def _load_holdings_return_series_with_live_snapshot(
 
 	live_snapshot = live_snapshots.get((scope, symbol))
 	if live_snapshot is not None and live_snapshot.created_at >= _coerce_utc_datetime(since):
+		snapshots.append(live_snapshot)
+	return snapshots
+
+def _load_realtime_holdings_return_series(
+	session: Session,
+	user_id: str,
+	since: datetime,
+	scope: str,
+	symbol: str | None = None,
+) -> list[HoldingPerformanceSnapshot]:
+	statement = (
+		select(RealtimeHoldingPerformanceSnapshot)
+		.where(RealtimeHoldingPerformanceSnapshot.user_id == user_id)
+		.where(RealtimeHoldingPerformanceSnapshot.created_at >= since)
+		.where(RealtimeHoldingPerformanceSnapshot.scope == scope)
+		.order_by(RealtimeHoldingPerformanceSnapshot.created_at.asc())
+	)
+	if symbol is None:
+		statement = statement.where(RealtimeHoldingPerformanceSnapshot.symbol.is_(None))
+	else:
+		statement = statement.where(RealtimeHoldingPerformanceSnapshot.symbol == symbol)
+
+	return [
+		HoldingPerformanceSnapshot(
+			user_id=snapshot.user_id,
+			scope=snapshot.scope,
+			symbol=snapshot.symbol,
+			name=snapshot.name,
+			return_pct=snapshot.return_pct,
+			created_at=snapshot.created_at,
+		)
+		for snapshot in session.exec(statement)
+	]
+
+def _load_hybrid_holdings_return_series_with_live_snapshot(
+	session: Session,
+	user_id: str,
+	*,
+	realtime_since: datetime,
+	scope: str,
+	symbol: str | None = None,
+	default_name: str | None = None,
+	historical_since: datetime | None = None,
+	live_snapshots: dict[tuple[str, str | None], HoldingPerformanceSnapshot] | None = None,
+) -> list[HoldingPerformanceSnapshot]:
+	snapshots: list[HoldingPerformanceSnapshot] = []
+	if historical_since is not None:
+		snapshots.extend(
+			_load_holdings_return_series(
+				session,
+				user_id,
+				historical_since,
+				scope,
+				symbol=symbol,
+			),
+		)
+	snapshots.extend(
+		_load_realtime_holdings_return_series(
+			session,
+			user_id,
+			realtime_since,
+			scope,
+			symbol=symbol,
+		),
+	)
+	if live_snapshots is None:
+		return snapshots
+
+	live_snapshot = live_snapshots.get((scope, symbol))
+	if live_snapshot is not None and live_snapshot.created_at >= _coerce_utc_datetime(realtime_since):
 		snapshots.append(live_snapshot)
 	return snapshots
 
@@ -245,6 +351,29 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 	)
 	correction_lookup = _load_dashboard_correction_lookup(session, user_id)
 
+	second_series_raw = build_timeline(
+		_load_hybrid_portfolio_series_with_live_snapshot(
+			session,
+			user_id,
+			realtime_since=now - timedelta(seconds=61),
+			live_snapshot=live_portfolio_snapshot,
+		),
+		"second",
+	)
+	minute_series_raw = build_timeline(
+		_load_hybrid_portfolio_series_with_live_snapshot(
+			session,
+			user_id,
+			historical_since=_coerce_utc_datetime(now - timedelta(hours=1)).replace(
+				minute=0,
+				second=0,
+				microsecond=0,
+			),
+			realtime_since=now - timedelta(minutes=61),
+			live_snapshot=live_portfolio_snapshot,
+		),
+		"minute",
+	)
 	hour_series_raw = build_timeline(
 		_load_series_with_live_snapshot(
 			session,
@@ -306,6 +435,33 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		granularity="year",
 	)
 
+	holdings_return_second_series_raw = build_return_timeline(
+		_load_hybrid_holdings_return_series_with_live_snapshot(
+			session,
+			user_id,
+			realtime_since=now - timedelta(seconds=61),
+			scope="TOTAL",
+			default_name="非现金资产",
+			live_snapshots=live_holdings_return_snapshots,
+		),
+		"second",
+	)
+	holdings_return_minute_series_raw = build_return_timeline(
+		_load_hybrid_holdings_return_series_with_live_snapshot(
+			session,
+			user_id,
+			historical_since=_coerce_utc_datetime(now - timedelta(hours=1)).replace(
+				minute=0,
+				second=0,
+				microsecond=0,
+			),
+			realtime_since=now - timedelta(minutes=61),
+			scope="TOTAL",
+			default_name="非现金资产",
+			live_snapshots=live_holdings_return_snapshots,
+		),
+		"minute",
+	)
 	holdings_return_hour_series_raw = build_return_timeline(
 		_load_holdings_return_series_with_live_snapshot(
 			session,
@@ -442,6 +598,35 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 				symbol=holding.symbol,
 				name=holding.name,
 				quantity=holding.quantity,
+				second_series=build_return_timeline(
+					_load_hybrid_holdings_return_series_with_live_snapshot(
+						session,
+						user_id,
+						realtime_since=now - timedelta(seconds=61),
+						scope="HOLDING",
+						symbol=holding.symbol,
+						default_name=holding.name,
+						live_snapshots=live_holdings_return_snapshots,
+					),
+					"second",
+				),
+				minute_series=build_return_timeline(
+					_load_hybrid_holdings_return_series_with_live_snapshot(
+						session,
+						user_id,
+						historical_since=_coerce_utc_datetime(now - timedelta(hours=1)).replace(
+							minute=0,
+							second=0,
+							microsecond=0,
+						),
+						realtime_since=now - timedelta(minutes=61),
+						scope="HOLDING",
+						symbol=holding.symbol,
+						default_name=holding.name,
+						live_snapshots=live_holdings_return_snapshots,
+					),
+					"minute",
+				),
 				hour_series=_apply_dashboard_corrections(
 					holding_hour_series_raw,
 					correction_lookup,
@@ -510,10 +695,14 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 			)
 			if value > 0
 		],
+		second_series=second_series_raw,
+		minute_series=minute_series_raw,
 		hour_series=hour_series,
 		day_series=day_series,
 		month_series=month_series,
 		year_series=year_series,
+		holdings_return_second_series=holdings_return_second_series_raw,
+		holdings_return_minute_series=holdings_return_minute_series_raw,
 		holdings_return_hour_series=holdings_return_hour_series,
 		holdings_return_day_series=holdings_return_day_series,
 		holdings_return_month_series=holdings_return_month_series,
@@ -533,7 +722,7 @@ async def _get_cached_dashboard(
 	if (
 		not force_refresh
 		and cache_entry is not None
-		and _is_current_minute(cache_entry.generated_at)
+		and _is_current_second(cache_entry.generated_at)
 	):
 		return cache_entry.dashboard
 
@@ -546,7 +735,7 @@ async def _get_cached_dashboard(
 		if (
 			not force_refresh
 			and cache_entry is not None
-			and _is_current_minute(cache_entry.generated_at)
+			and _is_current_second(cache_entry.generated_at)
 		):
 			return cache_entry.dashboard
 
