@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.7.2 - 2026-03-26
+
+- Fixed trade event markers so buy and sell badges stay aligned with the analytics trend lines on both desktop and mobile layouts.
+- Expanded analytics feedback fixes across comparison intervals and holding return views, and restored historical timeline rebuilds for backfilled trades.
+- Restored standard account-password sign-in for the web app while keeping API keys focused on agent and developer access flows.
+- Refined the agent workspace, API key lifecycle handling, and mobile popout behavior for records, messages, and key management.
+- GitHub Release: https://github.com/RockYYY888/opentrifi/releases/tag/v0.7.2
+
 ## v0.7.1 - 2026-03-24
 
 - Fixed timeline comparison defaults so both trend charts populate the full-range start and end points immediately, and duplicate timepoints no longer destabilize interval selection.
