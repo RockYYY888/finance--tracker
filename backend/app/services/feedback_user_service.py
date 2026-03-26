@@ -233,7 +233,13 @@ def get_feedback_summary(
 		message_kind="FEEDBACK",
 	)
 	if current_user.username == "admin":
-		inbox_count = len(
+		_ensure_release_note_deliveries_for_user(session, current_user.username)
+		hidden_release_note_delivery_ids = _load_hidden_message_ids(
+			session,
+			user_id=current_user.username,
+			message_kind="RELEASE_NOTE",
+		)
+		feedback_inbox_count = len(
 			[
 				feedback_id
 				for feedback_id in session.exec(
@@ -242,7 +248,19 @@ def get_feedback_summary(
 				if int(feedback_id) not in hidden_feedback_ids
 			],
 		)
-		return FeedbackSummaryRead(inbox_count=inbox_count, mode="admin-open")
+		release_note_unread_count = 1 if any(
+			int(delivery_id) not in hidden_release_note_delivery_ids
+			for delivery_id in session.exec(
+				select(ReleaseNoteDelivery.id).where(
+					ReleaseNoteDelivery.user_id == current_user.username,
+					ReleaseNoteDelivery.seen_at.is_(None),
+				),
+			)
+		) else 0
+		return FeedbackSummaryRead(
+			inbox_count=feedback_inbox_count + release_note_unread_count,
+			mode="admin-open",
+		)
 
 	_ensure_release_note_deliveries_for_user(session, current_user.username)
 	hidden_release_note_delivery_ids = _load_hidden_message_ids(

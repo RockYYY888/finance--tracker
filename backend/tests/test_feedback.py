@@ -459,6 +459,11 @@ def test_release_note_publish_pushes_station_message_to_users(session: Session) 
 	admin_release_notes = list_release_notes_for_current_user(admin_user, session, None)
 	assert len(admin_release_notes) == 1
 	assert admin_release_notes[0].version == "0.2.0"
+	admin_summary = get_feedback_summary(admin_user, session, None)
+	assert admin_summary.inbox_count == 1
+	mark_release_notes_seen_for_current_user(admin_user, session, None)
+	admin_summary_after_seen = get_feedback_summary(admin_user, session, None)
+	assert admin_summary_after_seen.inbox_count == 0
 
 	user_release_notes = list_release_notes_for_current_user(normal_user, session, None)
 	assert len(user_release_notes) == 1

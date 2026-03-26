@@ -15,7 +15,7 @@ import {
 } from "../../lib/messageDismissal";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import { useAutoRefreshGuard } from "../../lib/autoRefreshGuards";
-import type { AdminFeedbackRecord } from "../../types/feedback";
+import type { AdminFeedbackRecord, ReleaseNoteDeliveryRecord } from "../../types/feedback";
 
 export interface AdminFeedbackDialogProps {
 	open: boolean;
@@ -23,6 +23,7 @@ export interface AdminFeedbackDialogProps {
 	viewerUserId: string;
 	userItems: AdminFeedbackRecord[];
 	systemItems: AdminFeedbackRecord[];
+	releaseNotes: ReleaseNoteDeliveryRecord[];
 	showDismissed?: boolean;
 	errorMessage?: string | null;
 	onClose: () => void;
@@ -47,6 +48,7 @@ export function AdminFeedbackDialog({
 	viewerUserId,
 	userItems,
 	systemItems,
+	releaseNotes,
 	showDismissed = false,
 	errorMessage = null,
 	onClose,
@@ -117,6 +119,8 @@ export function AdminFeedbackDialog({
 		() => [...visibleUserItems, ...visibleSystemItems],
 		[visibleSystemItems, visibleUserItems],
 	);
+	const hasVisibleMessages =
+		releaseNotes.length > 0 || visibleUserItems.length > 0 || visibleSystemItems.length > 0;
 	const expandedItem = useMemo(
 		() => allVisibleItems.find((item) => item.id === expandedId) ?? null,
 		[allVisibleItems, expandedId],
@@ -325,6 +329,34 @@ export function AdminFeedbackDialog({
 		);
 	}
 
+	function renderReleaseNoteCard(releaseNote: ReleaseNoteDeliveryRecord): JSX.Element {
+		return (
+			<article
+				key={`release-note-${releaseNote.delivery_id}`}
+				className="admin-feedback-card panel"
+			>
+				<div className="admin-feedback-card__head">
+					<div className="admin-feedback-card__meta">
+						<strong>版本 v{releaseNote.version}</strong>
+						<p>发布：{formatTimestamp(releaseNote.published_at)}</p>
+					</div>
+				</div>
+				<p className="admin-feedback-card__message">{releaseNote.title}</p>
+				<div className="admin-feedback-card__detail">
+					<div className="admin-feedback-card__reply-history">
+						<strong>更新内容</strong>
+						<p>{releaseNote.content}</p>
+					</div>
+					{releaseNote.source_feedback_ids.length > 0 ? (
+						<div className="admin-feedback-card__footer">
+							<span>关联反馈：#{releaseNote.source_feedback_ids.join(", #")}</span>
+						</div>
+					) : null}
+				</div>
+			</article>
+		);
+	}
+
 	if (!open) {
 		return null;
 	}
@@ -343,7 +375,7 @@ export function AdminFeedbackDialog({
 						<p className="eyebrow">ADMIN INBOX</p>
 						<h2 id="admin-feedback-title">消息</h2>
 						<p className="feedback-modal__copy">
-							仅管理员可见：展开后可查看详情，用户工单支持回复，系统工单仅支持关闭与分类。
+							仅管理员可见：这里会显示产品更新、用户工单和系统工单；用户工单支持回复，系统工单仅支持关闭与分类。
 						</p>
 					</div>
 					<div className="feedback-modal__head-actions">
@@ -373,12 +405,23 @@ export function AdminFeedbackDialog({
 				) : null}
 
 				<div className="admin-feedback-list">
-					{visibleUserItems.length === 0 && visibleSystemItems.length === 0 ? (
+					{!hasVisibleMessages ? (
 						<div className="banner info">
-							<p>当前没有反馈消息。</p>
+							<p>当前没有消息。</p>
 						</div>
 					) : (
 						<>
+							<section className="admin-feedback-section" aria-label="产品更新">
+								<div className="admin-feedback-section__head">
+									<strong>产品更新</strong>
+									<span>{releaseNotes.length} 条</span>
+								</div>
+								{releaseNotes.length === 0 ? (
+									<p className="admin-release-note__empty">暂无产品更新。</p>
+								) : (
+									releaseNotes.map((releaseNote) => renderReleaseNoteCard(releaseNote))
+								)}
+							</section>
 							<section className="admin-feedback-section" aria-label="用户工单">
 								<div className="admin-feedback-section__head">
 									<strong>用户工单</strong>

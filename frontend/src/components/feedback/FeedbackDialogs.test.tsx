@@ -103,6 +103,7 @@ describe("Feedback dialogs policy rendering", () => {
 				viewerUserId="admin"
 				userItems={[]}
 				systemItems={[systemItem]}
+				releaseNotes={[]}
 				showDismissed={false}
 				errorMessage={null}
 				onHideItem={vi.fn().mockResolvedValue(undefined)}
@@ -154,6 +155,7 @@ describe("Feedback dialogs policy rendering", () => {
 				viewerUserId="admin"
 				userItems={[createFeedbackRecord({ id: 21, user_id: "alice" })]}
 				systemItems={[]}
+				releaseNotes={[]}
 				showDismissed={false}
 				errorMessage={null}
 				onHideItem={vi.fn().mockResolvedValue(undefined)}
@@ -208,6 +210,34 @@ describe("Feedback dialogs policy rendering", () => {
 		expect(within(userView.container).getByText("更新内容")).not.toBeNull();
 		expect(within(userView.container).getByText("关联反馈：#3, #5")).not.toBeNull();
 		expect(within(userView.container).queryByText("Published:")).toBeNull();
+	});
+
+	it("renders product updates in the admin inbox message stream", () => {
+		const delivery = createReleaseNoteDeliveryRecord();
+
+		const view = render(
+			<AdminFeedbackDialog
+				open
+				busy={false}
+				viewerUserId="admin"
+				userItems={[]}
+				systemItems={[]}
+				releaseNotes={[delivery]}
+				showDismissed={false}
+				errorMessage={null}
+				onHideItem={vi.fn().mockResolvedValue(undefined)}
+				onClose={vi.fn()}
+				onShowDismissedChange={vi.fn()}
+				onCloseItem={vi.fn().mockResolvedValue(undefined)}
+				onReplyItem={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		expect(within(view.container).getByText("产品更新")).not.toBeNull();
+		expect(within(view.container).getByText("版本 v0.2.0")).not.toBeNull();
+		expect(within(view.container).getByText("更新内容")).not.toBeNull();
+		expect(within(view.container).getByText("关联反馈：#3, #5")).not.toBeNull();
+		expect(within(view.container).queryByText("Published:")).toBeNull();
 	});
 
 	it("keeps dismiss buttons out of the non-admin inbox", () => {

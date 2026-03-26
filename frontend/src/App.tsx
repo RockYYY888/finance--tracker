@@ -541,6 +541,9 @@ function App() {
 	const [adminSystemFeedbackItems, setAdminSystemFeedbackItems] = useState<AdminFeedbackRecord[]>(
 		[],
 	);
+	const [adminInboxReleaseNotes, setAdminInboxReleaseNotes] = useState<ReleaseNoteDeliveryRecord[]>(
+		[],
+	);
 	const [adminReleaseNotes, setAdminReleaseNotes] = useState<ReleaseNoteRecord[]>([]);
 	const [isLoadingUserInbox, setIsLoadingUserInbox] = useState(false);
 	const [userInboxErrorMessage, setUserInboxErrorMessage] = useState<string | null>(null);
@@ -627,6 +630,7 @@ function App() {
 		setIsAdminReleaseNotesOpen(false);
 		setAdminUserFeedbackItems([]);
 		setAdminSystemFeedbackItems([]);
+		setAdminInboxReleaseNotes([]);
 		setAdminReleaseNotes([]);
 		setUserInboxErrorMessage(null);
 		setIsUserInboxOpen(false);
@@ -689,6 +693,7 @@ function App() {
 		setIsAdminReleaseNotesOpen(false);
 		setAdminUserFeedbackItems([]);
 		setAdminSystemFeedbackItems([]);
+		setAdminInboxReleaseNotes([]);
 		setAdminReleaseNotes([]);
 		setUserInboxErrorMessage(null);
 		setIsUserInboxOpen(false);
@@ -974,12 +979,15 @@ function App() {
 		setIsLoadingAdminInbox(true);
 
 		try {
-			const [userFeedbackItems, systemFeedbackItems] = await Promise.all([
+			const [userFeedbackItems, systemFeedbackItems, releaseNotes] = await Promise.all([
 				listUserFeedbackForAdmin(includeHidden),
 				listSystemFeedbackForAdmin(includeHidden),
+				listReleaseNotesForCurrentUser(),
 			]);
 			setAdminUserFeedbackItems(userFeedbackItems.items);
 			setAdminSystemFeedbackItems(systemFeedbackItems.items);
+			setAdminInboxReleaseNotes(releaseNotes);
+			await markReleaseNotesSeenForCurrentUser();
 			await refreshFeedbackSummary();
 		} catch (error) {
 			setAdminInboxErrorMessage(
@@ -1838,6 +1846,7 @@ function App() {
 				viewerUserId={currentUserId ?? "anonymous"}
 				userItems={adminUserFeedbackItems}
 				systemItems={adminSystemFeedbackItems}
+				releaseNotes={adminInboxReleaseNotes}
 				showDismissed={isAdminInboxShowingDismissed}
 				errorMessage={adminInboxErrorMessage}
 				onClose={closeAdminInbox}

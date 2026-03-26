@@ -66,6 +66,10 @@ const agentAuditPanelMocks = vi.hoisted(() => ({
 	lastProps: null as Record<string, unknown> | null,
 }));
 
+const adminFeedbackDialogMocks = vi.hoisted(() => ({
+	lastProps: null as Record<string, unknown> | null,
+}));
+
 vi.mock("./lib/authApi", () => ({
 	getAuthSession: authApiMocks.getAuthSession,
 	loginWithPassword: authApiMocks.loginWithPassword,
@@ -171,7 +175,10 @@ vi.mock("./components/feedback/FeedbackDialog", () => ({
 }));
 
 vi.mock("./components/feedback/AdminFeedbackDialog", () => ({
-	AdminFeedbackDialog: () => null,
+	AdminFeedbackDialog: (props: Record<string, unknown>) => {
+		adminFeedbackDialogMocks.lastProps = props;
+		return props.open ? <div data-testid="admin-feedback-dialog">管理员消息</div> : null;
+	},
 }));
 vi.mock("./components/feedback/AdminReleaseNotesDialog", () => ({
 	AdminReleaseNotesDialog: () => null,
@@ -231,6 +238,7 @@ describe("App session restore", () => {
 		assetManagerMocks.lastProps = null;
 		analyticsMocks.lastProps = null;
 		agentAuditPanelMocks.lastProps = null;
+		adminFeedbackDialogMocks.lastProps = null;
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		window.localStorage.clear();
@@ -453,6 +461,46 @@ describe("App session restore", () => {
 
 		expect(screen.getByRole("button", { name: "更新日志" })).not.toBeNull();
 		expect(screen.queryByRole("button", { name: "Release Notes" })).toBeNull();
+	});
+
+	it("loads release notes into the admin inbox and marks them seen", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "admin", email: null });
+		feedbackApiMocks.listReleaseNotesForCurrentUser.mockResolvedValue([
+			{
+				delivery_id: 8,
+				release_note_id: 1,
+				version: "0.7.2",
+				title: "Product Updates",
+				content: "# Product Updates",
+				source_feedback_ids: [3],
+				published_at: "2026-03-26T09:00:00Z",
+				delivered_at: "2026-03-26T09:01:00Z",
+				seen_at: null,
+			},
+		]);
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，admin")).not.toBeNull();
+		});
+
+		await act(async () => {
+			screen.getByRole("button", { name: "消息" }).click();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("admin-feedback-dialog")).not.toBeNull();
+		});
+
+		expect(feedbackApiMocks.listReleaseNotesForCurrentUser).toHaveBeenCalledTimes(1);
+		expect(feedbackApiMocks.markReleaseNotesSeenForCurrentUser).toHaveBeenCalledTimes(1);
+		expect(adminFeedbackDialogMocks.lastProps?.releaseNotes).toEqual([
+			expect.objectContaining({
+				delivery_id: 8,
+				version: "0.7.2",
+			}),
+		]);
 	});
 
 	it("passes recent holding transactions into the analytics workspace", async () => {
