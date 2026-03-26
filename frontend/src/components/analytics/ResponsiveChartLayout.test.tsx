@@ -20,7 +20,6 @@ const rechartsState = vi.hoisted(() => ({
 	tooltips: [] as Array<Record<string, unknown>>,
 	lines: [] as Array<Record<string, unknown>>,
 	areas: [] as Array<Record<string, unknown>>,
-	scatters: [] as Array<Record<string, unknown>>,
 	xAxes: [] as Array<Record<string, unknown>>,
 	yAxes: [] as Array<Record<string, unknown>>,
 	pies: [] as Array<Record<string, unknown>>,
@@ -63,13 +62,34 @@ vi.mock("recharts", () => ({
 		rechartsState.areas.push(props);
 		return null;
 	},
-	Scatter: (props: Record<string, unknown>) => {
-		rechartsState.scatters.push(props);
-		return null;
-	},
 	Line: (props: Record<string, unknown>) => {
 		rechartsState.lines.push(props);
-		return null;
+		const className = typeof props.className === "string" ? props.className : "";
+		if (className !== "analytics-trade-marker-line") {
+			return null;
+		}
+
+		const data = Array.isArray(props.data)
+			? (props.data as Array<Record<string, unknown>>)
+			: [];
+		const dot = typeof props.dot === "function" ? props.dot : null;
+		if (dot === null) {
+			return null;
+		}
+
+		return (
+			<>
+				{data.map((entry, index) => (
+					<div key={`marker-dot-${index}`}>
+						{dot({
+							cx: typeof entry.xValue === "number" ? entry.xValue / 1000 : 0,
+							cy: typeof entry.yValue === "number" ? 160 - entry.yValue * 10 : 0,
+							payload: entry,
+						})}
+					</div>
+				))}
+			</>
+		);
 	},
 	XAxis: (props: Record<string, unknown>) => {
 		rechartsState.xAxes.push(props);
@@ -143,7 +163,6 @@ describe("analytics charts responsive layout", () => {
 		rechartsState.tooltips.length = 0;
 		rechartsState.lines.length = 0;
 		rechartsState.areas.length = 0;
-		rechartsState.scatters.length = 0;
 		rechartsState.xAxes.length = 0;
 		rechartsState.yAxes.length = 0;
 		rechartsState.pies.length = 0;
@@ -776,24 +795,19 @@ describe("analytics charts responsive layout", () => {
 			/>,
 		);
 
-		expect(rechartsState.scatters).toHaveLength(0);
+		expect(document.querySelectorAll("g.analytics-trade-marker")).toHaveLength(0);
 		fireEvent.click(screen.getByRole("button", { name: "投资类收益率" }));
 
 		await waitFor(() => {
-			expect(rechartsState.scatters.length).toBeGreaterThanOrEqual(1);
+			expect(document.querySelectorAll("g.analytics-trade-marker")).toHaveLength(2);
 		});
 
-		const portfolioMarkerLabels = [...new Set(
-			rechartsState.scatters.flatMap((scatter) =>
-				((scatter.data as Array<{ label?: string }> | undefined) ?? []).map(
-					(marker) => marker.label,
-				),
-			),
-		)];
+		const portfolioMarkerLabels = [...document.querySelectorAll("g.analytics-trade-marker text")]
+			.map((element) => element.textContent)
+			.filter((value): value is string => Boolean(value));
 		expect(portfolioMarkerLabels).toEqual(["B/S", "S"]);
 
 		portfolioRender.unmount();
-		rechartsState.scatters.length = 0;
 
 		render(
 			<ReturnTrendChart
@@ -851,22 +865,13 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(rechartsState.scatters.length).toBeGreaterThanOrEqual(1);
+			expect(document.querySelectorAll("g.analytics-trade-marker")).toHaveLength(1);
 		});
 
-		const singleHoldingMarker = rechartsState.scatters[
-			rechartsState.scatters.length - 1
-		] as {
-			data?: Array<{ label?: string }>;
-		};
-		expect(singleHoldingMarker.data?.[0]?.label).toBe("B");
-		expect(
-			[...new Set(rechartsState.scatters.flatMap((scatter) =>
-				((scatter.data as Array<{ label?: string }> | undefined) ?? []).map(
-					(marker) => marker.label,
-				),
-			))],
-		).toEqual(["B"]);
+		const singleHoldingLabels = [...document.querySelectorAll("g.analytics-trade-marker text")]
+			.map((element) => element.textContent)
+			.filter((value): value is string => Boolean(value));
+		expect(singleHoldingLabels).toEqual(["B"]);
 	});
 
 	it("aligns shaded return areas to the same numeric x-axis positions as the white line", async () => {

@@ -1741,6 +1741,7 @@ function App() {
 							holdings_return_month_series={dashboard.holdings_return_month_series}
 							holdings_return_year_series={dashboard.holdings_return_year_series}
 							holding_return_series={dashboard.holding_return_series}
+							recent_holding_transactions={dashboard.recent_holding_transactions}
 							loading={isLoadingDashboard}
 						/>
 					</Suspense>

@@ -453,6 +453,24 @@ export function PortfolioTrendChart({
 	const comparisonCardDescription = hasData
 		? "以下选择器只用于下方指标比较，不改变上方图像。"
 		: "当前区间数据不足时，下方指标会在累计后自动补齐。";
+	const chartHeight = compactAxisMode ? 280 : 320;
+	const chartMargin = {
+		top: 18,
+		right: compactAxisMode ? 28 : 20,
+		left: compactAxisMode ? 16 : 10,
+		bottom: compactAxisMode ? 16 : 8,
+	};
+	const xAxisHeight = compactAxisMode ? 30 : 24;
+	const tradeMarkerPlotLeft = chartMargin.left + yAxisWidth;
+	const tradeMarkerPlotTop = chartMargin.top;
+	const tradeMarkerPlotWidth = Math.max(
+		chartWidth - tradeMarkerPlotLeft - chartMargin.right,
+		0,
+	);
+	const tradeMarkerPlotHeight = Math.max(
+		chartHeight - tradeMarkerPlotTop - chartMargin.bottom - xAxisHeight,
+		0,
+	);
 
 	return (
 		<section className="analytics-card">
@@ -514,15 +532,10 @@ export function PortfolioTrendChart({
 					ref={chartContainerRef}
 					{...chartInteractionHandlers}
 				>
-					<ResponsiveContainer width="100%" height={compactAxisMode ? 280 : 320}>
+					<ResponsiveContainer width="100%" height={chartHeight}>
 						<ComposedChart
 							data={activeChartData}
-							margin={{
-								top: 18,
-								right: compactAxisMode ? 28 : 20,
-								left: compactAxisMode ? 16 : 10,
-								bottom: compactAxisMode ? 16 : 8,
-							}}
+							margin={chartMargin}
 						>
 							<CartesianGrid stroke="rgba(255,255,255,0.08)" />
 							<XAxis
@@ -660,7 +673,6 @@ export function PortfolioTrendChart({
 								activeDot={false}
 								connectNulls
 							/>
-							<TradeMarkerScatter markers={activeTradeMarkers} />
 							<Line
 								type="linear"
 								dataKey="value"
@@ -671,6 +683,17 @@ export function PortfolioTrendChart({
 							/>
 						</ComposedChart>
 					</ResponsiveContainer>
+					<TradeMarkerScatter
+						markers={activeTradeMarkers}
+						chartWidth={chartWidth}
+						chartHeight={chartHeight}
+						plotLeft={tradeMarkerPlotLeft}
+						plotTop={tradeMarkerPlotTop}
+						plotWidth={tradeMarkerPlotWidth}
+						plotHeight={tradeMarkerPlotHeight}
+						xDomain={xAxisDomain}
+						yDomain={axisLayout.domain}
+					/>
 					<div
 						className="return-trend-legend"
 						role="list"

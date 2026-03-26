@@ -320,6 +320,24 @@ export function ReturnTrendChart({
 		emptyMessage.trim().length > 0
 			? `${emptyMessage} 当前所选周期的数据会在累计后补齐。`
 			: "当前所选周期的收益率数据还在累计中。";
+	const chartHeight = compactAxisMode ? 272 : 300;
+	const chartMargin = {
+		top: 18,
+		right: compactAxisMode ? 28 : 20,
+		left: compactAxisMode ? 16 : 10,
+		bottom: compactAxisMode ? 16 : 8,
+	};
+	const xAxisHeight = compactAxisMode ? 30 : 24;
+	const tradeMarkerPlotLeft = chartMargin.left + yAxisWidth;
+	const tradeMarkerPlotTop = chartMargin.top;
+	const tradeMarkerPlotWidth = Math.max(
+		chartWidth - tradeMarkerPlotLeft - chartMargin.right,
+		0,
+	);
+	const tradeMarkerPlotHeight = Math.max(
+		chartHeight - tradeMarkerPlotTop - chartMargin.bottom - xAxisHeight,
+		0,
+	);
 
 	useEffect(() => {
 		if (lastAutoResolvedSeriesKeyRef.current === (selectedOption?.key ?? null)) {
@@ -422,15 +440,10 @@ export function ReturnTrendChart({
 					ref={chartContainerRef}
 					{...chartInteractionHandlers}
 				>
-					<ResponsiveContainer width="100%" height={compactAxisMode ? 272 : 300}>
+					<ResponsiveContainer width="100%" height={chartHeight}>
 						<ComposedChart
 							data={chartData}
-							margin={{
-								top: 18,
-								right: compactAxisMode ? 28 : 20,
-								left: compactAxisMode ? 16 : 10,
-								bottom: compactAxisMode ? 16 : 8,
-							}}
+							margin={chartMargin}
 						>
 							<CartesianGrid stroke="rgba(255,255,255,0.08)" />
 							<XAxis
@@ -565,7 +578,6 @@ export function ReturnTrendChart({
 								activeDot={false}
 								connectNulls
 							/>
-							<TradeMarkerScatter markers={activeTradeMarkers} />
 							<Line
 								type="linear"
 								dataKey="value"
@@ -576,6 +588,17 @@ export function ReturnTrendChart({
 							/>
 						</ComposedChart>
 					</ResponsiveContainer>
+					<TradeMarkerScatter
+						markers={activeTradeMarkers}
+						chartWidth={chartWidth}
+						chartHeight={chartHeight}
+						plotLeft={tradeMarkerPlotLeft}
+						plotTop={tradeMarkerPlotTop}
+						plotWidth={tradeMarkerPlotWidth}
+						plotHeight={tradeMarkerPlotHeight}
+						xDomain={xAxisDomain}
+						yDomain={axisLayout.domain}
+					/>
 					<div className="return-trend-legend" role="list" aria-label="收益图例">
 						<span
 							className="return-trend-legend__item return-trend-legend__item--positive"

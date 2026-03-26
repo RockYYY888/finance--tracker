@@ -196,11 +196,22 @@
 .analytics-chart {
 	min-width: 0;
 	width: 100%;
+	position: relative;
 }
 
 .analytics-chart--interactive {
 	touch-action: none;
 	overscroll-behavior: contain;
+}
+
+.analytics-trade-marker-overlay {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	pointer-events: none;
+	z-index: 1;
 }
 
 .analytics-comparison-card {

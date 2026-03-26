@@ -58,6 +58,10 @@ const assetManagerMocks = vi.hoisted(() => ({
 	lastProps: null as Record<string, unknown> | null,
 }));
 
+const analyticsMocks = vi.hoisted(() => ({
+	lastProps: null as Record<string, unknown> | null,
+}));
+
 vi.mock("./lib/authApi", () => ({
 	getAuthSession: authApiMocks.getAuthSession,
 	loginWithPassword: authApiMocks.loginWithPassword,
@@ -115,7 +119,10 @@ vi.mock("./components/assets", () => ({
 }));
 
 vi.mock("./components/analytics", () => ({
-	PortfolioAnalytics: () => <div data-testid="portfolio-analytics">分析模块</div>,
+	PortfolioAnalytics: (props: Record<string, unknown>) => {
+		analyticsMocks.lastProps = props;
+		return <div data-testid="portfolio-analytics">分析模块</div>;
+	},
 }));
 
 vi.mock("./components/assets/AgentExecutionAuditPanel", () => ({
@@ -194,6 +201,7 @@ describe("App session restore", () => {
 		vi.useRealTimers();
 		assetRecordsDialogMocks.lastOpenState = false;
 		assetManagerMocks.lastProps = null;
+		analyticsMocks.lastProps = null;
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		window.localStorage.clear();
@@ -416,6 +424,52 @@ describe("App session restore", () => {
 
 		expect(screen.getByRole("button", { name: "更新日志" })).not.toBeNull();
 		expect(screen.queryByRole("button", { name: "Release Notes" })).toBeNull();
+	});
+
+	it("passes recent holding transactions into the analytics workspace", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "admin", email: null });
+		dashboardApiMocks.getDashboard.mockResolvedValue({
+			...EMPTY_DASHBOARD,
+			recent_holding_transactions: [
+				{
+					id: 1,
+					symbol: "9988.HK",
+					name: "阿里巴巴-SW",
+					side: "BUY",
+					quantity: 400,
+					price: 124.2,
+					fallback_currency: "HKD",
+					market: "HK",
+					broker: "港股通",
+					traded_on: "2026-03-24",
+					created_at: "2026-03-25T06:47:09.244918Z",
+					updated_at: "2026-03-25T06:47:09.244933Z",
+				},
+			],
+		});
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByText("你好，admin")).not.toBeNull();
+		});
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "洞察" }).click();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("portfolio-analytics")).not.toBeNull();
+		});
+
+		expect(analyticsMocks.lastProps?.recent_holding_transactions).toEqual([
+			expect.objectContaining({
+				id: 1,
+				symbol: "9988.HK",
+				side: "BUY",
+				traded_on: "2026-03-24",
+			}),
+		]);
 	});
 
 	it("shows placeholders instead of zero totals while remembered data is still loading", () => {
