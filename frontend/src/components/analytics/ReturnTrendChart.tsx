@@ -73,9 +73,9 @@ type ReturnTrendChartProps = {
 };
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
-	minute: "1小时",
+	minute: "小时",
 	hour: "1天",
-	day: "7天",
+	day: "周",
 	month: "月",
 	year: "年",
 };
