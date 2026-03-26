@@ -73,13 +73,15 @@ type ReturnTrendChartProps = {
 };
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
-	hour: "24H",
+	minute: "1小时",
+	hour: "1天",
 	day: "7天",
-	month: "30天",
+	month: "月",
 	year: "年",
 };
 
 const STEP_DELTA_LABELS: Record<TimelineRange, string> = {
+	minute: "小时变动",
 	hour: "小时均变动",
 	day: "日均变动",
 	month: "日均变动",
@@ -239,6 +241,7 @@ export function ReturnTrendChart({
 					selectedOption.year_series,
 				)
 				: {
+					minute: [],
 					hour: [],
 					day: [],
 					month: [],

@@ -124,7 +124,7 @@ export function getTimelineSeries(
 	monthSeries: TimelinePoint[],
 	yearSeries: TimelinePoint[],
 ): TimelinePoint[] {
-	if (range === "hour") {
+	if (range === "minute" || range === "hour") {
 		return hourSeries;
 	}
 	if (range === "month") {
@@ -480,6 +480,7 @@ export function buildPreparedTimelineSeriesByRange(
 	yearSeries: TimelinePoint[],
 ): PreparedTimelineSeriesByRange {
 	return {
+		minute: prepareTimelineSeries(hourSeries),
 		hour: prepareTimelineSeries(hourSeries),
 		day: prepareTimelineSeries(daySeries),
 		month: prepareTimelineSeries(monthSeries),
@@ -502,6 +503,11 @@ export function buildDisplayTimelineSeriesByRange(
 		: preparedYearSeries;
 
 	return {
+		minute: buildRegularizedWindowedTimelineSeries(
+			prepareTimelineSeries(hourSeries),
+			"hour",
+			1,
+		),
 		hour: buildRegularizedWindowedTimelineSeries(
 			mergeTimelineSeries(daySeries, hourSeries),
 			"hour",
@@ -521,7 +527,7 @@ export function getTimelineDisplayGranularity(
 	range: TimelineRange,
 	series: TimelinePoint[],
 ): TimelineBucketGranularity {
-	if (range === "hour") {
+	if (range === "minute" || range === "hour") {
 		return "hour";
 	}
 
@@ -545,7 +551,7 @@ export function getTimelineDisplayGranularity(
 export function getFirstRenderableTimelineRange(
 	seriesByRange: PreparedTimelineSeriesByRange,
 ): TimelineRange | null {
-	for (const range of ["hour", "day", "month", "year"] satisfies TimelineRange[]) {
+	for (const range of ["hour", "day", "month", "year", "minute"] satisfies TimelineRange[]) {
 		if (seriesByRange[range].length >= 2) {
 			return range;
 		}
@@ -583,7 +589,7 @@ export function buildSelectableTimelinePoints(
 export function getFirstSelectableTimelineRange(
 	seriesByRange: PreparedTimelineSeriesByRange,
 ): TimelineRange | null {
-	for (const range of ["hour", "day", "month", "year"] satisfies TimelineRange[]) {
+	for (const range of ["hour", "day", "month", "year", "minute"] satisfies TimelineRange[]) {
 		if (buildSelectableTimelinePoints(seriesByRange[range]).length >= 2) {
 			return range;
 		}
@@ -645,7 +651,7 @@ export function formatTimelineAxisLabel(
 		return normalizedLabel;
 	}
 
-	if (range === "hour") {
+	if (range === "minute" || range === "hour") {
 		const timeMatch = normalizedLabel.match(/(\d{1,2}:\d{2})$/);
 		if (timeMatch) {
 			return timeMatch[1];

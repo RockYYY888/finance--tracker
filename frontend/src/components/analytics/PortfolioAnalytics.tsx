@@ -69,7 +69,7 @@ export function PortfolioAnalytics({
 					/>
 					<ReturnTrendChart
 						title="单只持仓收益率"
-						description="查看任一持仓收益率在 24 小时、7 天、30 天和近一年内的变化。"
+						description="查看任一持仓收益率在 1 小时、1 天、7 天、近一月和近一年内的变化。"
 						seriesOptions={createHoldingReturnOptions(holding_return_series)}
 						recentHoldingTransactions={recent_holding_transactions}
 						loading={loading}

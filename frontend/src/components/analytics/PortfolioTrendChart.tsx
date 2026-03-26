@@ -111,9 +111,10 @@ function buildNumericXAxisDomain(
 }
 
 const RANGE_LABELS: Record<TimelineRange, string> = {
-	hour: "24H",
+	minute: "1小时",
+	hour: "1天",
 	day: "7天",
-	month: "30天",
+	month: "月",
 	year: "年",
 };
 
@@ -123,6 +124,7 @@ const MODE_LABELS: Record<PortfolioTrendDisplayMode, string> = {
 };
 
 const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
+	minute: "小时环比",
 	hour: "小时平均环比",
 	day: "日均环比",
 	month: "日均环比",
@@ -130,6 +132,7 @@ const VALUE_STEP_LABELS: Record<TimelineRange, string> = {
 };
 
 const RETURN_STEP_LABELS: Record<TimelineRange, string> = {
+	minute: "小时变动",
 	hour: "小时均变动",
 	day: "日均变动",
 	month: "日均变动",
@@ -202,7 +205,7 @@ export function PortfolioTrendChart({
 	defaultRange = "hour",
 	loading = false,
 	title = "资产变化趋势",
-	description = "查看资产总额与投资类收益率在 24 小时、7 天、30 天和近一年内的变化。",
+	description = "查看资产总额与投资类收益率在 1 小时、1 天、7 天、近一月和近一年内的变化。",
 }: PortfolioTrendChartProps) {
 	const [displayMode, setDisplayMode] =
 		useState<PortfolioTrendDisplayMode>("value");

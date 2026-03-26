@@ -98,7 +98,7 @@ export type AllocationSlice = {
 	value: number;
 };
 
-export type TimelineRange = "hour" | "day" | "month" | "year";
+export type TimelineRange = "minute" | "hour" | "day" | "month" | "year";
 
 export type PortfolioAnalyticsData = {
 	total_value_cny: number;

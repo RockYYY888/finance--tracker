@@ -350,7 +350,7 @@ describe("analytics charts responsive layout", () => {
 		expect(screen.queryByText("当前区间")).toBeNull();
 	});
 
-	it("keeps all portfolio trend ranges visible and derives 24H from sparse history", async () => {
+it("keeps all portfolio trend ranges visible and derives the 1-day view from sparse history", async () => {
 		render(
 			<PortfolioTrendChart
 				defaultRange="hour"
@@ -379,13 +379,14 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "24H" }).className).toContain(
+			expect(screen.getByRole("button", { name: "1天" }).className).toContain(
 				"active",
 			);
 		});
 
+		expect(screen.getByRole("button", { name: "1小时" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "7天" })).toBeTruthy();
-		expect(screen.getByRole("button", { name: "30天" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "月" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
 	});
 
@@ -575,7 +576,7 @@ describe("analytics charts responsive layout", () => {
 		).toBe(272);
 	});
 
-	it("keeps all return trend ranges visible and derives 24H from sparse history", async () => {
+it("keeps all return trend ranges visible and derives the 1-day view from sparse history", async () => {
 		render(
 			<ReturnTrendChart
 				defaultRange="hour"
@@ -611,13 +612,14 @@ describe("analytics charts responsive layout", () => {
 		);
 
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "24H" }).className).toContain(
+			expect(screen.getByRole("button", { name: "1天" }).className).toContain(
 				"active",
 			);
 		});
 
+		expect(screen.getByRole("button", { name: "1小时" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "7天" })).toBeTruthy();
-		expect(screen.getByRole("button", { name: "30天" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "月" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "年" })).toBeTruthy();
 	});
 

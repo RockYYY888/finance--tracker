@@ -139,7 +139,7 @@ describe("prepareTimelineSeries", () => {
 });
 
 describe("buildDisplayTimelineSeriesByRange", () => {
-	it("derives a 24H return window from sparse hourly history plus daily checkpoints", () => {
+	it("derives a 1-day return window from sparse hourly history plus daily checkpoints", () => {
 		const seriesByRange = buildDisplayTimelineSeriesByRange(
 			[
 				{
@@ -172,6 +172,37 @@ describe("buildDisplayTimelineSeriesByRange", () => {
 		expect(seriesByRange.hour[3]?.value).toBe(-7.12);
 		expect(seriesByRange.hour[4]?.synthetic).toBe(true);
 		expect(seriesByRange.hour[24]?.label).toBe("03-14 21:00");
+	});
+
+	it("derives a 1-hour window from the latest hourly checkpoints", () => {
+		const seriesByRange = buildDisplayTimelineSeriesByRange(
+			[
+				{
+					label: "03-24 10:00",
+					value: 231_000,
+					timestamp_utc: "2026-03-24T02:00:00Z",
+				},
+				{
+					label: "03-24 11:00",
+					value: 233_000,
+					timestamp_utc: "2026-03-24T03:00:00Z",
+				},
+				{
+					label: "03-24 12:00",
+					value: 235_500,
+					timestamp_utc: "2026-03-24T04:00:00Z",
+				},
+			],
+			[],
+			[],
+			[],
+		);
+
+		expect(seriesByRange.minute.map((point) => point.label)).toEqual([
+			"03-24 11:00",
+			"03-24 12:00",
+		]);
+		expect(seriesByRange.minute.map((point) => point.value)).toEqual([233_000, 235_500]);
 	});
 
 	it("forward-fills missing hourly buckets and keeps the latest duplicate in each bucket", () => {
