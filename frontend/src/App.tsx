@@ -1407,7 +1407,6 @@ function App() {
 				expires_in_days: payload.expires_in_days ?? null,
 			});
 			setIssuedAgentApiKey(issuedKey);
-			setAgentApiKeyNoticeMessage("API Key 已生成。请立即复制并保存，这串密钥只会显示一次。");
 			await loadAgentAudit({ force: true });
 		} catch (error) {
 			setAgentApiKeyErrorMessage(
@@ -1775,7 +1774,10 @@ function App() {
 						revokingApiKeyId={revokingAgentApiKeyId}
 						onCreateApiKey={(payload) => void handleCreateAgentApiKey(payload)}
 						onRevokeApiKey={(tokenId) => void handleRevokeAgentApiKey(tokenId)}
-						onDismissIssuedApiKey={() => setIssuedAgentApiKey(null)}
+						onDismissIssuedApiKey={() => {
+							setIssuedAgentApiKey(null);
+							setAgentApiKeyNoticeMessage(null);
+						}}
 					/>
 				</section>
 			) : null}

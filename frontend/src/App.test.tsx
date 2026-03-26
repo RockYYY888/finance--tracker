@@ -62,6 +62,10 @@ const analyticsMocks = vi.hoisted(() => ({
 	lastProps: null as Record<string, unknown> | null,
 }));
 
+const agentAuditPanelMocks = vi.hoisted(() => ({
+	lastProps: null as Record<string, unknown> | null,
+}));
+
 vi.mock("./lib/authApi", () => ({
 	getAuthSession: authApiMocks.getAuthSession,
 	loginWithPassword: authApiMocks.loginWithPassword,
@@ -126,9 +130,33 @@ vi.mock("./components/analytics", () => ({
 }));
 
 vi.mock("./components/assets/AgentExecutionAuditPanel", () => ({
-	AgentExecutionAuditPanel: ({ loading }: { loading?: boolean }) => (
-		<div data-testid="agent-audit-panel">{loading ? "智能体加载中" : "智能体模块"}</div>
-	),
+	AgentExecutionAuditPanel: (props: Record<string, unknown>) => {
+		agentAuditPanelMocks.lastProps = props;
+		const loading = props.loading === true;
+		return (
+			<div data-testid="agent-audit-panel">
+				{loading ? "智能体加载中" : "智能体模块"}
+				<button
+					type="button"
+					onClick={() => void (props.onCreateApiKey as ((payload: {
+						name: string;
+						expires_in_days: number | null;
+					}) => void) | undefined)?.({
+						name: "local-cli",
+						expires_in_days: 30,
+					})}
+				>
+					模拟创建 API Key
+				</button>
+				<button
+					type="button"
+					onClick={() => (props.onDismissIssuedApiKey as (() => void) | undefined)?.()}
+				>
+					模拟关闭新 Key
+				</button>
+			</div>
+		);
+	},
 }));
 
 vi.mock("./components/assets/AssetRecordsDialog", () => ({
@@ -202,6 +230,7 @@ describe("App session restore", () => {
 		assetRecordsDialogMocks.lastOpenState = false;
 		assetManagerMocks.lastProps = null;
 		analyticsMocks.lastProps = null;
+		agentAuditPanelMocks.lastProps = null;
 		__resetAutoRefreshGuardsForTests();
 		window.sessionStorage.clear();
 		window.localStorage.clear();
@@ -861,6 +890,49 @@ describe("App session restore", () => {
 		expect(assetApiMocks.listAgentApiKeys).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAgentRegistrations).toHaveBeenCalledTimes(1);
 		expect(assetApiMocks.listAssetRecords).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps the one-time api key notice out of the workspace after key creation", async () => {
+		authApiMocks.getAuthSession.mockResolvedValue({ user_id: "alice", email: null });
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(dashboardApiMocks.getDashboard).toHaveBeenCalledWith(false);
+		});
+
+		await act(async () => {
+			screen.getByRole("tab", { name: "智能体" }).click();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("agent-audit-panel")).not.toBeNull();
+		});
+
+		await act(async () => {
+			screen.getByRole("button", { name: "模拟创建 API Key" }).click();
+		});
+
+		await waitFor(() => {
+			expect(assetApiMocks.createAgentApiKey).toHaveBeenCalledWith({
+				name: "local-cli",
+				expires_in_days: 30,
+			});
+		});
+
+		await waitFor(() => {
+			expect(agentAuditPanelMocks.lastProps?.issuedApiKey).not.toBeNull();
+		});
+		expect(agentAuditPanelMocks.lastProps?.apiKeyNoticeMessage).toBeNull();
+
+		await act(async () => {
+			screen.getByRole("button", { name: "模拟关闭新 Key" }).click();
+		});
+
+		await waitFor(() => {
+			expect(agentAuditPanelMocks.lastProps?.issuedApiKey).toBeNull();
+		});
+		expect(agentAuditPanelMocks.lastProps?.apiKeyNoticeMessage).toBeNull();
 	});
 
 	it("opens the asset records dialog from the hero actions", async () => {
