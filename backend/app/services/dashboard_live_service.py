@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from fastapi import HTTPException, Query
 from fastapi.responses import Response
@@ -32,6 +33,7 @@ from app.schemas import (
 	HoldingReturnSeries,
 	ValuedHolding,
 )
+from app.fixed_precision import DECIMAL_ZERO, display_percent, quantize_decimal
 from app.services.auth_service import CurrentUserDependency
 from app.services.common_service import (
 	DASHBOARD_CORRECTION_ACTIONS,
@@ -59,9 +61,9 @@ from app.services.service_context import SessionDependency
 
 def _summarize_holdings_return_state(
 	holdings: list[ValuedHolding],
-) -> tuple[float | None, tuple[LiveHoldingReturnPoint, ...]]:
-	total_cost_basis_cny = 0.0
-	total_market_value_cny = 0.0
+) -> tuple[Decimal | None, tuple[LiveHoldingReturnPoint, ...]]:
+	total_cost_basis_cny = DECIMAL_ZERO
+	total_market_value_cny = DECIMAL_ZERO
 	points: list[LiveHoldingReturnPoint] = []
 
 	for holding in holdings:
@@ -74,17 +76,21 @@ def _summarize_holdings_return_state(
 		):
 			continue
 
-		cost_basis_value_cny = holding.cost_basis_price * holding.quantity * holding.fx_to_cny
+		cost_basis_value_cny = quantize_decimal(
+			Decimal(str(holding.cost_basis_price))
+			* Decimal(str(holding.quantity))
+			* Decimal(str(holding.fx_to_cny)),
+		)
 		if cost_basis_value_cny <= 0:
 			continue
 
 		total_cost_basis_cny += cost_basis_value_cny
-		total_market_value_cny += holding.value_cny
+		total_market_value_cny += Decimal(str(holding.value_cny))
 		points.append(
 			LiveHoldingReturnPoint(
 				symbol=holding.symbol,
 				name=holding.name,
-				return_pct=holding.return_pct,
+				return_pct=display_percent(holding.return_pct),
 			),
 		)
 
@@ -92,7 +98,7 @@ def _summarize_holdings_return_state(
 		return None, tuple(points)
 
 	return (
-		round(((total_market_value_cny - total_cost_basis_cny) / total_cost_basis_cny) * 100, 2),
+		display_percent(((total_market_value_cny - total_cost_basis_cny) / total_cost_basis_cny) * 100),
 		tuple(points),
 	)
 
@@ -100,7 +106,7 @@ def _build_transient_portfolio_snapshot(
 	*,
 	user_id: str,
 	generated_at: datetime,
-	total_value_cny: float,
+	total_value_cny: Decimal,
 	has_assets: bool,
 ) -> PortfolioSnapshot | None:
 	if not has_assets:
@@ -115,7 +121,7 @@ def _build_transient_holdings_return_snapshots(
 	*,
 	user_id: str,
 	generated_at: datetime,
-	aggregate_return_pct: float | None,
+	aggregate_return_pct: Decimal | None,
 	holding_points: tuple[LiveHoldingReturnPoint, ...],
 ) -> dict[tuple[str, str | None], HoldingPerformanceSnapshot]:
 	snapshots: dict[tuple[str, str | None], HoldingPerformanceSnapshot] = {}
@@ -143,7 +149,7 @@ def _persist_holdings_return_snapshot(
 	session: Session,
 	user_id: str,
 	hour_bucket: datetime,
-	aggregate_return_pct: float | None,
+	aggregate_return_pct: Decimal | None,
 	holding_points: tuple[LiveHoldingReturnPoint, ...],
 ) -> None:
 	hour_start = _current_hour_bucket(hour_bucket)
@@ -215,7 +221,7 @@ def _persist_hour_snapshot(
 	session: Session,
 	user_id: str,
 	hour_bucket: datetime,
-	total_value_cny: float,
+	total_value_cny: Decimal,
 ) -> None:
 	hour_start = _current_hour_bucket(hour_bucket)
 	hour_end = hour_start + timedelta(hours=1)
@@ -297,7 +303,7 @@ def _roll_live_holdings_return_state_if_needed(
 def _update_live_portfolio_state(
 	user_id: str,
 	now: datetime,
-	total_value_cny: float,
+	total_value_cny: Decimal,
 	has_assets: bool,
 ) -> None:
 	live_portfolio_state = runtime_state.live_portfolio_states.get(user_id)
@@ -337,7 +343,7 @@ def _update_live_portfolio_state(
 def _update_live_holdings_return_state(
 	user_id: str,
 	now: datetime,
-	aggregate_return_pct: float | None,
+	aggregate_return_pct: Decimal | None,
 	holding_points: tuple[LiveHoldingReturnPoint, ...],
 ) -> None:
 	live_holdings_return_state = runtime_state.live_holdings_return_states.get(user_id)

@@ -6,6 +6,7 @@ from sqlalchemy import delete, text
 from sqlmodel import Session, select
 
 from app.database import engine
+from app.fixed_precision import DECIMAL_ZERO, FIXED_EPSILON, quantize_decimal, to_decimal
 from app.models import (
 	CASH_SETTLEMENT_DIRECTIONS,
 	AssetMutationAudit,
@@ -131,7 +132,7 @@ def _migrate_legacy_holdings_to_transactions() -> None:
 					symbol=holding.symbol,
 					name=holding.name,
 					side="BUY",
-					quantity=max(holding.quantity, 0.0),
+					quantity=max(holding.quantity, DECIMAL_ZERO),
 					price=holding.cost_basis_price
 					if holding.cost_basis_price and holding.cost_basis_price > 0
 					else None,
@@ -196,18 +197,18 @@ def _backfill_holding_transaction_cash_settlements() -> None:
 			if not isinstance(after_state, dict):
 				continue
 
-			after_balance = float(after_state.get("balance") or 0.0)
+			after_balance = to_decimal(after_state.get("balance"))
 			before_balance = (
-				float(before_state.get("balance") or 0.0)
+				to_decimal(before_state.get("balance"))
 				if isinstance(before_state, dict)
-				else 0.0
+				else DECIMAL_ZERO
 			)
 			settled_amount = (
 				after_balance
 				if (audit.reason or "").startswith("AUTO_SELL_PROCEEDS#")
-				else round(after_balance - before_balance, 8)
+				else quantize_decimal(after_balance - before_balance)
 			)
-			if settled_amount <= HOLDING_QUANTITY_EPSILON:
+			if settled_amount <= FIXED_EPSILON:
 				continue
 
 			session.add(
@@ -220,11 +221,13 @@ def _backfill_holding_transaction_cash_settlements() -> None:
 						if (audit.reason or "").startswith("AUTO_SELL_PROCEEDS#")
 						else "ADD_TO_EXISTING_CASH"
 					),
-					settled_amount=round(settled_amount, 8),
+					settled_amount=settled_amount,
 					settled_currency=_normalize_currency(
 						str(after_state.get("currency") or transaction.fallback_currency),
 					),
-					source_amount=round(transaction.quantity * (transaction.price or 0.0), 8),
+					source_amount=quantize_decimal(
+						transaction.quantity * (transaction.price or DECIMAL_ZERO),
+					),
 					source_currency=_normalize_currency(transaction.fallback_currency),
 					auto_created_cash_account=(audit.reason or "").startswith("AUTO_SELL_PROCEEDS#"),
 				),
@@ -265,9 +268,9 @@ def _backfill_cash_ledger_entries() -> None:
 					cash_account_id=settlement.cash_account_id,
 					entry_type=entry_type,
 					amount=(
-						-round(settlement.settled_amount, 8)
+						-quantize_decimal(settlement.settled_amount)
 						if settlement.flow_direction == "OUTFLOW"
-						else round(settlement.settled_amount, 8)
+						else quantize_decimal(settlement.settled_amount)
 					),
 					currency=_normalize_currency(settlement.settled_currency),
 					happened_on=transaction.traded_on,
@@ -296,7 +299,7 @@ def _backfill_cash_ledger_entries() -> None:
 						user_id=account.user_id,
 						cash_account_id=account.id or 0,
 						entry_type="INITIAL_BALANCE",
-						amount=round(account.balance - non_initial_total, 8),
+						amount=quantize_decimal(account.balance - non_initial_total),
 						currency=_normalize_currency(account.currency),
 						happened_on=account.started_on
 						or _coerce_utc_datetime(account.created_at).date(),

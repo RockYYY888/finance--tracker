@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlmodel import Session, select
 
 from app import runtime_state
+from app.fixed_precision import DECIMAL_ZERO, quantize_decimal
 from app.models import HOLDING_HISTORY_SYNC_STATUSES, HoldingHistorySyncRequest, utc_now
 from app.services.common_service import _current_hour_bucket
 
@@ -77,19 +79,24 @@ def _build_hour_buckets(start_at: datetime, end_at: datetime) -> list[datetime]:
 def _fill_hourly_prices(
 	hours: list[datetime],
 	known_points: list[tuple[datetime, float]],
-	fallback_price: float,
-) -> dict[datetime, float]:
-	known_map: dict[datetime, float] = {}
+	fallback_price: Decimal | float,
+) -> dict[datetime, Decimal]:
+	known_map: dict[datetime, Decimal] = {}
 	for bucket, price in known_points:
 		if price <= 0:
 			continue
-		known_map[_current_hour_bucket(bucket)] = float(price)
+		known_map[_current_hour_bucket(bucket)] = quantize_decimal(price)
 
 	first_known_price = next(iter(sorted(known_map.values())), None)
-	default_price = fallback_price if fallback_price > 0 else (first_known_price or 0.0)
-	last_known_price: float | None = None
+	normalized_fallback_price = quantize_decimal(fallback_price)
+	default_price = (
+		normalized_fallback_price
+		if normalized_fallback_price > 0
+		else (first_known_price or DECIMAL_ZERO)
+	)
+	last_known_price: Decimal | None = None
 
-	filled: dict[datetime, float] = {}
+	filled: dict[datetime, Decimal] = {}
 	for hour in hours:
 		if hour in known_map:
 			last_known_price = known_map[hour]

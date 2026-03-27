@@ -908,9 +908,9 @@ export function HoldingForm({
 
 			{isEditIntent ? (
 				<div className="asset-manager__helper-block asset-manager__helper-block--highlight">
-					<strong>这里用于修正当前已持仓内容里的已知错误</strong>
+					<strong>在这里修正当前持仓中的录入错误</strong>
 					<p className="asset-manager__helper-text">
-						如果当前数量 持仓价 或买入日期录错了 请直接在这里更正 系统会按一笔编辑记录保存
+						如果数量、持仓价或买入日期录错了，请直接在这里修改。系统会保留一条编辑记录，方便后续核对。
 					</p>
 				</div>
 			) : null}

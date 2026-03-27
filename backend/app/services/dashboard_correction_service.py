@@ -18,6 +18,7 @@ from app.models import (
     UserAccount,
     utc_now,
 )
+from app.fixed_precision import decimal_to_float, display_money, display_percent
 from app.runtime_state import (
 	DashboardCacheEntry,
 	LiveHoldingReturnPoint,
@@ -65,7 +66,7 @@ def _to_dashboard_correction_read(correction: DashboardCorrection) -> DashboardC
 		granularity=correction.granularity,
 		bucket_utc=correction.bucket_utc,
 		action=correction.action,
-		corrected_value=correction.corrected_value,
+		corrected_value=decimal_to_float(correction.corrected_value),
 		reason=correction.reason,
 		created_at=correction.created_at,
 		updated_at=correction.updated_at,
@@ -109,6 +110,10 @@ def _apply_dashboard_corrections(
 	symbol: str | None = None,
 ) -> list[Any]:
 	corrected_points: list[Any] = []
+	def _display_corrected_value(raw_value: Any) -> float:
+		if series_scope == "PORTFOLIO_TOTAL":
+			return decimal_to_float(display_money(raw_value)) or 0.0
+		return decimal_to_float(display_percent(raw_value)) or 0.0
 	for point in points:
 		point_timestamp = _coerce_utc_datetime(point.timestamp_utc)
 		correction = correction_lookup.get(
@@ -123,7 +128,7 @@ def _apply_dashboard_corrections(
 
 		updated_value = point.value
 		if correction.corrected_value is not None:
-			updated_value = round(correction.corrected_value, 2)
+			updated_value = _display_corrected_value(correction.corrected_value)
 
 		corrected_points.append(
 			point.model_copy(
@@ -148,6 +153,13 @@ def create_dashboard_correction(
 		raise HTTPException(status_code=422, detail="Unsupported granularity.")
 
 	bucket_utc = bucket_start_utc(payload.bucket_utc, payload.granularity)
+	corrected_value = payload.corrected_value
+	if corrected_value is not None:
+		corrected_value = (
+			display_money(corrected_value)
+			if payload.series_scope == "PORTFOLIO_TOTAL"
+			else display_percent(corrected_value)
+		)
 	correction = DashboardCorrection(
 		user_id=current_user.username,
 		series_scope=payload.series_scope,
@@ -155,7 +167,7 @@ def create_dashboard_correction(
 		granularity=payload.granularity,
 		bucket_utc=bucket_utc,
 		action=payload.action,
-		corrected_value=payload.corrected_value,
+		corrected_value=corrected_value,
 		reason=payload.reason,
 	)
 	session.add(correction)

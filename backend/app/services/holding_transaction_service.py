@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import Header, HTTPException, Query
@@ -19,6 +20,15 @@ from app.schemas import (
     SecuritySearchRead,
 )
 from app.services import job_service, service_context
+from app.fixed_precision import (
+	DECIMAL_ZERO,
+	decimal_to_float,
+	display_price,
+	display_quantity,
+	quantize_decimal,
+	quantize_optional_decimal,
+	to_decimal,
+)
 from app.services.auth_service import CurrentUserDependency
 from app.services.common_service import (
     _build_idempotency_request_hash,
@@ -113,9 +123,9 @@ def create_holding(
 		user_id=current_user.username,
 		symbol=_normalize_symbol(payload.symbol, payload.market),
 		name=payload.name.strip(),
-		quantity=payload.quantity,
+		quantity=quantize_decimal(payload.quantity),
 		fallback_currency=_normalize_currency(payload.fallback_currency),
-		cost_basis_price=payload.cost_basis_price,
+		cost_basis_price=quantize_optional_decimal(payload.cost_basis_price),
 		market=payload.market,
 		broker=payload.broker,
 		started_on=payload.started_on,
@@ -210,9 +220,13 @@ def update_holding(
 				symbol=holding.symbol,
 				name=holding.name,
 				side="ADJUST",
-				quantity=payload.quantity if payload.quantity is not None else holding.quantity,
+				quantity=(
+					quantize_decimal(payload.quantity)
+					if payload.quantity is not None
+					else holding.quantity
+				),
 				price=(
-					payload.cost_basis_price
+					quantize_optional_decimal(payload.cost_basis_price)
 					if "cost_basis_price" in payload.model_fields_set
 					else holding.cost_basis_price
 				),
@@ -232,10 +246,12 @@ def update_holding(
 		adjustment_transaction.name = holding.name
 		adjustment_transaction.side = "ADJUST"
 		adjustment_transaction.quantity = (
-			payload.quantity if payload.quantity is not None else holding.quantity
+			quantize_decimal(payload.quantity)
+			if payload.quantity is not None
+			else holding.quantity
 		)
 		adjustment_transaction.price = (
-			payload.cost_basis_price
+			quantize_optional_decimal(payload.cost_basis_price)
 			if "cost_basis_price" in payload.model_fields_set
 			else holding.cost_basis_price
 		)
@@ -490,7 +506,12 @@ def create_holding_transaction(
 			holding=holding,
 		)
 
-	execution_price = payload.price if payload.price and payload.price > 0 else None
+	normalized_quantity = quantize_decimal(payload.quantity)
+	execution_price = (
+		quantize_decimal(payload.price)
+		if payload.price is not None and to_decimal(payload.price) > 0
+		else None
+	)
 	execution_currency = normalized_currency
 	if side == "SELL":
 		projected_before = _project_holding_state_from_transactions(
@@ -502,14 +523,15 @@ def create_holding_transaction(
 		available_quantity = (
 			_projected_holding_quantity(projected_before)
 			if projected_before is not None
-			else 0.0
+			else DECIMAL_ZERO
 		)
-		if available_quantity + HOLDING_QUANTITY_EPSILON < payload.quantity:
+		if available_quantity + HOLDING_QUANTITY_EPSILON < normalized_quantity:
 			raise HTTPException(
 				status_code=422,
 				detail=(
 					f"{normalized_symbol} 可卖数量不足。当前可卖 "
-					f"{available_quantity:g}，请求卖出 {payload.quantity:g}。"
+					f"{decimal_to_float(display_quantity(available_quantity)):g}，"
+					f"请求卖出 {decimal_to_float(display_quantity(normalized_quantity)):g}。"
 				),
 			)
 		execution_price, execution_currency = _resolve_sell_execution_price_and_currency(
@@ -524,7 +546,7 @@ def create_holding_transaction(
 		symbol=normalized_symbol,
 		name=normalized_name,
 		side=side,
-		quantity=payload.quantity,
+		quantity=normalized_quantity,
 		price=execution_price,
 		fallback_currency=execution_currency,
 		market=normalized_market,
@@ -560,7 +582,7 @@ def create_holding_transaction(
 			symbol=normalized_symbol,
 			name=normalized_name,
 			market=normalized_market,
-			quantity=payload.quantity,
+			quantity=normalized_quantity,
 			execution_price=execution_price,
 			currency=execution_currency,
 			traded_on=payload.traded_on,
@@ -583,7 +605,7 @@ def create_holding_transaction(
 			symbol=normalized_symbol,
 			name=normalized_name,
 			market=normalized_market,
-			quantity=payload.quantity,
+			quantity=normalized_quantity,
 			execution_price=execution_price,
 			currency=execution_currency,
 			traded_on=payload.traded_on,
@@ -677,9 +699,9 @@ def update_holding_transaction(
 	if payload.name is not None:
 		transaction.name = payload.name
 	if payload.quantity is not None:
-		transaction.quantity = payload.quantity
+		transaction.quantity = quantize_decimal(payload.quantity)
 	if "price" in payload.model_fields_set:
-		transaction.price = payload.price
+		transaction.price = quantize_optional_decimal(payload.price)
 	if payload.fallback_currency is not None:
 		transaction.fallback_currency = _normalize_currency(payload.fallback_currency)
 	if "broker" in payload.model_fields_set:

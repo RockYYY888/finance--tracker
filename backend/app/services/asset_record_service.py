@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
 from sqlmodel import select
 
+from app.fixed_precision import decimal_to_float, display_money, display_percent, display_price, display_quantity
 from app.models import AssetMutationAudit, SecurityHoldingTransaction
 from app.schemas import AssetRecordRead
 from app.services.auth_service import CurrentUserDependency
@@ -86,6 +88,10 @@ def _is_cash_account_business_record(audit: AssetMutationAudit) -> bool:
 	return True
 
 
+def _is_numeric_value(value: Any) -> bool:
+	return isinstance(value, (int, float, Decimal))
+
+
 def _resolve_cash_account_record(audit: AssetMutationAudit) -> AssetRecordRead | None:
 	if not _is_cash_account_business_record(audit):
 		return None
@@ -108,8 +114,8 @@ def _resolve_cash_account_record(audit: AssetMutationAudit) -> AssetRecordRead |
 		"DELETE": "删除现金账户",
 	}.get(operation_kind, "现金账户记录")
 	summary = f"{summary_prefix} · {platform}" if platform else summary_prefix
-	if isinstance(balance, (int, float)) and currency:
-		summary = f"{summary} · {balance:g} {currency}"
+	if _is_numeric_value(balance) and currency:
+		summary = f"{summary} · {decimal_to_float(display_money(balance)):g} {currency}"
 
 	return AssetRecordRead(
 		id=audit.id or 0,
@@ -124,7 +130,7 @@ def _resolve_cash_account_record(audit: AssetMutationAudit) -> AssetRecordRead |
 		title=name,
 		summary=summary,
 		effective_date=None,
-		amount=float(balance) if isinstance(balance, (int, float)) else None,
+		amount=decimal_to_float(display_money(balance)) if _is_numeric_value(balance) else None,
 		currency=str(currency).upper() if currency else None,
 		created_at=audit.created_at,
 	)
@@ -138,17 +144,19 @@ def _resolve_cash_transfer_summary(state: dict[str, Any]) -> str:
 	from_account_id = state.get("from_account_id")
 	to_account_id = state.get("to_account_id")
 	segments = [f"账户 #{from_account_id} → 账户 #{to_account_id}"]
-	if isinstance(source_amount, (int, float)) and source_currency:
-		segments.append(f"{source_amount:g} {source_currency}")
+	if _is_numeric_value(source_amount) and source_currency:
+		segments.append(f"{decimal_to_float(display_money(source_amount)):g} {source_currency}")
 	if (
-		isinstance(target_amount, (int, float))
+		_is_numeric_value(target_amount)
 		and target_currency
 		and (
 			target_currency != source_currency
 			or target_amount != source_amount
 		)
 	):
-		segments.append(f"转入 {target_amount:g} {target_currency}")
+		segments.append(
+			f"转入 {decimal_to_float(display_money(target_amount)):g} {target_currency}",
+		)
 	return " · ".join(segments)
 
 
@@ -174,7 +182,11 @@ def _resolve_cash_transfer_record(audit: AssetMutationAudit) -> AssetRecordRead 
 		title="账户划转",
 		summary=_resolve_cash_transfer_summary(state),
 		effective_date=state.get("transferred_on"),
-		amount=float(state["source_amount"]) if isinstance(state.get("source_amount"), (int, float)) else None,
+		amount=(
+			decimal_to_float(display_money(state["source_amount"]))
+			if _is_numeric_value(state.get("source_amount"))
+			else None
+		),
 		currency=str(state.get("source_currency") or "").upper() or None,
 		created_at=audit.created_at,
 	)
@@ -204,7 +216,11 @@ def _resolve_cash_adjustment_record(audit: AssetMutationAudit) -> AssetRecordRea
 		title="现金余额调整",
 		summary=state.get("note") or "手工账本调整",
 		effective_date=state.get("happened_on"),
-		amount=float(state["amount"]) if isinstance(state.get("amount"), (int, float)) else None,
+		amount=(
+			decimal_to_float(display_money(state["amount"]))
+			if _is_numeric_value(state.get("amount"))
+			else None
+		),
 		currency=str(state.get("currency") or "").upper() or None,
 		created_at=audit.created_at,
 	)
@@ -222,8 +238,8 @@ def _resolve_holding_title(state: dict[str, Any]) -> tuple[str, str | None]:
 
 def _resolve_investment_profit_map(
 	audits: list[AssetMutationAudit],
-) -> dict[int, tuple[float, str, float] | None]:
-	profit_map: dict[int, tuple[float, str, float] | None] = {}
+) -> dict[int, tuple[Decimal, str, Decimal] | None]:
+	profit_map: dict[int, tuple[Decimal, str, Decimal] | None] = {}
 	transaction_versions: dict[int, SecurityHoldingTransaction] = {}
 
 	for audit in sorted(audits, key=lambda item: (item.created_at, item.id or 0)):
@@ -271,13 +287,11 @@ def _resolve_investment_profit_map(
 				and next_transaction.price > 0
 				and next_transaction.quantity > 0
 			):
-				profit_amount = round(
+				profit_amount = display_money(
 					next_transaction.quantity * (next_transaction.price - cost_basis_price),
-					8,
 				)
-				profit_rate_pct = round(
+				profit_rate_pct = display_percent(
 					((next_transaction.price - cost_basis_price) / cost_basis_price) * 100,
-					2,
 				)
 				profit_map[audit.id or 0] = (
 					profit_amount,
@@ -297,7 +311,7 @@ def _resolve_investment_profit_map(
 
 def _resolve_holding_transaction_record(
 	audit: AssetMutationAudit,
-	profit_map: dict[int, tuple[float, str, float] | None],
+	profit_map: dict[int, tuple[Decimal, str, Decimal] | None],
 ) -> AssetRecordRead | None:
 	state = _parse_audit_state(audit.after_state if audit.operation != "DELETE" else audit.before_state)
 	if state is None:
@@ -322,10 +336,10 @@ def _resolve_holding_transaction_record(
 		summary_prefix = "删除投资记录"
 
 	summary = summary_prefix
-	if isinstance(quantity, (int, float)):
-		summary = f"{summary} · 数量 {quantity:g}"
-	if isinstance(price, (int, float)) and currency:
-		summary = f"{summary} · 价格 {price:g} {currency}"
+	if _is_numeric_value(quantity):
+		summary = f"{summary} · 数量 {decimal_to_float(display_quantity(quantity)):g}"
+	if _is_numeric_value(price) and currency:
+		summary = f"{summary} · 价格 {decimal_to_float(display_price(price)):g} {currency}"
 
 	profit_tuple = profit_map.get(audit.id or 0)
 	return AssetRecordRead(
@@ -342,11 +356,11 @@ def _resolve_holding_transaction_record(
 		summary=summary,
 		symbol=symbol,
 		effective_date=state.get("traded_on"),
-		amount=float(price) if isinstance(price, (int, float)) else None,
+		amount=decimal_to_float(display_price(price)) if _is_numeric_value(price) else None,
 		currency=currency,
-		profit_amount=profit_tuple[0] if profit_tuple is not None else None,
+		profit_amount=decimal_to_float(profit_tuple[0]) if profit_tuple is not None else None,
 		profit_currency=profit_tuple[1] if profit_tuple is not None else None,
-		profit_rate_pct=profit_tuple[2] if profit_tuple is not None else None,
+		profit_rate_pct=decimal_to_float(profit_tuple[2]) if profit_tuple is not None else None,
 		created_at=audit.created_at,
 	)
 
@@ -410,7 +424,7 @@ def _resolve_asset_entry_record(
 			"DELETE": f"删除{title_fallback}",
 		}.get(operation_kind, title_fallback),
 		effective_date=state.get("started_on"),
-		amount=float(amount) if isinstance(amount, (int, float)) else None,
+		amount=decimal_to_float(display_money(amount)) if _is_numeric_value(amount) else None,
 		currency=currency,
 		created_at=audit.created_at,
 	)
@@ -418,7 +432,7 @@ def _resolve_asset_entry_record(
 
 def _build_asset_record(
 	audit: AssetMutationAudit,
-	profit_map: dict[int, tuple[float, str, float] | None],
+	profit_map: dict[int, tuple[Decimal, str, Decimal] | None],
 ) -> AssetRecordRead | None:
 	if audit.entity_type == "CASH_ACCOUNT":
 		return _resolve_cash_account_record(audit)

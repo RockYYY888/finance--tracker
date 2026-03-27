@@ -4,6 +4,12 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 from sqlmodel import select
 
+from app.fixed_precision import (
+	decimal_to_float,
+	display_money,
+	quantize_decimal,
+	quantize_optional_decimal,
+)
 from app.models import FixedAsset, LiabilityEntry, OtherAsset
 from app.schemas import (
     FixedAssetCreate,
@@ -54,13 +60,15 @@ async def list_fixed_assets(
 				id=asset.id or 0,
 				name=asset.name,
 				category=asset.category,
-				current_value_cny=round(asset.current_value_cny, 2),
-				purchase_value_cny=round(asset.purchase_value_cny, 2)
+				current_value_cny=decimal_to_float(display_money(asset.current_value_cny)),
+				purchase_value_cny=decimal_to_float(display_money(asset.purchase_value_cny))
 				if asset.purchase_value_cny is not None
 				else None,
 				started_on=asset.started_on,
 				note=asset.note,
-				value_cny=valued_asset.value_cny if valued_asset else round(asset.current_value_cny, 2),
+				value_cny=valued_asset.value_cny
+				if valued_asset
+				else decimal_to_float(display_money(asset.current_value_cny)),
 				return_pct=valued_asset.return_pct if valued_asset else None,
 			),
 		)
@@ -76,8 +84,8 @@ def create_fixed_asset(
 		user_id=current_user.username,
 		name=payload.name.strip(),
 		category=payload.category,
-		current_value_cny=payload.current_value_cny,
-		purchase_value_cny=payload.purchase_value_cny,
+		current_value_cny=quantize_decimal(payload.current_value_cny),
+		purchase_value_cny=quantize_optional_decimal(payload.purchase_value_cny),
 		started_on=payload.started_on,
 		note=payload.note,
 	)
@@ -96,19 +104,19 @@ def create_fixed_asset(
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
-	value_cny = round(asset.current_value_cny, 2)
+	value_cny = display_money(asset.current_value_cny)
 	return FixedAssetRead(
 		id=asset.id or 0,
 		name=asset.name,
 		category=asset.category,
-		current_value_cny=value_cny,
-		purchase_value_cny=round(asset.purchase_value_cny, 2)
+		current_value_cny=decimal_to_float(value_cny),
+		purchase_value_cny=decimal_to_float(display_money(asset.purchase_value_cny))
 		if asset.purchase_value_cny is not None
 		else None,
 		started_on=asset.started_on,
 		note=asset.note,
-		value_cny=value_cny,
-		return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
+		value_cny=decimal_to_float(value_cny),
+		return_pct=decimal_to_float(_calculate_return_pct(value_cny, asset.purchase_value_cny)),
 	)
 
 def update_fixed_asset(
@@ -124,8 +132,8 @@ def update_fixed_asset(
 	before_state = _capture_model_state(asset)
 	asset.name = payload.name.strip()
 	asset.category = payload.category
-	asset.current_value_cny = payload.current_value_cny
-	asset.purchase_value_cny = payload.purchase_value_cny
+	asset.current_value_cny = quantize_decimal(payload.current_value_cny)
+	asset.purchase_value_cny = quantize_optional_decimal(payload.purchase_value_cny)
 	if "started_on" in payload.model_fields_set:
 		asset.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
@@ -145,19 +153,19 @@ def update_fixed_asset(
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
-	value_cny = round(asset.current_value_cny, 2)
+	value_cny = display_money(asset.current_value_cny)
 	return FixedAssetRead(
 		id=asset.id or 0,
 		name=asset.name,
 		category=asset.category,
-		current_value_cny=value_cny,
-		purchase_value_cny=round(asset.purchase_value_cny, 2)
+		current_value_cny=decimal_to_float(value_cny),
+		purchase_value_cny=decimal_to_float(display_money(asset.purchase_value_cny))
 		if asset.purchase_value_cny is not None
 		else None,
 		started_on=asset.started_on,
 		note=asset.note,
-		value_cny=value_cny,
-		return_pct=_calculate_return_pct(value_cny, asset.purchase_value_cny),
+		value_cny=decimal_to_float(value_cny),
+		return_pct=decimal_to_float(_calculate_return_pct(value_cny, asset.purchase_value_cny)),
 	)
 
 def delete_fixed_asset(
@@ -210,7 +218,7 @@ async def list_liabilities(
 				name=entry.name,
 				category=entry.category,
 				currency=entry.currency,
-				balance=round(entry.balance, 2),
+				balance=decimal_to_float(display_money(entry.balance)),
 				started_on=entry.started_on,
 				note=entry.note,
 				fx_to_cny=valued_entry.fx_to_cny if valued_entry else None,
@@ -230,7 +238,7 @@ def create_liability(
 		name=payload.name.strip(),
 		category=payload.category,
 		currency=_normalize_currency(payload.currency),
-		balance=payload.balance,
+		balance=quantize_decimal(payload.balance),
 		started_on=payload.started_on,
 		note=payload.note,
 	)
@@ -264,7 +272,7 @@ def update_liability(
 	before_state = _capture_model_state(entry)
 	entry.name = payload.name.strip()
 	entry.currency = _normalize_currency(payload.currency)
-	entry.balance = payload.balance
+	entry.balance = quantize_decimal(payload.balance)
 	if payload.category is not None:
 		entry.category = payload.category
 	if "started_on" in payload.model_fields_set:
@@ -337,13 +345,15 @@ async def list_other_assets(
 				id=asset.id or 0,
 				name=asset.name,
 				category=asset.category,
-				current_value_cny=round(asset.current_value_cny, 2),
-				original_value_cny=round(asset.original_value_cny, 2)
+				current_value_cny=decimal_to_float(display_money(asset.current_value_cny)),
+				original_value_cny=decimal_to_float(display_money(asset.original_value_cny))
 				if asset.original_value_cny is not None
 				else None,
 				started_on=asset.started_on,
 				note=asset.note,
-				value_cny=valued_asset.value_cny if valued_asset else round(asset.current_value_cny, 2),
+				value_cny=valued_asset.value_cny
+				if valued_asset
+				else decimal_to_float(display_money(asset.current_value_cny)),
 				return_pct=valued_asset.return_pct if valued_asset else None,
 			),
 		)
@@ -359,8 +369,8 @@ def create_other_asset(
 		user_id=current_user.username,
 		name=payload.name.strip(),
 		category=payload.category,
-		current_value_cny=payload.current_value_cny,
-		original_value_cny=payload.original_value_cny,
+		current_value_cny=quantize_decimal(payload.current_value_cny),
+		original_value_cny=quantize_optional_decimal(payload.original_value_cny),
 		started_on=payload.started_on,
 		note=payload.note,
 	)
@@ -379,19 +389,19 @@ def create_other_asset(
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
-	value_cny = round(asset.current_value_cny, 2)
+	value_cny = display_money(asset.current_value_cny)
 	return OtherAssetRead(
 		id=asset.id or 0,
 		name=asset.name,
 		category=asset.category,
-		current_value_cny=value_cny,
-		original_value_cny=round(asset.original_value_cny, 2)
+		current_value_cny=decimal_to_float(value_cny),
+		original_value_cny=decimal_to_float(display_money(asset.original_value_cny))
 		if asset.original_value_cny is not None
 		else None,
 		started_on=asset.started_on,
 		note=asset.note,
-		value_cny=value_cny,
-		return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
+		value_cny=decimal_to_float(value_cny),
+		return_pct=decimal_to_float(_calculate_return_pct(value_cny, asset.original_value_cny)),
 	)
 
 def update_other_asset(
@@ -407,8 +417,8 @@ def update_other_asset(
 	before_state = _capture_model_state(asset)
 	asset.name = payload.name.strip()
 	asset.category = payload.category
-	asset.current_value_cny = payload.current_value_cny
-	asset.original_value_cny = payload.original_value_cny
+	asset.current_value_cny = quantize_decimal(payload.current_value_cny)
+	asset.original_value_cny = quantize_optional_decimal(payload.original_value_cny)
 	if "started_on" in payload.model_fields_set:
 		asset.started_on = payload.started_on
 	if "note" in payload.model_fields_set:
@@ -428,19 +438,19 @@ def update_other_asset(
 	session.commit()
 	session.refresh(asset)
 	_invalidate_dashboard_cache(current_user.username)
-	value_cny = round(asset.current_value_cny, 2)
+	value_cny = display_money(asset.current_value_cny)
 	return OtherAssetRead(
 		id=asset.id or 0,
 		name=asset.name,
 		category=asset.category,
-		current_value_cny=value_cny,
-		original_value_cny=round(asset.original_value_cny, 2)
+		current_value_cny=decimal_to_float(value_cny),
+		original_value_cny=decimal_to_float(display_money(asset.original_value_cny))
 		if asset.original_value_cny is not None
 		else None,
 		started_on=asset.started_on,
 		note=asset.note,
-		value_cny=value_cny,
-		return_pct=_calculate_return_pct(value_cny, asset.original_value_cny),
+		value_cny=decimal_to_float(value_cny),
+		return_pct=decimal_to_float(_calculate_return_pct(value_cny, asset.original_value_cny)),
 	)
 
 def delete_other_asset(

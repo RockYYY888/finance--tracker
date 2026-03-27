@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 import pickle
 import threading
 from typing import Generic, TypeVar
@@ -31,7 +32,7 @@ class DashboardCacheEntry:
 @dataclass(slots=True)
 class LivePortfolioState:
 	hour_bucket: datetime
-	latest_value_cny: float
+	latest_value_cny: Decimal
 	latest_generated_at: datetime
 	has_assets_in_bucket: bool
 
@@ -40,14 +41,14 @@ class LivePortfolioState:
 class LiveHoldingReturnPoint:
 	symbol: str
 	name: str
-	return_pct: float
+	return_pct: Decimal
 
 
 @dataclass(slots=True)
 class LiveHoldingsReturnState:
 	hour_bucket: datetime
 	latest_generated_at: datetime
-	aggregate_return_pct: float | None
+	aggregate_return_pct: Decimal | None
 	holding_points: tuple[LiveHoldingReturnPoint, ...]
 	has_tracked_holdings_in_bucket: bool
 

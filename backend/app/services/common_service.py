@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
@@ -26,6 +27,7 @@ from app.services.market_data import (
     normalize_symbol as normalize_market_symbol,
     normalize_symbol_for_market as normalize_market_symbol_for_market,
 )
+from app.fixed_precision import display_percent, to_decimal
 
 FEEDBACK_TIMEZONE = ZoneInfo("Asia/Shanghai")
 MAX_DAILY_FEEDBACK_SUBMISSIONS = 3
@@ -176,6 +178,8 @@ def _json_ready(value: Any) -> Any:
 		return _coerce_utc_datetime(value).isoformat().replace("+00:00", "Z")
 	if isinstance(value, date):
 		return value.isoformat()
+	if isinstance(value, Decimal):
+		return float(value)
 	if isinstance(value, dict):
 		return {str(key): _json_ready(item) for key, item in value.items()}
 	if isinstance(value, (list, tuple)):
@@ -256,13 +260,14 @@ def _touch_model(
 	model.updated_at = utc_now()
 
 def _calculate_return_pct(
-	current_value: float,
-	basis_value: float | None,
-) -> float | None:
-	if basis_value is None or basis_value <= 0:
+	current_value: Decimal | float | int,
+	basis_value: Decimal | float | int | None,
+) -> Decimal | None:
+	normalized_basis = to_decimal(basis_value, default=Decimal("0"))
+	if basis_value is None or normalized_basis <= 0:
 		return None
 
-	return round(((current_value - basis_value) / basis_value) * 100, 2)
+	return display_percent(((to_decimal(current_value) - normalized_basis) / normalized_basis) * 100)
 
 def _coerce_utc_datetime(value: datetime) -> datetime:
 	"""Normalize persisted datetimes so legacy naive rows compare safely."""

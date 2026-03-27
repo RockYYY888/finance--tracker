@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from fastapi import HTTPException, Query
 from fastapi.responses import Response
@@ -46,6 +47,7 @@ from app.services.common_service import (
     _is_current_second,
     _server_today_date,
 )
+from app.fixed_precision import DECIMAL_ZERO, display_money
 from app.services.history_sync_service import _has_holding_history_sync_pending
 from app.services.dashboard_correction_service import (
 	_apply_dashboard_corrections,
@@ -316,13 +318,12 @@ async def _build_dashboard(session: Session, user: UserAccount) -> DashboardResp
 		prefer_stale_market_data=True,
 	)
 	valued_other_assets, other_assets_value_cny = _value_other_assets(other_assets)
-	total_value_cny = round(
+	total_value_cny = display_money(
 		cash_value_cny
 		+ holdings_value_cny
 		+ fixed_assets_value_cny
 		+ other_assets_value_cny
 		- liabilities_value_cny,
-		2,
 	)
 	has_assets = bool(accounts or holdings or fixed_assets or liabilities or other_assets)
 	aggregate_holdings_return_pct, holding_return_points = _summarize_holdings_return_state(

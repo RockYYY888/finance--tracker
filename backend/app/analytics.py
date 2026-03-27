@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, TypeVar
 from zoneinfo import ZoneInfo
 
+from app.fixed_precision import decimal_to_float, display_money, display_percent
 from app.models import HoldingPerformanceSnapshot, PortfolioSnapshot
 from app.schemas import TimelinePoint
 
@@ -74,6 +75,7 @@ def _build_timeline_from_snapshots(
 	granularity: str,
 	get_created_at: Callable[[SeriesSnapshot], datetime],
 	get_value: Callable[[SeriesSnapshot], float],
+	format_value: Callable[[float], float],
 ) -> list[TimelinePoint]:
 	buckets: dict[datetime, SeriesSnapshot] = {}
 	for snapshot in snapshots:
@@ -91,7 +93,7 @@ def _build_timeline_from_snapshots(
 	return [
 		TimelinePoint(
 			label=_bucket_label(bucket_utc, granularity),
-			value=round(get_value(snapshot), 2),
+			value=format_value(get_value(snapshot)),
 			timestamp_utc=bucket_utc,
 			corrected=False,
 		)
@@ -112,6 +114,7 @@ def build_timeline(
 		granularity,
 		get_created_at=lambda snapshot: snapshot.created_at,
 		get_value=lambda snapshot: snapshot.total_value_cny,
+		format_value=lambda value: decimal_to_float(display_money(value)) or 0.0,
 	)
 
 
@@ -124,4 +127,5 @@ def build_return_timeline(
 		granularity,
 		get_created_at=lambda snapshot: snapshot.created_at,
 		get_value=lambda snapshot: snapshot.return_pct,
+		format_value=lambda value: decimal_to_float(display_percent(value)) or 0.0,
 	)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import Header, HTTPException, Query
@@ -43,8 +44,16 @@ from app.services.common_service import (
 	_to_asset_mutation_audit_read,
 	_touch_model,
 )
+from app.fixed_precision import (
+	DECIMAL_ZERO,
+	FIXED_EPSILON,
+	decimal_to_float,
+	display_money,
+	is_effectively_zero,
+	quantize_decimal,
+	to_decimal,
+)
 from app.services.holding_projection_service import (
-	HOLDING_QUANTITY_EPSILON,
 	_convert_cash_amount_between_currencies,
 	_create_cash_ledger_entry,
 	_delete_cash_ledger_entries_for_holding_transaction,
@@ -188,11 +197,11 @@ async def list_accounts(
 
 def _resolve_cash_transfer_target_amount(
 	*,
-	source_amount: float,
+	source_amount: Decimal | float | int,
 	source_currency: str,
 	target_currency: str,
-	provided_target_amount: float | None,
-) -> float:
+	provided_target_amount: Decimal | float | int | None,
+) -> Decimal:
 	expected_target_amount, _fx_rate = _convert_cash_amount_between_currencies(
 		amount=source_amount,
 		from_currency=source_currency,
@@ -201,16 +210,17 @@ def _resolve_cash_transfer_target_amount(
 	if provided_target_amount is None:
 		return expected_target_amount
 
-	if abs(provided_target_amount - expected_target_amount) > HOLDING_QUANTITY_EPSILON:
+	normalized_target_amount = quantize_decimal(provided_target_amount)
+	if abs(normalized_target_amount - expected_target_amount) > FIXED_EPSILON:
 		raise HTTPException(
 			status_code=422,
 			detail=(
 				f"目标币种金额必须按当前汇率自动换算为 {target_currency}，"
-				f"当前应为 {expected_target_amount:g} {target_currency}。"
+				f"当前应为 {decimal_to_float(display_money(expected_target_amount)):g} {target_currency}。"
 			),
 		)
 
-	return provided_target_amount
+	return normalized_target_amount
 
 def create_account(
 	payload: CashAccountCreate,
@@ -222,7 +232,7 @@ def create_account(
 		name=payload.name.strip(),
 		platform=payload.platform.strip(),
 		currency=_normalize_currency(payload.currency),
-		balance=0,
+		balance=DECIMAL_ZERO,
 		account_type=payload.account_type,
 		started_on=payload.started_on,
 		note=payload.note,
@@ -513,7 +523,7 @@ def update_cash_ledger_adjustment(
 	entry_before_state = _capture_model_state(entry)
 	account_before_state = _capture_model_state(account)
 	if payload.amount is not None:
-		entry.amount = round(payload.amount, 8)
+		entry.amount = quantize_decimal(payload.amount)
 	if payload.happened_on is not None:
 		_ensure_date_not_future(payload.happened_on, field_label="账本调整日")
 		entry.happened_on = payload.happened_on
@@ -646,17 +656,18 @@ def create_cash_transfer(
 		raise HTTPException(status_code=422, detail="转出账户和转入账户不能相同。")
 	if _normalize_currency(target_account.currency) != "CNY":
 		raise HTTPException(status_code=422, detail="转入账户必须是 CNY 现金账户。")
-	if source_account.balance + HOLDING_QUANTITY_EPSILON < payload.source_amount:
+	source_amount = quantize_decimal(payload.source_amount)
+	if source_account.balance + FIXED_EPSILON < source_amount:
 		raise HTTPException(
 			status_code=422,
 			detail=(
-				f"{source_account.name} 余额不足。当前余额 {source_account.balance:g} "
-				f"{source_account.currency}，本次转出 {payload.source_amount:g} {source_account.currency}。"
+				f"{source_account.name} 余额不足。当前余额 {decimal_to_float(display_money(source_account.balance)):g} "
+				f"{source_account.currency}，本次转出 {decimal_to_float(display_money(source_amount)):g} {source_account.currency}。"
 			),
 		)
 
 	target_amount = _resolve_cash_transfer_target_amount(
-		source_amount=payload.source_amount,
+		source_amount=source_amount,
 		source_currency=source_account.currency,
 		target_currency=target_account.currency,
 		provided_target_amount=payload.target_amount,
@@ -666,7 +677,7 @@ def create_cash_transfer(
 		user_id=current_user.username,
 		from_account_id=source_account.id or 0,
 		to_account_id=target_account.id or 0,
-		source_amount=payload.source_amount,
+		source_amount=source_amount,
 		target_amount=target_amount,
 		source_currency=_normalize_currency(source_account.currency),
 		target_currency=_normalize_currency(target_account.currency),
@@ -680,7 +691,7 @@ def create_cash_transfer(
 		user_id=current_user.username,
 		cash_account_id=source_account.id or 0,
 		entry_type="TRANSFER_OUT",
-		amount=-payload.source_amount,
+		amount=-source_amount,
 		currency=source_account.currency,
 		happened_on=payload.transferred_on,
 		note=payload.note or f"划转至 {target_account.name}",
@@ -815,7 +826,11 @@ def update_cash_transfer(
 		if account_id not in account_before_state_map:
 			account_before_state_map[account_id] = _capture_model_state(account)
 
-	source_amount = payload.source_amount or transfer.source_amount
+	source_amount = (
+		quantize_decimal(payload.source_amount)
+		if payload.source_amount is not None
+		else transfer.source_amount
+	)
 	transferred_on = payload.transferred_on or transfer.transferred_on
 	if "note" in fields_set:
 		note = payload.note
@@ -823,12 +838,12 @@ def update_cash_transfer(
 		note = transfer.note
 	_ensure_date_not_future(transferred_on, field_label="划转日")
 
-	if source_account.balance + HOLDING_QUANTITY_EPSILON < source_amount:
+	if source_account.balance + FIXED_EPSILON < source_amount:
 		raise HTTPException(
 			status_code=422,
 			detail=(
-				f"{source_account.name} 余额不足。当前余额 {source_account.balance:g} "
-				f"{source_account.currency}，本次转出 {source_amount:g} {source_account.currency}。"
+				f"{source_account.name} 余额不足。当前余额 {decimal_to_float(display_money(source_account.balance)):g} "
+				f"{source_account.currency}，本次转出 {decimal_to_float(display_money(source_amount)):g} {source_account.currency}。"
 			),
 		)
 

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from decimal import Decimal
 import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
+from app.fixed_precision import (
+	FIXED_EPSILON,
+	is_integral_decimal,
+	quantize_decimal,
+	quantize_optional_decimal,
+)
 from app.models import (
 	AGENT_TASK_STATUSES,
 	AGENT_TASK_TYPES,
@@ -78,6 +85,42 @@ def _serialize_utc_datetime(value: datetime) -> str:
 	return _coerce_utc_datetime(value).isoformat().replace("+00:00", "Z")
 
 
+def _normalize_positive_decimal(value: Any, field_label: str) -> Decimal:
+	decimal_value = quantize_decimal(value)
+	if decimal_value <= FIXED_EPSILON:
+		raise ValueError(f"{field_label}必须大于 0。")
+	return decimal_value
+
+
+def _normalize_non_negative_decimal(value: Any, field_label: str) -> Decimal:
+	decimal_value = quantize_decimal(value)
+	if decimal_value < 0:
+		raise ValueError(f"{field_label}不能为负数。")
+	return decimal_value
+
+
+def _normalize_optional_positive_decimal(value: Any, field_label: str) -> Decimal | None:
+	decimal_value = quantize_optional_decimal(value)
+	if decimal_value is None:
+		return None
+	if decimal_value <= FIXED_EPSILON:
+		raise ValueError(f"{field_label}必须大于 0。")
+	return decimal_value
+
+
+def _normalize_non_zero_decimal(value: Any, field_label: str) -> Decimal:
+	decimal_value = quantize_decimal(value)
+	if abs(decimal_value) <= FIXED_EPSILON:
+		raise ValueError(f"{field_label}不能为 0。")
+	return decimal_value
+
+
+def _normalize_optional_non_zero_decimal(value: Any, field_label: str) -> Decimal | None:
+	if value is None:
+		return None
+	return _normalize_non_zero_decimal(value, field_label)
+
+
 class UtcTimestampResponseModel(BaseModel):
 	@field_serializer("*", when_used="json", check_fields=False)
 	def serialize_datetime_fields(self, value: Any) -> Any:
@@ -91,7 +134,7 @@ class CashAccountCreate(BaseModel):
 	name: str = Field(min_length=1, max_length=80)
 	platform: str = Field(min_length=1, max_length=80)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
-	balance: float = Field(ge=0)
+	balance: Decimal
 	account_type: str = Field(default="OTHER", min_length=4, max_length=20)
 	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
@@ -106,6 +149,11 @@ class CashAccountCreate(BaseModel):
 	def validate_currency(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SUPPORTED_CURRENCIES, "currency")
 
+	@field_validator("balance", mode="before")
+	@classmethod
+	def normalize_balance(cls, value: Any) -> Decimal:
+		return _normalize_non_negative_decimal(value, "余额")
+
 	@field_validator("note", mode="before")
 	@classmethod
 	def normalize_note(cls, value: str | None) -> str | None:
@@ -116,7 +164,7 @@ class CashAccountUpdate(BaseModel):
 	name: str = Field(min_length=1, max_length=80)
 	platform: str = Field(min_length=1, max_length=80)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
-	balance: float = Field(ge=0)
+	balance: Decimal
 	account_type: Optional[str] = Field(default=None, min_length=4, max_length=20)
 	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
@@ -130,6 +178,11 @@ class CashAccountUpdate(BaseModel):
 	@classmethod
 	def validate_currency(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SUPPORTED_CURRENCIES, "currency")
+
+	@field_validator("balance", mode="before")
+	@classmethod
+	def normalize_balance(cls, value: Any) -> Decimal:
+		return _normalize_non_negative_decimal(value, "余额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -153,7 +206,7 @@ class CashAccountRead(BaseModel):
 class FixedAssetBase(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	category: str = Field(default="OTHER", min_length=4, max_length=24)
-	current_value_cny: float = Field(gt=0)
+	current_value_cny: Decimal
 	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
@@ -162,6 +215,11 @@ class FixedAssetBase(BaseModel):
 	def validate_category(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, FIXED_ASSET_CATEGORIES, "category")
 
+	@field_validator("current_value_cny", mode="before")
+	@classmethod
+	def normalize_current_value_cny(cls, value: Any) -> Decimal:
+		return _normalize_positive_decimal(value, "当前价值")
+
 	@field_validator("note", mode="before")
 	@classmethod
 	def normalize_note(cls, value: str | None) -> str | None:
@@ -169,11 +227,21 @@ class FixedAssetBase(BaseModel):
 
 
 class FixedAssetCreate(FixedAssetBase):
-	purchase_value_cny: Optional[float] = Field(default=None, gt=0)
+	purchase_value_cny: Decimal | None = None
+
+	@field_validator("purchase_value_cny", mode="before")
+	@classmethod
+	def normalize_purchase_value_cny(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "买入价值")
 
 
 class FixedAssetUpdate(FixedAssetBase):
-	purchase_value_cny: Optional[float] = Field(default=None, gt=0)
+	purchase_value_cny: Decimal | None = None
+
+	@field_validator("purchase_value_cny", mode="before")
+	@classmethod
+	def normalize_purchase_value_cny(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "买入价值")
 
 
 class FixedAssetRead(BaseModel):
@@ -192,7 +260,7 @@ class LiabilityEntryCreate(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	category: str = Field(default="OTHER", min_length=4, max_length=24)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
-	balance: float = Field(ge=0)
+	balance: Decimal
 	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
@@ -205,6 +273,11 @@ class LiabilityEntryCreate(BaseModel):
 	@classmethod
 	def validate_currency(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, LIABILITY_CURRENCIES, "currency")
+
+	@field_validator("balance", mode="before")
+	@classmethod
+	def normalize_balance(cls, value: Any) -> Decimal:
+		return _normalize_non_negative_decimal(value, "负债余额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -216,7 +289,7 @@ class LiabilityEntryUpdate(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	category: Optional[str] = Field(default=None, min_length=4, max_length=24)
 	currency: str = Field(default="CNY", min_length=3, max_length=8)
-	balance: float = Field(ge=0)
+	balance: Decimal
 	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
@@ -229,6 +302,11 @@ class LiabilityEntryUpdate(BaseModel):
 	@classmethod
 	def validate_currency(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, LIABILITY_CURRENCIES, "currency")
+
+	@field_validator("balance", mode="before")
+	@classmethod
+	def normalize_balance(cls, value: Any) -> Decimal:
+		return _normalize_non_negative_decimal(value, "负债余额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -251,7 +329,7 @@ class LiabilityEntryRead(BaseModel):
 class OtherAssetBase(BaseModel):
 	name: str = Field(min_length=1, max_length=120)
 	category: str = Field(default="OTHER", min_length=4, max_length=24)
-	current_value_cny: float = Field(gt=0)
+	current_value_cny: Decimal
 	started_on: Optional[date] = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
@@ -260,6 +338,11 @@ class OtherAssetBase(BaseModel):
 	def validate_category(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, OTHER_ASSET_CATEGORIES, "category")
 
+	@field_validator("current_value_cny", mode="before")
+	@classmethod
+	def normalize_current_value_cny(cls, value: Any) -> Decimal:
+		return _normalize_positive_decimal(value, "当前价值")
+
 	@field_validator("note", mode="before")
 	@classmethod
 	def normalize_note(cls, value: str | None) -> str | None:
@@ -267,11 +350,21 @@ class OtherAssetBase(BaseModel):
 
 
 class OtherAssetCreate(OtherAssetBase):
-	original_value_cny: Optional[float] = Field(default=None, gt=0)
+	original_value_cny: Decimal | None = None
+
+	@field_validator("original_value_cny", mode="before")
+	@classmethod
+	def normalize_original_value_cny(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "原始价值")
 
 
 class OtherAssetUpdate(OtherAssetBase):
-	original_value_cny: Optional[float] = Field(default=None, gt=0)
+	original_value_cny: Decimal | None = None
+
+	@field_validator("original_value_cny", mode="before")
+	@classmethod
+	def normalize_original_value_cny(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "原始价值")
 
 
 class OtherAssetRead(BaseModel):
@@ -635,9 +728,9 @@ class ReleaseNoteDeliveryRead(UtcTimestampResponseModel):
 class SecurityHoldingCreate(BaseModel):
 	symbol: str = Field(min_length=1, max_length=32)
 	name: str = Field(min_length=1, max_length=120)
-	quantity: float = Field(gt=0)
+	quantity: Decimal
 	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
-	cost_basis_price: Optional[float] = Field(default=None, gt=0)
+	cost_basis_price: Decimal | None = None
 	market: str = Field(default="OTHER", min_length=2, max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
 	started_on: Optional[date] = None
@@ -653,6 +746,16 @@ class SecurityHoldingCreate(BaseModel):
 	def validate_fallback_currency(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SUPPORTED_CURRENCIES, "fallback_currency")
 
+	@field_validator("quantity", mode="before")
+	@classmethod
+	def normalize_quantity(cls, value: Any) -> Decimal:
+		return _normalize_positive_decimal(value, "持仓数量")
+
+	@field_validator("cost_basis_price", mode="before")
+	@classmethod
+	def normalize_cost_basis_price(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "持仓成本价")
+
 	@field_validator("broker", "note", mode="before")
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
@@ -660,7 +763,7 @@ class SecurityHoldingCreate(BaseModel):
 
 	@model_validator(mode="after")
 	def validate_quantity_for_market(self) -> SecurityHoldingCreate:
-		if self.market not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
+		if self.market not in {"FUND", "CRYPTO"} and not is_integral_decimal(self.quantity):
 			raise ValueError("股票请使用整数数量，基金可使用份额。")
 		return self
 
@@ -668,11 +771,21 @@ class SecurityHoldingCreate(BaseModel):
 class SecurityHoldingUpdate(BaseModel):
 	model_config = ConfigDict(extra="forbid")
 
-	quantity: Optional[float] = Field(default=None, gt=0)
-	cost_basis_price: Optional[float] = Field(default=None, gt=0)
+	quantity: Decimal | None = None
+	cost_basis_price: Decimal | None = None
 	started_on: Optional[date] = None
 	broker: Optional[str] = Field(default=None, max_length=120)
 	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("quantity", mode="before")
+	@classmethod
+	def normalize_quantity(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "持仓数量")
+
+	@field_validator("cost_basis_price", mode="before")
+	@classmethod
+	def normalize_cost_basis_price(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "持仓成本价")
 
 	@field_validator("broker", "note", mode="before")
 	@classmethod
@@ -702,8 +815,8 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	side: str = Field(default="BUY", min_length=3, max_length=12)
 	symbol: str = Field(min_length=1, max_length=32)
 	name: str = Field(min_length=1, max_length=120)
-	quantity: float = Field(gt=0)
-	price: Optional[float] = Field(default=None, gt=0)
+	quantity: Decimal
+	price: Decimal | None = None
 	fallback_currency: str = Field(default="CNY", min_length=3, max_length=8)
 	market: str = Field(default="OTHER", min_length=2, max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
@@ -729,6 +842,16 @@ class SecurityHoldingTransactionCreate(BaseModel):
 	def validate_fallback_currency(cls, value: str | None) -> str | None:
 		return _normalize_choice(value, SUPPORTED_CURRENCIES, "fallback_currency")
 
+	@field_validator("quantity", mode="before")
+	@classmethod
+	def normalize_quantity(cls, value: Any) -> Decimal:
+		return _normalize_positive_decimal(value, "成交数量")
+
+	@field_validator("price", mode="before")
+	@classmethod
+	def normalize_price(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "成交价格")
+
 	@field_validator("sell_proceeds_handling", mode="before")
 	@classmethod
 	def validate_sell_proceeds_handling(cls, value: str | None) -> str | None:
@@ -746,7 +869,7 @@ class SecurityHoldingTransactionCreate(BaseModel):
 
 	@model_validator(mode="after")
 	def validate_quantity_for_market(self) -> SecurityHoldingTransactionCreate:
-		if self.market not in {"FUND", "CRYPTO"} and not float(self.quantity).is_integer():
+		if self.market not in {"FUND", "CRYPTO"} and not is_integral_decimal(self.quantity):
 			raise ValueError("股票请使用整数数量，基金可使用份额。")
 
 		if self.side == "BUY":
@@ -778,8 +901,8 @@ class SecurityHoldingTransactionUpdate(BaseModel):
 	model_config = ConfigDict(extra="forbid")
 
 	name: Optional[str] = Field(default=None, min_length=1, max_length=120)
-	quantity: Optional[float] = Field(default=None, gt=0)
-	price: Optional[float] = Field(default=None, gt=0)
+	quantity: Decimal | None = None
+	price: Decimal | None = None
 	fallback_currency: Optional[str] = Field(default=None, min_length=3, max_length=8)
 	broker: Optional[str] = Field(default=None, max_length=120)
 	traded_on: Optional[date] = None
@@ -795,6 +918,16 @@ class SecurityHoldingTransactionUpdate(BaseModel):
 		if value is None:
 			return None
 		return _normalize_required_text(value, "name")
+
+	@field_validator("quantity", mode="before")
+	@classmethod
+	def normalize_quantity(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "成交数量")
+
+	@field_validator("price", mode="before")
+	@classmethod
+	def normalize_price(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "成交价格")
 
 	@field_validator("sell_proceeds_handling", mode="before")
 	@classmethod
@@ -882,10 +1015,20 @@ class CashLedgerEntryRead(UtcTimestampResponseModel):
 class CashTransferCreate(BaseModel):
 	from_account_id: int = Field(ge=1)
 	to_account_id: int = Field(ge=1)
-	source_amount: float = Field(gt=0)
-	target_amount: float | None = Field(default=None, gt=0)
+	source_amount: Decimal
+	target_amount: Decimal | None = None
 	transferred_on: date
 	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("source_amount", mode="before")
+	@classmethod
+	def normalize_source_amount(cls, value: Any) -> Decimal:
+		return _normalize_positive_decimal(value, "转出金额")
+
+	@field_validator("target_amount", mode="before")
+	@classmethod
+	def normalize_target_amount(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "转入金额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -902,10 +1045,20 @@ class CashTransferCreate(BaseModel):
 class CashTransferUpdate(BaseModel):
 	from_account_id: int | None = Field(default=None, ge=1)
 	to_account_id: int | None = Field(default=None, ge=1)
-	source_amount: float | None = Field(default=None, gt=0)
-	target_amount: float | None = Field(default=None, gt=0)
+	source_amount: Decimal | None = None
+	target_amount: Decimal | None = None
 	transferred_on: date | None = None
 	note: Optional[str] = Field(default=None, max_length=500)
+
+	@field_validator("source_amount", mode="before")
+	@classmethod
+	def normalize_source_amount(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "转出金额")
+
+	@field_validator("target_amount", mode="before")
+	@classmethod
+	def normalize_target_amount(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_positive_decimal(value, "转入金额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -941,16 +1094,14 @@ class CashTransferApplyRead(UtcTimestampResponseModel):
 
 class CashLedgerAdjustmentCreate(BaseModel):
 	cash_account_id: int = Field(ge=1)
-	amount: float
+	amount: Decimal
 	happened_on: date
 	note: Optional[str] = Field(default=None, max_length=500)
 
-	@field_validator("amount")
+	@field_validator("amount", mode="before")
 	@classmethod
-	def validate_amount(cls, value: float) -> float:
-		if abs(value) <= 1e-12:
-			raise ValueError("调整金额不能为 0。")
-		return value
+	def validate_amount(cls, value: Any) -> Decimal:
+		return _normalize_non_zero_decimal(value, "调整金额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -959,16 +1110,14 @@ class CashLedgerAdjustmentCreate(BaseModel):
 
 
 class CashLedgerAdjustmentUpdate(BaseModel):
-	amount: float | None = None
+	amount: Decimal | None = None
 	happened_on: date | None = None
 	note: Optional[str] = Field(default=None, max_length=500)
 
-	@field_validator("amount")
+	@field_validator("amount", mode="before")
 	@classmethod
-	def validate_amount(cls, value: float | None) -> float | None:
-		if value is not None and abs(value) <= 1e-12:
-			raise ValueError("调整金额不能为 0。")
-		return value
+	def validate_amount(cls, value: Any) -> Decimal | None:
+		return _normalize_optional_non_zero_decimal(value, "调整金额")
 
 	@field_validator("note", mode="before")
 	@classmethod
@@ -1134,7 +1283,7 @@ class DashboardCorrectionCreate(BaseModel):
 	granularity: str = Field(min_length=3, max_length=8)
 	bucket_utc: datetime
 	action: str = Field(min_length=6, max_length=16)
-	corrected_value: float | None = None
+	corrected_value: Decimal | None = None
 	reason: str = Field(min_length=1, max_length=500)
 
 	@field_validator("series_scope", mode="before")
@@ -1163,6 +1312,11 @@ class DashboardCorrectionCreate(BaseModel):
 	@classmethod
 	def normalize_optional_fields(cls, value: str | None) -> str | None:
 		return _normalize_optional_text(value)
+
+	@field_validator("corrected_value", mode="before")
+	@classmethod
+	def normalize_corrected_value(cls, value: Any) -> Decimal | None:
+		return quantize_optional_decimal(value)
 
 	@model_validator(mode="after")
 	def validate_corrected_value(self) -> DashboardCorrectionCreate:

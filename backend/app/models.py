@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Column, Numeric, UniqueConstraint
 
 CASH_ACCOUNT_TYPES = ("ALIPAY", "WECHAT", "BANK", "CASH", "OTHER")
 SUPPORTED_CURRENCIES = ("CNY", "USD", "HKD")
@@ -63,6 +64,22 @@ AGENT_TASK_STATUSES = ("PENDING", "RUNNING", "DONE", "FAILED")
 OUTBOX_JOB_TYPES = ("SNAPSHOT_REBUILD", "AGENT_TASK_EXECUTION")
 OUTBOX_JOB_STATUSES = ("PENDING", "RUNNING", "DONE", "FAILED")
 AGENT_REGISTRATION_STATUSES = ("ACTIVE", "INACTIVE")
+FIXED_NUMERIC_PRECISION = 24
+FIXED_NUMERIC_SCALE = 8
+
+
+def fixed_numeric_column(
+	*,
+	nullable: bool = False,
+) -> Column[Decimal]:
+	return Column(
+		Numeric(
+			precision=FIXED_NUMERIC_PRECISION,
+			scale=FIXED_NUMERIC_SCALE,
+			asdecimal=True,
+		),
+		nullable=nullable,
+	)
 
 
 def utc_now() -> datetime:
@@ -201,7 +218,7 @@ class CashAccount(SQLModel, table=True):
 	name: str
 	platform: str
 	currency: str = Field(default="CNY", max_length=8)
-	balance: float = Field(default=0)
+	balance: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	account_type: str = Field(default="OTHER", max_length=20)
 	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
@@ -214,9 +231,9 @@ class SecurityHolding(SQLModel, table=True):
 	user_id: str = Field(index=True, max_length=32)
 	symbol: str = Field(index=True)
 	name: str
-	quantity: float = Field(default=0)
+	quantity: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	fallback_currency: str = Field(default="CNY", max_length=8)
-	cost_basis_price: Optional[float] = Field(default=None)
+	cost_basis_price: Decimal | None = Field(default=None, sa_column=fixed_numeric_column(nullable=True))
 	market: str = Field(default="OTHER", max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
 	started_on: Optional[date] = Field(default=None)
@@ -231,8 +248,8 @@ class SecurityHoldingTransaction(SQLModel, table=True):
 	symbol: str = Field(index=True)
 	name: str
 	side: str = Field(default="BUY", index=True, max_length=12)
-	quantity: float = Field(gt=0)
-	price: float | None = Field(default=None)
+	quantity: Decimal = Field(gt=0, sa_column=fixed_numeric_column())
+	price: Decimal | None = Field(default=None, sa_column=fixed_numeric_column(nullable=True))
 	fallback_currency: str = Field(default="CNY", max_length=8)
 	market: str = Field(default="OTHER", max_length=16)
 	broker: Optional[str] = Field(default=None, max_length=120)
@@ -255,9 +272,9 @@ class HoldingTransactionCashSettlement(SQLModel, table=True):
 	holding_transaction_id: int = Field(index=True)
 	cash_account_id: int = Field(index=True)
 	handling: str = Field(max_length=32)
-	settled_amount: float = Field(default=0)
+	settled_amount: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	settled_currency: str = Field(default="CNY", max_length=8)
-	source_amount: float = Field(default=0)
+	source_amount: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	source_currency: str = Field(default="CNY", max_length=8)
 	flow_direction: str = Field(default="INFLOW", max_length=8)
 	auto_created_cash_account: bool = Field(default=False)
@@ -270,7 +287,7 @@ class CashLedgerEntry(SQLModel, table=True):
 	user_id: str = Field(index=True, max_length=32)
 	cash_account_id: int = Field(index=True)
 	entry_type: str = Field(default="INITIAL_BALANCE", index=True, max_length=32)
-	amount: float = Field(default=0)
+	amount: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	currency: str = Field(default="CNY", max_length=8)
 	happened_on: date = Field(index=True)
 	note: Optional[str] = Field(default=None, max_length=500)
@@ -285,8 +302,8 @@ class CashTransfer(SQLModel, table=True):
 	user_id: str = Field(index=True, max_length=32)
 	from_account_id: int = Field(index=True)
 	to_account_id: int = Field(index=True)
-	source_amount: float = Field(gt=0)
-	target_amount: float = Field(gt=0)
+	source_amount: Decimal = Field(gt=0, sa_column=fixed_numeric_column())
+	target_amount: Decimal = Field(gt=0, sa_column=fixed_numeric_column())
 	source_currency: str = Field(default="CNY", max_length=8)
 	target_currency: str = Field(default="CNY", max_length=8)
 	transferred_on: date = Field(index=True)
@@ -352,8 +369,8 @@ class FixedAsset(SQLModel, table=True):
 	user_id: str = Field(index=True, max_length=32)
 	name: str
 	category: str = Field(default="OTHER", max_length=24)
-	current_value_cny: float = Field(default=0)
-	purchase_value_cny: Optional[float] = Field(default=None)
+	current_value_cny: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
+	purchase_value_cny: Decimal | None = Field(default=None, sa_column=fixed_numeric_column(nullable=True))
 	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -366,7 +383,7 @@ class LiabilityEntry(SQLModel, table=True):
 	name: str
 	category: str = Field(default="OTHER", max_length=24)
 	currency: str = Field(default="CNY", max_length=8)
-	balance: float = Field(default=0)
+	balance: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -378,8 +395,8 @@ class OtherAsset(SQLModel, table=True):
 	user_id: str = Field(index=True, max_length=32)
 	name: str
 	category: str = Field(default="OTHER", max_length=24)
-	current_value_cny: float = Field(default=0)
-	original_value_cny: Optional[float] = Field(default=None)
+	current_value_cny: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
+	original_value_cny: Decimal | None = Field(default=None, sa_column=fixed_numeric_column(nullable=True))
 	started_on: Optional[date] = Field(default=None)
 	note: Optional[str] = Field(default=None, max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -389,7 +406,7 @@ class OtherAsset(SQLModel, table=True):
 class PortfolioSnapshot(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
-	total_value_cny: float = Field(default=0)
+	total_value_cny: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
@@ -399,14 +416,14 @@ class HoldingPerformanceSnapshot(SQLModel, table=True):
 	scope: str = Field(default="TOTAL", max_length=16, index=True)
 	symbol: Optional[str] = Field(default=None, index=True)
 	name: Optional[str] = Field(default=None, max_length=120)
-	return_pct: float = Field(default=0)
+	return_pct: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
 class RealtimePortfolioSnapshot(SQLModel, table=True):
 	id: Optional[int] = Field(default=None, primary_key=True)
 	user_id: str = Field(index=True, max_length=32)
-	total_value_cny: float = Field(default=0)
+	total_value_cny: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
@@ -416,7 +433,7 @@ class RealtimeHoldingPerformanceSnapshot(SQLModel, table=True):
 	scope: str = Field(default="TOTAL", max_length=16, index=True)
 	symbol: Optional[str] = Field(default=None, index=True)
 	name: Optional[str] = Field(default=None, max_length=120)
-	return_pct: float = Field(default=0)
+	return_pct: Decimal = Field(default=Decimal("0"), sa_column=fixed_numeric_column())
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 
 
@@ -428,7 +445,7 @@ class DashboardCorrection(SQLModel, table=True):
 	granularity: str = Field(index=True, max_length=8)
 	bucket_utc: datetime = Field(nullable=False, index=True)
 	action: str = Field(max_length=16)
-	corrected_value: float | None = Field(default=None)
+	corrected_value: Decimal | None = Field(default=None, sa_column=fixed_numeric_column(nullable=True))
 	reason: str = Field(max_length=500)
 	created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
 	updated_at: datetime = Field(default_factory=utc_now, nullable=False)

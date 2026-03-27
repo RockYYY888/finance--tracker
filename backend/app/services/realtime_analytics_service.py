@@ -4,6 +4,7 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from decimal import Decimal
 from datetime import datetime, timedelta
 from time import monotonic
 from typing import TypeVar
@@ -25,6 +26,14 @@ from app.models import (
 	utc_now,
 )
 from app.runtime_state import LiveHoldingReturnPoint
+from app.fixed_precision import (
+	DECIMAL_ZERO,
+	display_money,
+	display_percent,
+	multiply_decimals,
+	quantize_decimal,
+	to_decimal,
+)
 from app.services import service_context
 from app.services.common_service import (
 	_calculate_return_pct,
@@ -46,9 +55,9 @@ GroupedItem = TypeVar("GroupedItem")
 @dataclass(slots=True)
 class UserRealtimeAnalyticsState:
 	user_id: str
-	total_value_cny: float
+	total_value_cny: Decimal
 	has_assets: bool
-	aggregate_return_pct: float | None
+	aggregate_return_pct: Decimal | None
 	holding_points: tuple[LiveHoldingReturnPoint, ...]
 
 
@@ -161,19 +170,19 @@ async def _prefetch_quotes(
 
 async def _prefetch_fx_rates(
 	currencies: Iterable[str],
-) -> dict[str, float]:
+) -> dict[str, Decimal]:
 	normalized_codes = {
 		_normalize_currency(currency)
 		for currency in currencies
 		if str(currency).strip()
 	}
-	rates: dict[str, float] = {"CNY": 1.0}
+	rates: dict[str, Decimal] = {"CNY": Decimal("1")}
 	requested_codes = sorted(code for code in normalized_codes if code != "CNY")
 	if not requested_codes:
 		return rates
 	semaphore = asyncio.Semaphore(REALTIME_MARKET_DATA_CONCURRENCY)
 
-	async def load_rate(currency_code: str) -> tuple[str, float | None]:
+	async def load_rate(currency_code: str) -> tuple[str, Decimal | None]:
 		async with semaphore:
 			try:
 				rate, _warnings = await service_context.market_data_client.fetch_fx_rate(
@@ -187,7 +196,7 @@ async def _prefetch_fx_rates(
 					exc,
 				)
 				return currency_code, None
-			return currency_code, rate
+			return currency_code, quantize_decimal(rate)
 
 	for currency_code, rate in await asyncio.gather(
 		*(load_rate(currency_code) for currency_code in requested_codes),
@@ -207,38 +216,57 @@ def _build_user_realtime_state(
 	liabilities: list[LiabilityEntry],
 	other_assets: list[OtherAsset],
 	quotes_by_pair: dict[tuple[str, str], Quote],
-	fx_rates: dict[str, float],
+	fx_rates: dict[str, Decimal],
 ) -> UserRealtimeAnalyticsState:
 	has_assets = bool(accounts or holdings or fixed_assets or liabilities or other_assets)
 	cash_total = sum(
-		round(account.balance * fx_rates.get(_normalize_currency(account.currency), 0.0), 2)
-		for account in accounts
+		(
+			display_money(
+				multiply_decimals(
+					account.balance,
+					fx_rates.get(_normalize_currency(account.currency), DECIMAL_ZERO),
+				),
+			)
+			for account in accounts
+		),
+		DECIMAL_ZERO,
 	)
-	fixed_asset_total = sum(round(asset.current_value_cny, 2) for asset in fixed_assets)
-	other_asset_total = sum(round(asset.current_value_cny, 2) for asset in other_assets)
+	fixed_asset_total = sum((display_money(asset.current_value_cny) for asset in fixed_assets), DECIMAL_ZERO)
+	other_asset_total = sum((display_money(asset.current_value_cny) for asset in other_assets), DECIMAL_ZERO)
 	liability_total = sum(
-		round(entry.balance * fx_rates.get(_normalize_currency(entry.currency), 0.0), 2)
-		for entry in liabilities
+		(
+			display_money(
+				multiply_decimals(
+					entry.balance,
+					fx_rates.get(_normalize_currency(entry.currency), DECIMAL_ZERO),
+				),
+			)
+			for entry in liabilities
+		),
+		DECIMAL_ZERO,
 	)
 
-	holdings_total = 0.0
-	total_cost_basis_cny = 0.0
-	total_market_value_cny = 0.0
+	holdings_total = DECIMAL_ZERO
+	total_cost_basis_cny = DECIMAL_ZERO
+	total_market_value_cny = DECIMAL_ZERO
 	holding_points: list[LiveHoldingReturnPoint] = []
 
 	for holding in holdings:
 		quote = quotes_by_pair.get((holding.symbol, holding.market))
-		if quote is None or quote.price <= 0 or holding.quantity <= 0:
+		quote_price = quantize_decimal(quote.price) if quote is not None else DECIMAL_ZERO
+		if quote is None or quote_price <= 0 or holding.quantity <= 0:
 			continue
 
 		currency_code = _normalize_currency(quote.currency or holding.fallback_currency)
-		fx_to_cny = fx_rates.get(currency_code, 0.0)
+		fx_to_cny = fx_rates.get(currency_code, DECIMAL_ZERO)
 		if fx_to_cny <= 0:
 			continue
 
-		market_value_cny = round(holding.quantity * quote.price * fx_to_cny, 2)
+		market_value_cny = display_money(
+			multiply_decimals(multiply_decimals(holding.quantity, quote_price), fx_to_cny),
+		)
 		holdings_total += market_value_cny
-		return_pct = _calculate_return_pct(quote.price, holding.cost_basis_price)
+		return_pct = _calculate_return_pct(quote_price, holding.cost_basis_price)
 		if (
 			return_pct is None
 			or holding.cost_basis_price is None
@@ -246,28 +274,26 @@ def _build_user_realtime_state(
 		):
 			continue
 
-		total_cost_basis_cny += holding.cost_basis_price * holding.quantity * fx_to_cny
+		total_cost_basis_cny += quantize_decimal(holding.cost_basis_price * holding.quantity * fx_to_cny)
 		total_market_value_cny += market_value_cny
 		holding_points.append(
 			LiveHoldingReturnPoint(
 				symbol=holding.symbol,
 				name=holding.name,
-				return_pct=return_pct,
+				return_pct=display_percent(return_pct),
 			),
 		)
 
-	aggregate_return_pct: float | None = None
+	aggregate_return_pct: Decimal | None = None
 	if total_cost_basis_cny > 0:
-		aggregate_return_pct = round(
+		aggregate_return_pct = display_percent(
 			((total_market_value_cny - total_cost_basis_cny) / total_cost_basis_cny) * 100,
-			2,
 		)
 
 	return UserRealtimeAnalyticsState(
 		user_id=user_id,
-		total_value_cny=round(
+		total_value_cny=display_money(
 			cash_total + holdings_total + fixed_asset_total + other_asset_total - liability_total,
-			2,
 		),
 		has_assets=has_assets,
 		aggregate_return_pct=aggregate_return_pct,

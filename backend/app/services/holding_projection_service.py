@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from decimal import Decimal
 from datetime import date, datetime
 
 from sqlalchemy import delete
@@ -18,6 +19,17 @@ from app.models import (
     UserAccount,
 )
 from app.services import service_context
+from app.fixed_precision import (
+	DECIMAL_ZERO,
+	FIXED_EPSILON,
+	decimal_to_float,
+	display_money,
+	display_price,
+	display_quantity,
+	quantize_decimal,
+	quantize_optional_decimal,
+	to_decimal,
+)
 from app.services.common_service import (
 	_capture_model_state,
 	_coerce_utc_datetime,
@@ -31,12 +43,12 @@ from app.services.common_service import (
 from app.services.market_data import QuoteLookupError
 from app.services.portfolio_read_service import _to_holding_transaction_read
 
-HOLDING_QUANTITY_EPSILON = 1e-8
+HOLDING_QUANTITY_EPSILON = FIXED_EPSILON
 
 @dataclass(slots=True)
 class AppliedCashSettlement:
 	cash_account: CashAccount
-	settled_amount: float
+	settled_amount: Decimal
 	settled_currency: str
 	handling: str
 	flow_direction: str
@@ -45,9 +57,9 @@ class AppliedCashSettlement:
 
 @dataclass(slots=True)
 class HoldingLot:
-	quantity: float
+	quantity: Decimal
 	traded_on: date
-	cost_per_unit: float | None
+	cost_per_unit: Decimal | None
 
 @dataclass(slots=True)
 class ProjectedHoldingState:
@@ -79,23 +91,23 @@ def _holding_transaction_sort_key(
 		transaction.id or 0,
 	)
 
-def _projected_holding_quantity(state: ProjectedHoldingState) -> float:
-	total = sum(lot.quantity for lot in state.lots)
+def _projected_holding_quantity(state: ProjectedHoldingState) -> Decimal:
+	total = sum((lot.quantity for lot in state.lots), DECIMAL_ZERO)
 	if total <= HOLDING_QUANTITY_EPSILON:
-		return 0.0
-	return round(total, 8)
+		return DECIMAL_ZERO
+	return quantize_decimal(total)
 
 def _projected_holding_started_on(state: ProjectedHoldingState) -> date | None:
 	if not state.lots:
 		return None
 	return min(lot.traded_on for lot in state.lots)
 
-def _projected_holding_cost_basis(state: ProjectedHoldingState) -> float | None:
+def _projected_holding_cost_basis(state: ProjectedHoldingState) -> Decimal | None:
 	quantity = _projected_holding_quantity(state)
 	if quantity <= HOLDING_QUANTITY_EPSILON:
 		return None
 
-	total_cost = 0.0
+	total_cost = DECIMAL_ZERO
 	for lot in state.lots:
 		if lot.cost_per_unit is None:
 			return None
@@ -103,11 +115,15 @@ def _projected_holding_cost_basis(state: ProjectedHoldingState) -> float | None:
 
 	if total_cost <= 0:
 		return None
-	return round(total_cost / quantity, 8)
+	return quantize_decimal(total_cost / quantity)
 
-def _validate_holding_quantity_for_market(quantity: float, market: str) -> None:
+def _validate_holding_quantity_for_market(quantity: Decimal | float | int, market: str) -> None:
 	normalized_market = market.strip().upper()
-	if normalized_market not in {"FUND", "CRYPTO"} and not float(quantity).is_integer():
+	normalized_quantity = to_decimal(quantity)
+	if (
+		normalized_market not in {"FUND", "CRYPTO"}
+		and normalized_quantity != normalized_quantity.to_integral_value()
+	):
 		raise HTTPException(status_code=422, detail="股票请使用整数数量，基金可使用份额。")
 
 def _normalize_holding_transaction_side(side: str) -> str:
@@ -285,7 +301,7 @@ def _ensure_transaction_baseline_from_holding_snapshot(
 			symbol=holding.symbol,
 			name=holding.name,
 			side="BUY",
-			quantity=max(holding.quantity, 0.0),
+			quantity=max(holding.quantity, DECIMAL_ZERO),
 			price=holding.cost_basis_price if holding.cost_basis_price and holding.cost_basis_price > 0 else None,
 			fallback_currency=_normalize_currency(holding.fallback_currency),
 			market=holding.market,
@@ -317,7 +333,7 @@ def _reset_holding_transactions_from_snapshot(
 		symbol=holding.symbol,
 		name=holding.name,
 		side="BUY",
-		quantity=max(holding.quantity, 0.0),
+		quantity=max(holding.quantity, DECIMAL_ZERO),
 		price=holding.cost_basis_price if holding.cost_basis_price and holding.cost_basis_price > 0 else None,
 		fallback_currency=_normalize_currency(holding.fallback_currency),
 		market=holding.market,
@@ -353,7 +369,7 @@ def _apply_holding_transaction_to_state(
 	transaction: SecurityHoldingTransaction,
 ) -> None:
 	side = _normalize_holding_transaction_side(transaction.side)
-	quantity = max(transaction.quantity, 0.0)
+	quantity = max(transaction.quantity, DECIMAL_ZERO)
 	if quantity <= HOLDING_QUANTITY_EPSILON:
 		return
 
@@ -398,19 +414,20 @@ def _apply_holding_transaction_to_state(
 			continue
 		next_lots.append(
 			HoldingLot(
-				quantity=round(lot.quantity - remaining_to_sell, 8),
+				quantity=quantize_decimal(lot.quantity - remaining_to_sell),
 				traded_on=lot.traded_on,
 				cost_per_unit=lot.cost_per_unit,
 			),
 		)
-		remaining_to_sell = 0.0
+		remaining_to_sell = DECIMAL_ZERO
 
 	if remaining_to_sell > HOLDING_QUANTITY_EPSILON:
 		raise HTTPException(
 			status_code=422,
 			detail=(
 				f"{state.symbol} 可卖数量不足。当前可卖 "
-				f"{_projected_holding_quantity(state):g}，请求卖出 {quantity:g}。"
+				f"{decimal_to_float(display_quantity(_projected_holding_quantity(state))):g}，"
+				f"请求卖出 {decimal_to_float(display_quantity(quantity)):g}。"
 			),
 		)
 
@@ -531,9 +548,13 @@ def _resolve_sell_execution_price_and_currency(
 	symbol: str,
 	market: str,
 	fallback_currency: str,
-	payload_price: float | None,
-) -> tuple[float, str]:
-	resolved_price = payload_price if payload_price and payload_price > 0 else None
+	payload_price: Decimal | float | int | None,
+) -> tuple[Decimal, str]:
+	resolved_price = (
+		quantize_decimal(payload_price)
+		if payload_price is not None and to_decimal(payload_price) > 0
+		else None
+	)
 	resolved_currency = _normalize_currency(fallback_currency)
 
 	if resolved_price is None:
@@ -542,7 +563,7 @@ def _resolve_sell_execution_price_and_currency(
 				service_context.market_data_client.fetch_quote(symbol, market),
 			)
 			if quote.price > 0:
-				resolved_price = quote.price
+				resolved_price = quantize_decimal(quote.price)
 			if quote.currency:
 				resolved_currency = _normalize_currency(quote.currency)
 		except (QuoteLookupError, ValueError):
@@ -555,26 +576,30 @@ def _resolve_sell_execution_price_and_currency(
 			detail="卖出交易缺少可用价格，请稍后重试或手动提供成交价。",
 		)
 
-	return round(resolved_price, 8), resolved_currency
+	return quantize_decimal(resolved_price), resolved_currency
 
 def _build_sell_proceeds_note(
 	*,
 	symbol: str,
 	name: str,
 	market: str,
-	quantity: float,
-	execution_price: float,
+	quantity: Decimal,
+	execution_price: Decimal,
 	source_currency: str,
 	transaction_id: int | None,
-	settled_amount: float | None = None,
+	settled_amount: Decimal | None = None,
 	settled_currency: str | None = None,
 ) -> str:
 	note = (
 		f"来源：卖出 {name}({symbol}) [{market}] "
-		f"数量 {quantity:g}，成交价 {execution_price:g} {_normalize_currency(source_currency)}"
+		f"数量 {decimal_to_float(display_quantity(quantity)):g}，"
+		f"成交价 {decimal_to_float(display_price(execution_price)):g} {_normalize_currency(source_currency)}"
 	)
 	if settled_amount is not None and settled_currency:
-		note += f"，自动入账 {settled_amount:g} {_normalize_currency(settled_currency)}"
+		note += (
+			f"，自动入账 {decimal_to_float(display_money(settled_amount)):g} "
+			f"{_normalize_currency(settled_currency)}"
+		)
 	if transaction_id is not None:
 		note += f"，交易ID #{transaction_id}"
 	return note
@@ -593,14 +618,14 @@ def _prepend_note_entry(existing_note: str | None, entry: str) -> str:
 
 def _convert_cash_amount_between_currencies(
 	*,
-	amount: float,
+	amount: Decimal | float | int,
 	from_currency: str,
 	to_currency: str,
-) -> tuple[float, float]:
+) -> tuple[Decimal, Decimal]:
 	source_currency = _normalize_currency(from_currency)
 	target_currency = _normalize_currency(to_currency)
 	if source_currency == target_currency:
-		return round(amount, 8), 1.0
+		return quantize_decimal(amount), Decimal("1")
 
 	try:
 		rate, _warnings = asyncio.run(
@@ -612,7 +637,8 @@ def _convert_cash_amount_between_currencies(
 			detail=f"无法将现金金额从 {source_currency} 换算为 {target_currency}: {exc}",
 		) from exc
 
-	return round(amount * rate, 8), round(rate, 8)
+	normalized_rate = quantize_decimal(rate)
+	return quantize_decimal(to_decimal(amount) * normalized_rate), normalized_rate
 
 def _list_cash_ledger_entries_for_account(
 	session: Session,
@@ -655,24 +681,24 @@ def _sum_cash_account_ledger_balance(
 	user_id: str,
 	cash_account_id: int,
 	exclude_entry_id: int | None = None,
-) -> float:
+) -> Decimal:
 	entries = _list_cash_ledger_entries_for_account(
 		session,
 		user_id=user_id,
 		cash_account_id=cash_account_id,
 	)
-	total = 0.0
+	total = DECIMAL_ZERO
 	for entry in entries:
 		if exclude_entry_id is not None and entry.id == exclude_entry_id:
 			continue
 		total += entry.amount
-	return round(total, 8)
+	return quantize_decimal(total)
 
 def _sync_cash_account_balance_from_ledger(
 	session: Session,
 	*,
 	account: CashAccount,
-) -> float:
+) -> Decimal:
 	account.balance = _sum_cash_account_ledger_balance(
 		session,
 		user_id=account.user_id,
@@ -689,7 +715,7 @@ def _create_cash_ledger_entry(
 	user_id: str,
 	cash_account_id: int,
 	entry_type: str,
-	amount: float,
+	amount: Decimal | float | int,
 	currency: str,
 	happened_on: date,
 	note: str | None = None,
@@ -700,7 +726,7 @@ def _create_cash_ledger_entry(
 		user_id=user_id,
 		cash_account_id=cash_account_id,
 		entry_type=entry_type,
-		amount=round(amount, 8),
+		amount=quantize_decimal(amount),
 		currency=_normalize_currency(currency),
 		happened_on=happened_on,
 		note=_normalize_optional_text(note),
@@ -715,7 +741,7 @@ def _reconcile_cash_account_initial_ledger_entry(
 	session: Session,
 	*,
 	account: CashAccount,
-	target_balance: float,
+	target_balance: Decimal | float | int,
 ) -> CashLedgerEntry:
 	initial_entry = _get_cash_account_initial_ledger_entry(
 		session,
@@ -729,7 +755,7 @@ def _reconcile_cash_account_initial_ledger_entry(
 		exclude_entry_id=initial_entry.id if initial_entry is not None else None,
 	)
 	started_on = account.started_on or _coerce_utc_datetime(account.created_at).date()
-	required_initial_amount = round(target_balance - non_initial_total, 8)
+	required_initial_amount = quantize_decimal(to_decimal(target_balance) - non_initial_total)
 	if initial_entry is None:
 		initial_entry = CashLedgerEntry(
 			user_id=account.user_id,
@@ -807,19 +833,19 @@ def _create_auto_cash_account_from_sell(
 	symbol: str,
 	name: str,
 	market: str,
-	quantity: float,
-	execution_price: float,
+	quantity: Decimal,
+	execution_price: Decimal,
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,
 ) -> AppliedCashSettlement:
-	proceeds = round(quantity * execution_price, 8)
+	proceeds = quantize_decimal(quantity * execution_price)
 	cash_entry = CashAccount(
 		user_id=current_user.username,
 		name=f"{symbol} 卖出回款",
 		platform="交易回款",
 		currency=_normalize_currency(currency),
-		balance=0,
+		balance=DECIMAL_ZERO,
 		account_type="OTHER",
 		started_on=traded_on,
 		note=_build_sell_proceeds_note(
@@ -837,7 +863,7 @@ def _create_auto_cash_account_from_sell(
 	_reconcile_cash_account_initial_ledger_entry(
 		session,
 		account=cash_entry,
-		target_balance=0,
+		target_balance=DECIMAL_ZERO,
 	)
 	_create_cash_ledger_entry(
 		session,
@@ -887,8 +913,8 @@ def _add_sell_proceeds_to_existing_cash_account(
 	symbol: str,
 	name: str,
 	market: str,
-	quantity: float,
-	execution_price: float,
+	quantity: Decimal,
+	execution_price: Decimal,
 	source_currency: str,
 	traded_on: date,
 	transaction_id: int | None,
@@ -897,7 +923,7 @@ def _add_sell_proceeds_to_existing_cash_account(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="目标现金账户不存在。")
 
-	proceeds = round(quantity * execution_price, 8)
+	proceeds = quantize_decimal(quantity * execution_price)
 	converted_amount, _fx_rate = _convert_cash_amount_between_currencies(
 		amount=proceeds,
 		from_currency=source_currency,
@@ -963,14 +989,14 @@ def _add_sell_proceeds_to_existing_cash_account(
 def _build_cash_settlement_reversal_note(
 	*,
 	transaction_id: int,
-	settled_amount: float,
+	settled_amount: Decimal,
 	settled_currency: str,
 	flow_direction: str,
 ) -> str:
 	action_label = "回款入账" if flow_direction == "INFLOW" else "买入扣款"
 	return (
 		f"冲销：撤回交易ID #{transaction_id} 的{action_label} "
-		f"{settled_amount:g} {_normalize_currency(settled_currency)}"
+		f"{decimal_to_float(display_money(settled_amount)):g} {_normalize_currency(settled_currency)}"
 	)
 
 def _build_buy_funding_note(
@@ -978,19 +1004,23 @@ def _build_buy_funding_note(
 	symbol: str,
 	name: str,
 	market: str,
-	quantity: float,
-	execution_price: float,
+	quantity: Decimal,
+	execution_price: Decimal,
 	source_currency: str,
 	transaction_id: int | None,
-	settled_amount: float | None = None,
+	settled_amount: Decimal | None = None,
 	settled_currency: str | None = None,
 ) -> str:
 	note = (
 		f"用途：买入 {name}({symbol}) [{market}] "
-		f"数量 {quantity:g}，成交价 {execution_price:g} {_normalize_currency(source_currency)}"
+		f"数量 {decimal_to_float(display_quantity(quantity)):g}，"
+		f"成交价 {decimal_to_float(display_price(execution_price)):g} {_normalize_currency(source_currency)}"
 	)
 	if settled_amount is not None and settled_currency:
-		note += f"，自动扣款 {settled_amount:g} {_normalize_currency(settled_currency)}"
+		note += (
+			f"，自动扣款 {decimal_to_float(display_money(settled_amount)):g} "
+			f"{_normalize_currency(settled_currency)}"
+		)
 	if transaction_id is not None:
 		note += f"，交易ID #{transaction_id}"
 	return note
@@ -1027,7 +1057,9 @@ def _record_holding_transaction_cash_settlement(
 			handling=applied_cash_settlement.handling,
 			settled_amount=applied_cash_settlement.settled_amount,
 			settled_currency=applied_cash_settlement.settled_currency,
-			source_amount=round(transaction.quantity * (transaction.price or 0.0), 8),
+			source_amount=quantize_decimal(
+				transaction.quantity * (transaction.price or DECIMAL_ZERO),
+			),
 			source_currency=_normalize_currency(transaction.fallback_currency),
 			flow_direction=applied_cash_settlement.flow_direction,
 			auto_created_cash_account=applied_cash_settlement.auto_created_cash_account,
@@ -1037,7 +1069,9 @@ def _record_holding_transaction_cash_settlement(
 		settlement.handling = applied_cash_settlement.handling
 		settlement.settled_amount = applied_cash_settlement.settled_amount
 		settlement.settled_currency = applied_cash_settlement.settled_currency
-		settlement.source_amount = round(transaction.quantity * (transaction.price or 0.0), 8)
+		settlement.source_amount = quantize_decimal(
+			transaction.quantity * (transaction.price or DECIMAL_ZERO),
+		)
 		settlement.source_currency = _normalize_currency(transaction.fallback_currency)
 		settlement.flow_direction = applied_cash_settlement.flow_direction
 		settlement.auto_created_cash_account = applied_cash_settlement.auto_created_cash_account
@@ -1147,8 +1181,8 @@ def _apply_buy_funding_handling(
 	symbol: str,
 	name: str,
 	market: str,
-	quantity: float,
-	execution_price: float,
+	quantity: Decimal,
+	execution_price: Decimal,
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,
@@ -1167,7 +1201,7 @@ def _apply_buy_funding_handling(
 	if account is None or account.user_id != current_user.username:
 		raise HTTPException(status_code=404, detail="目标现金账户不存在。")
 
-	gross_amount = round(quantity * execution_price, 8)
+	gross_amount = quantize_decimal(quantity * execution_price)
 	settled_amount, _fx_rate = _convert_cash_amount_between_currencies(
 		amount=gross_amount,
 		from_currency=currency,
@@ -1177,8 +1211,9 @@ def _apply_buy_funding_handling(
 		raise HTTPException(
 			status_code=422,
 			detail=(
-				f"{account.name} 余额不足。当前余额 {account.balance:g} {account.currency}，"
-				f"本次扣款 {settled_amount:g} {account.currency}。"
+				f"{account.name} 余额不足。当前余额 "
+				f"{decimal_to_float(display_money(account.balance)):g} {account.currency}，"
+				f"本次扣款 {decimal_to_float(display_money(settled_amount)):g} {account.currency}。"
 			),
 		)
 
@@ -1248,8 +1283,8 @@ def _apply_sell_proceeds_handling(
 	symbol: str,
 	name: str,
 	market: str,
-	quantity: float,
-	execution_price: float,
+	quantity: Decimal,
+	execution_price: Decimal,
 	currency: str,
 	traded_on: date,
 	transaction_id: int | None,

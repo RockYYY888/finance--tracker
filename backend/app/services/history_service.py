@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete, update
 from sqlmodel import Session, select
 
 from app import runtime_state
+from app.fixed_precision import (
+	DECIMAL_ZERO,
+	display_money,
+	display_percent,
+	quantize_decimal,
+	to_decimal,
+)
 from app.models import (
 	CashAccount,
 	CashLedgerEntry,
@@ -110,8 +118,8 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 	)
 	session.commit()
 
-	weighted_sum_by_hour: dict[datetime, float] = {}
-	total_basis_by_hour: dict[datetime, float] = {}
+	weighted_sum_by_hour: dict[datetime, Decimal] = {}
+	total_basis_by_hour: dict[datetime, Decimal] = {}
 	history_warnings: list[str] = []
 	transactions_by_symbol: dict[tuple[str, str], list[SecurityHoldingTransaction]] = {}
 
@@ -144,7 +152,7 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 				for item in reversed(sorted_transactions)
 				if item.price is not None and item.price > 0
 			),
-			0.0,
+			DECIMAL_ZERO,
 		)
 		currency_for_pricing = history_currency
 		if not known_points or not currency_for_pricing:
@@ -161,12 +169,13 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 			currency_for_pricing or sorted_transactions[-1].fallback_currency,
 		)
 		if currency_code == "CNY":
-			fx_to_cny = 1.0
+			fx_to_cny = Decimal("1")
 		else:
 			fx_to_cny, fx_warnings = await service_context.market_data_client.fetch_fx_rate(
 				currency_code,
 				"CNY",
 			)
+			fx_to_cny = quantize_decimal(fx_to_cny)
 			history_warnings.extend(fx_warnings)
 
 		hours = _build_hour_buckets(start_at, end_hour)
@@ -206,7 +215,7 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 			if basis_value_cny <= 0:
 				continue
 
-			price = filled_prices.get(hour, 0.0)
+			price = quantize_decimal(filled_prices.get(hour, DECIMAL_ZERO))
 			return_pct = _calculate_return_pct(price, cost_basis_price)
 			if return_pct is None:
 				continue
@@ -221,8 +230,11 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 					created_at=hour,
 				),
 			)
-			weighted_sum_by_hour[hour] = weighted_sum_by_hour.get(hour, 0.0) + return_pct * basis_value_cny
-			total_basis_by_hour[hour] = total_basis_by_hour.get(hour, 0.0) + basis_value_cny
+			weighted_sum_by_hour[hour] = (
+				weighted_sum_by_hour.get(hour, DECIMAL_ZERO)
+				+ quantize_decimal(return_pct * basis_value_cny)
+			)
+			total_basis_by_hour[hour] = total_basis_by_hour.get(hour, DECIMAL_ZERO) + basis_value_cny
 
 		if symbol_rows:
 			session.add_all(symbol_rows)
@@ -230,10 +242,10 @@ async def _rebuild_user_holding_history_snapshots(session: Session, user_id: str
 
 	total_rows: list[HoldingPerformanceSnapshot] = []
 	for hour in sorted(total_basis_by_hour):
-		total_basis = total_basis_by_hour.get(hour, 0.0)
+		total_basis = total_basis_by_hour.get(hour, DECIMAL_ZERO)
 		if total_basis <= 0:
 			continue
-		total_return_pct = round(weighted_sum_by_hour[hour] / total_basis, 2)
+		total_return_pct = display_percent(weighted_sum_by_hour[hour] / total_basis)
 		total_rows.append(
 			HoldingPerformanceSnapshot(
 				user_id=user_id,
@@ -364,10 +376,10 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 		return
 
 	hours = _build_hour_buckets(start_at, end_hour)
-	hour_totals = {hour: 0.0 for hour in hours}
-	fx_rate_cache: dict[str, float] = {"CNY": 1.0}
+	hour_totals = {hour: DECIMAL_ZERO for hour in hours}
+	fx_rate_cache: dict[str, Decimal] = {"CNY": Decimal("1")}
 
-	async def resolve_fx_rate(currency_code: str) -> float:
+	async def resolve_fx_rate(currency_code: str) -> Decimal:
 		normalized_currency = _normalize_currency(currency_code)
 		if normalized_currency in fx_rate_cache:
 			return fx_rate_cache[normalized_currency]
@@ -377,9 +389,9 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 				"CNY",
 			)
 		except (QuoteLookupError, ValueError):
-			rate = 0.0
-		fx_rate_cache[normalized_currency] = rate
-		return rate
+			rate = DECIMAL_ZERO
+		fx_rate_cache[normalized_currency] = quantize_decimal(rate)
+		return fx_rate_cache[normalized_currency]
 
 	account_currency_by_id: dict[int, str] = {
 		account.id or 0: _normalize_currency(account.currency) for account in cash_accounts
@@ -391,26 +403,25 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 
 	cash_event_dates = sorted(cash_entries_by_date)
 	cash_event_index = 0
-	cash_balances: dict[int, float] = {}
+	cash_balances: dict[int, Decimal] = {}
 	for hour in hours:
 		while (
 			cash_event_index < len(cash_event_dates)
 			and _date_start_utc(cash_event_dates[cash_event_index]) <= hour
 		):
 			for entry in cash_entries_by_date[cash_event_dates[cash_event_index]]:
-				cash_balances[entry.cash_account_id] = round(
-					cash_balances.get(entry.cash_account_id, 0.0) + entry.amount,
-					8,
+				cash_balances[entry.cash_account_id] = quantize_decimal(
+					cash_balances.get(entry.cash_account_id, DECIMAL_ZERO) + entry.amount,
 				)
 			cash_event_index += 1
 
-		cash_total = 0.0
+		cash_total = DECIMAL_ZERO
 		for account_id, balance in cash_balances.items():
 			if abs(balance) <= HOLDING_QUANTITY_EPSILON:
 				continue
 			fx_rate = await resolve_fx_rate(account_currency_by_id.get(account_id, "CNY"))
 			cash_total += balance * fx_rate
-		hour_totals[hour] += round(cash_total, 8)
+		hour_totals[hour] += quantize_decimal(cash_total)
 
 	transactions_by_symbol: dict[tuple[str, str], list[SecurityHoldingTransaction]] = {}
 	for transaction in transactions:
@@ -437,7 +448,7 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 				for item in reversed(sorted_transactions)
 				if item.price is not None and item.price > 0
 			),
-			0.0,
+			DECIMAL_ZERO,
 		)
 		currency_for_pricing = history_currency
 		if not known_points or not currency_for_pricing:
@@ -482,46 +493,46 @@ async def _rebuild_user_portfolio_snapshots(session: Session, user_id: str) -> N
 			quantity = _projected_holding_quantity(projected_state)
 			if quantity <= HOLDING_QUANTITY_EPSILON:
 				continue
-			price = filled_prices.get(hour, 0.0)
+			price = quantize_decimal(filled_prices.get(hour, DECIMAL_ZERO))
 			if price <= 0:
 				continue
-			hour_totals[hour] += round(quantity * price * fx_rate, 8)
+			hour_totals[hour] += quantize_decimal(quantity * price * fx_rate)
 
-	static_value_deltas: dict[datetime, float] = {}
+	static_value_deltas: dict[datetime, Decimal] = {}
 
-	def add_static_value(start_date: date | None, value_cny: float) -> None:
+	def add_static_value(start_date: date | None, value_cny: Decimal) -> None:
 		if start_date is None or value_cny == 0:
 			return
 		bucket = _date_start_utc(start_date)
 		if bucket > end_hour:
 			return
-		static_value_deltas[bucket] = static_value_deltas.get(bucket, 0.0) + value_cny
+		static_value_deltas[bucket] = static_value_deltas.get(bucket, DECIMAL_ZERO) + value_cny
 
 	for asset in fixed_assets:
 		add_static_value(
 			_resolve_asset_start_date(asset.started_on, asset.created_at),
-			round(asset.current_value_cny, 8),
+			quantize_decimal(asset.current_value_cny),
 		)
 	for asset in other_assets:
 		add_static_value(
 			_resolve_asset_start_date(asset.started_on, asset.created_at),
-			round(asset.current_value_cny, 8),
+			quantize_decimal(asset.current_value_cny),
 		)
 	for liability in liabilities:
 		fx_rate = await resolve_fx_rate(liability.currency)
 		add_static_value(
 			_resolve_asset_start_date(liability.started_on, liability.created_at),
-			-round(liability.balance * fx_rate, 8),
+			-quantize_decimal(liability.balance * fx_rate),
 		)
 
-	running_static_total = 0.0
+	running_static_total = DECIMAL_ZERO
 	rows: list[PortfolioSnapshot] = []
 	for hour in hours:
-		running_static_total += static_value_deltas.get(hour, 0.0)
+		running_static_total += static_value_deltas.get(hour, DECIMAL_ZERO)
 		rows.append(
 			PortfolioSnapshot(
 				user_id=user_id,
-				total_value_cny=round(hour_totals.get(hour, 0.0) + running_static_total, 2),
+				total_value_cny=display_money(hour_totals.get(hour, DECIMAL_ZERO) + running_static_total),
 				created_at=hour,
 			),
 		)

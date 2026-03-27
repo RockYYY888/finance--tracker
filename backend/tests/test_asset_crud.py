@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 import threading
 
 import pytest
@@ -771,7 +772,7 @@ def test_summarize_holdings_return_state_returns_weighted_aggregate() -> None:
 		],
 	)
 
-	assert aggregate_return_pct == 4.29
+	assert aggregate_return_pct == Decimal("4.29")
 	assert [point.symbol for point in holding_points] == ["0700.HK", "9988.HK"]
 
 
@@ -2857,8 +2858,8 @@ def test_process_pending_holding_history_sync_uses_transaction_state_per_period(
 	row_by_hour = {
 		main._coerce_utc_datetime(row.created_at): row.return_pct for row in holding_rows
 	}
-	assert row_by_hour[first_bucket] == 0.0
-	assert row_by_hour[second_trade_bucket] == 11.11
+	assert row_by_hour[first_bucket] == Decimal("0")
+	assert row_by_hour[second_trade_bucket] == Decimal("11.11000000")
 
 
 def test_process_pending_holding_history_sync_preserves_prior_hours_for_backfilled_buy(
@@ -2968,8 +2969,8 @@ def test_process_pending_holding_history_sync_preserves_prior_hours_for_backfill
 	row_by_hour = {
 		main._coerce_utc_datetime(row.created_at): row.total_value_cny for row in portfolio_rows
 	}
-	assert row_by_hour[before_second_buy_bucket] == 280_000.0
-	assert row_by_hour[second_buy_bucket] == 308_000.0
+	assert row_by_hour[before_second_buy_bucket] == Decimal("280000.00000000")
+	assert row_by_hour[second_buy_bucket] == Decimal("308000.00000000")
 
 
 def test_process_pending_holding_history_sync_applies_holding_adjustment_on_effective_date(
@@ -3059,8 +3060,8 @@ def test_process_pending_holding_history_sync_applies_holding_adjustment_on_effe
 	row_by_hour = {
 		main._coerce_utc_datetime(row.created_at): row.total_value_cny for row in portfolio_rows
 	}
-	assert row_by_hour[before_adjust_bucket] == 140_000.0
-	assert row_by_hour[adjust_bucket] == 196_000.0
+	assert row_by_hour[before_adjust_bucket] == Decimal("140000.00000000")
+	assert row_by_hour[adjust_bucket] == Decimal("196000.00000000")
 
 	adjustment_transactions = list(
 		session.exec(
